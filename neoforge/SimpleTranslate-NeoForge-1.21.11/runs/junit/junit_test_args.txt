@@ -1,0 +1,12 @@
+--version
+21.11.42
+--assetIndex
+asset-index
+--assetsDir
+C:\Users\bkx\.gradle\caches\minecraft\assets
+--fml.mcVersion
+1.21.11
+--fml.neoForgeVersion
+21.11.42
+--fml.neoFormVersion
+20251209.172050

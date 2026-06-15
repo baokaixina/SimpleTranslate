@@ -1,0 +1,16 @@
+pluginManagement {
+    repositories {
+        gradlePluginPortal()
+        maven { url = "https://maven.minecraftforge.net/" }
+        mavenCentral()
+    }
+}
+
+dependencyResolutionManagement {
+    repositories {
+        maven { url = "https://maven.minecraftforge.net/" }
+        mavenCentral()
+    }
+}
+
+rootProject.name = "SimpleTranslate-Forge-1.19.2"

@@ -1,0 +1,102 @@
+[
+  {
+    "Name": "Fabric 1.19.2",
+    "Jar": "E:\\mc\\简单翻译\\fabric\\SimpleTranslate-Fabric-1.19.2\\build\\libs\\simple_translate-1.19.2-fabric-1.0.1.jar",
+    "Size": 246894
+  },
+  {
+    "Name": "Fabric 1.20.1",
+    "Jar": "E:\\mc\\简单翻译\\fabric\\SimpleTranslate-Fabric-1.20.1\\build\\libs\\simple_translate-1.20.1-fabric-1.0.1.jar",
+    "Size": 292188
+  },
+  {
+    "Name": "Fabric 1.20.4",
+    "Jar": "E:\\mc\\简单翻译\\fabric\\SimpleTranslate-Fabric-1.20.4\\build\\libs\\simple_translate-1.20.4-fabric-1.0.1.jar",
+    "Size": 292528
+  },
+  {
+    "Name": "Fabric 1.20.6",
+    "Jar": "E:\\mc\\简单翻译\\fabric\\SimpleTranslate-Fabric-1.20.6\\build\\libs\\simple_translate-1.20.6-fabric-1.0.1.jar",
+    "Size": 292655
+  },
+  {
+    "Name": "Fabric 1.21.1",
+    "Jar": "E:\\mc\\简单翻译\\fabric\\SimpleTranslate-Fabric-1.21.1\\build\\libs\\simple_translate-1.21.1-fabric-1.0.1.jar",
+    "Size": 296249
+  },
+  {
+    "Name": "Fabric 1.21.4",
+    "Jar": "E:\\mc\\简单翻译\\fabric\\SimpleTranslate-Fabric-1.21.4\\build\\libs\\simple_translate-1.21.4-fabric-1.0.1.jar",
+    "Size": 295878
+  },
+  {
+    "Name": "Fabric 1.21.5",
+    "Jar": "E:\\mc\\简单翻译\\fabric\\SimpleTranslate-Fabric-1.21.5\\build\\libs\\simple_translate-1.21.5-fabric-1.0.1.jar",
+    "Size": 295903
+  },
+  {
+    "Name": "Fabric 1.21.8",
+    "Jar": "E:\\mc\\简单翻译\\fabric\\SimpleTranslate-Fabric-1.21.8\\build\\libs\\simple_translate-1.21.8-fabric-1.0.1.jar",
+    "Size": 293404
+  },
+  {
+    "Name": "Fabric 1.21.10",
+    "Jar": "E:\\mc\\简单翻译\\fabric\\SimpleTranslate-Fabric-1.21.10\\build\\libs\\simple_translate-1.21.10-fabric-1.0.1.jar",
+    "Size": 293589
+  },
+  {
+    "Name": "Fabric 1.21.11",
+    "Jar": "E:\\mc\\简单翻译\\fabric\\SimpleTranslate-Fabric-1.21.11\\build\\libs\\simple_translate-1.21.11-fabric-1.0.1.jar",
+    "Size": 293289
+  },
+  {
+    "Name": "Forge 1.20.1",
+    "Jar": "E:\\mc\\简单翻译\\neoforge\\MDK-Forge-1.20.1-ModDevGradle-main\\build\\libs\\simple_translate-1.20.1-forge-1.0.1.jar",
+    "Size": 290634
+  },
+  {
+    "Name": "Forge 1.19.2",
+    "Jar": "E:\\mc\\简单翻译\\neoforge\\SimpleTranslate-Forge-1.19.2\\build\\libs\\simple_translate-1.19.2-forge-1.0.1.jar",
+    "Size": 244889
+  },
+  {
+    "Name": "NeoForge 1.20.4",
+    "Jar": "E:\\mc\\简单翻译\\neoforge\\SimpleTranslate-NeoForge-1.20.4\\build\\libs\\simple_translate-1.20.4-neoforge-1.0.1.jar",
+    "Size": 285934
+  },
+  {
+    "Name": "NeoForge 1.20.6",
+    "Jar": "E:\\mc\\简单翻译\\neoforge\\SimpleTranslate-NeoForge-1.20.6\\build\\libs\\simple_translate-1.20.6-neoforge-1.0.1.jar",
+    "Size": 286046
+  },
+  {
+    "Name": "NeoForge 1.21.1",
+    "Jar": "E:\\mc\\简单翻译\\neoforge\\SimpleTranslate-NeoForge-1.21.1\\build\\libs\\simple_translate-1.21.1-neoforge-1.0.1.jar",
+    "Size": 290457
+  },
+  {
+    "Name": "NeoForge 1.21.4",
+    "Jar": "E:\\mc\\简单翻译\\neoforge\\SimpleTranslate-NeoForge-1.21.4\\build\\libs\\simple_translate-1.21.4-neoforge-1.0.1.jar",
+    "Size": 290492
+  },
+  {
+    "Name": "NeoForge 1.21.5",
+    "Jar": "E:\\mc\\简单翻译\\neoforge\\SimpleTranslate-NeoForge-1.21.5\\build\\libs\\simple_translate-1.21.5-neoforge-1.0.1.jar",
+    "Size": 290457
+  },
+  {
+    "Name": "NeoForge 1.21.8",
+    "Jar": "E:\\mc\\简单翻译\\neoforge\\SimpleTranslate-NeoForge-1.21.8\\build\\libs\\simple_translate-1.21.8-neoforge-1.0.1.jar",
+    "Size": 286785
+  },
+  {
+    "Name": "NeoForge 1.21.10",
+    "Jar": "E:\\mc\\简单翻译\\neoforge\\SimpleTranslate-NeoForge-1.21.10\\build\\libs\\simple_translate-1.21.10-neoforge-1.0.1.jar",
+    "Size": 287085
+  },
+  {
+    "Name": "NeoForge 1.21.11",
+    "Jar": "E:\\mc\\简单翻译\\neoforge\\SimpleTranslate-NeoForge-1.21.11\\build\\libs\\simple_translate-1.21.11-neoforge-1.0.1.jar",
+    "Size": 286864
+  }
+]

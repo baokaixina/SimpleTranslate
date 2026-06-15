@@ -1,0 +1,34 @@
+[
+  {
+    "Name": "NeoForge 1.20.4",
+    "Result": "PASS: client reached normal initialization; runClient process tree was stopped automatically."
+  },
+  {
+    "Name": "NeoForge 1.20.6",
+    "Result": "PASS: client reached normal initialization; runClient process tree was stopped automatically."
+  },
+  {
+    "Name": "NeoForge 1.21.1",
+    "Result": "PASS: client reached normal initialization; runClient process tree was stopped automatically."
+  },
+  {
+    "Name": "NeoForge 1.21.4",
+    "Result": "PASS: client reached normal initialization; runClient process tree was stopped automatically."
+  },
+  {
+    "Name": "NeoForge 1.21.5",
+    "Result": "PASS: client reached normal initialization; runClient process tree was stopped automatically."
+  },
+  {
+    "Name": "NeoForge 1.21.8",
+    "Result": "PASS: client reached normal initialization; runClient process tree was stopped automatically."
+  },
+  {
+    "Name": "NeoForge 1.21.10",
+    "Result": "PASS: client reached normal initialization; runClient process tree was stopped automatically."
+  },
+  {
+    "Name": "NeoForge 1.21.11",
+    "Result": "PASS: client reached normal initialization; runClient process tree was stopped automatically."
+  }
+]

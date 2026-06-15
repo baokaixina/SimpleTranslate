@@ -1,0 +1,218 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "type": "java",
+      "request": "launch",
+      "name": "SimpleTranslate-NeoForge-1.21.11 - Client",
+      "presentation": {
+        "group": "NG - SimpleTranslate-NeoForge-1.21.11",
+        "order": 0
+      },
+      "projectName": "SimpleTranslate-NeoForge-1.21.11",
+      "mainClass": "net.neoforged.fml.startup.Client",
+      "args": [
+        "--version",
+        "21.11.42",
+        "--assetIndex",
+        "asset-index",
+        "--assetsDir",
+        "C:\\Users\\bkx\\.gradle\\caches\\minecraft\\assets",
+        "--fml.mcVersion",
+        "1.21.11",
+        "--fml.neoForgeVersion",
+        "21.11.42",
+        "--fml.neoFormVersion",
+        "20251209.172050"
+      ],
+      "vmArgs": [
+        "--add-opens",
+        "java.base/java.lang.invoke\u003dALL-UNNAMED",
+        "--add-exports",
+        "jdk.naming.dns/com.sun.jndi.dns\u003djava.naming",
+        "-XX:HeapDumpPath\u003dMojangTricksIntelDriversForPerformance_javaw.exe_minecraft.exe.heapdump",
+        "-Dneoforge.enabledGameTestNamespaces\u003dsimple_translate",
+        "-Dneoforge.enableGameTest\u003dtrue",
+        "-Djava.net.preferIPv6Addresses\u003dsystem"
+      ],
+      "cwd": "${workspaceFolder}\\run",
+      "env": {
+        "MOD_CLASSES": "SimpleTranslate-NeoForge-1.21.11%%D:\\mc\\简单翻译\\neoforge\\SimpleTranslate-NeoForge-1.21.11\\bin\\main"
+      },
+      "shortenCommandLine": "argfile"
+    },
+    {
+      "type": "java",
+      "request": "launch",
+      "name": "SimpleTranslate-NeoForge-1.21.11 - ClientData",
+      "presentation": {
+        "group": "NG - SimpleTranslate-NeoForge-1.21.11",
+        "order": 1
+      },
+      "projectName": "SimpleTranslate-NeoForge-1.21.11",
+      "mainClass": "net.neoforged.fml.startup.DataClient",
+      "args": [
+        "--assetIndex",
+        "asset-index",
+        "--assetsDir",
+        "C:\\Users\\bkx\\.gradle\\caches\\minecraft\\assets",
+        "--fml.mcVersion",
+        "1.21.11",
+        "--fml.neoForgeVersion",
+        "21.11.42",
+        "--fml.neoFormVersion",
+        "20251209.172050"
+      ],
+      "vmArgs": [
+        "--add-opens",
+        "java.base/java.lang.invoke\u003dALL-UNNAMED",
+        "--add-exports",
+        "jdk.naming.dns/com.sun.jndi.dns\u003djava.naming",
+        "-XX:HeapDumpPath\u003dMojangTricksIntelDriversForPerformance_javaw.exe_minecraft.exe.heapdump",
+        "-Dneoforge.enabledGameTestNamespaces\u003dsimple_translate",
+        "-Djava.net.preferIPv6Addresses\u003dsystem"
+      ],
+      "cwd": "${workspaceFolder}\\runs\\clientData",
+      "env": {
+        "MOD_CLASSES": "SimpleTranslate-NeoForge-1.21.11%%D:\\mc\\简单翻译\\neoforge\\SimpleTranslate-NeoForge-1.21.11\\bin\\main"
+      },
+      "shortenCommandLine": "argfile"
+    },
+    {
+      "type": "java",
+      "request": "launch",
+      "name": "SimpleTranslate-NeoForge-1.21.11 - GameTestServer",
+      "presentation": {
+        "group": "NG - SimpleTranslate-NeoForge-1.21.11",
+        "order": 2
+      },
+      "projectName": "SimpleTranslate-NeoForge-1.21.11",
+      "mainClass": "net.neoforged.fml.startup.GameTestServer",
+      "args": [
+        "--fml.mcVersion",
+        "1.21.11",
+        "--fml.neoForgeVersion",
+        "21.11.42",
+        "--fml.neoFormVersion",
+        "20251209.172050"
+      ],
+      "vmArgs": [
+        "--add-opens",
+        "java.base/java.lang.invoke\u003dALL-UNNAMED",
+        "--add-exports",
+        "jdk.naming.dns/com.sun.jndi.dns\u003djava.naming",
+        "-Dneoforge.enabledGameTestNamespaces\u003dsimple_translate",
+        "-Dneoforge.enableGameTest\u003dtrue",
+        "-Djava.net.preferIPv6Addresses\u003dsystem"
+      ],
+      "cwd": "${workspaceFolder}\\runs\\gameTestServer",
+      "env": {
+        "MOD_CLASSES": "SimpleTranslate-NeoForge-1.21.11%%D:\\mc\\简单翻译\\neoforge\\SimpleTranslate-NeoForge-1.21.11\\bin\\main"
+      },
+      "shortenCommandLine": "argfile"
+    },
+    {
+      "type": "java",
+      "request": "launch",
+      "name": "SimpleTranslate-NeoForge-1.21.11 - Junit",
+      "presentation": {
+        "group": "NG - SimpleTranslate-NeoForge-1.21.11",
+        "order": 3
+      },
+      "projectName": "SimpleTranslate-NeoForge-1.21.11",
+      "mainClass": "NONE",
+      "args": [
+        "--version",
+        "21.11.42",
+        "--assetIndex",
+        "asset-index",
+        "--assetsDir",
+        "C:\\Users\\bkx\\.gradle\\caches\\minecraft\\assets",
+        "--fml.mcVersion",
+        "1.21.11",
+        "--fml.neoForgeVersion",
+        "21.11.42",
+        "--fml.neoFormVersion",
+        "20251209.172050"
+      ],
+      "vmArgs": [
+        "--add-opens",
+        "java.base/java.lang.invoke\u003dALL-UNNAMED",
+        "--add-exports",
+        "jdk.naming.dns/com.sun.jndi.dns\u003djava.naming",
+        "-XX:HeapDumpPath\u003dMojangTricksIntelDriversForPerformance_javaw.exe_minecraft.exe.heapdump",
+        "-Dneoforge.enabledGameTestNamespaces\u003dsimple_translate",
+        "-Djava.net.preferIPv6Addresses\u003dsystem"
+      ],
+      "cwd": "${workspaceFolder}\\runs\\junit",
+      "env": {
+        "MOD_CLASSES": "SimpleTranslate-NeoForge-1.21.11%%D:\\mc\\简单翻译\\neoforge\\SimpleTranslate-NeoForge-1.21.11\\bin\\main"
+      },
+      "shortenCommandLine": "argfile"
+    },
+    {
+      "type": "java",
+      "request": "launch",
+      "name": "SimpleTranslate-NeoForge-1.21.11 - Server",
+      "presentation": {
+        "group": "NG - SimpleTranslate-NeoForge-1.21.11",
+        "order": 4
+      },
+      "projectName": "SimpleTranslate-NeoForge-1.21.11",
+      "mainClass": "net.neoforged.fml.startup.Server",
+      "args": [
+        "--fml.mcVersion",
+        "1.21.11",
+        "--fml.neoForgeVersion",
+        "21.11.42",
+        "--fml.neoFormVersion",
+        "20251209.172050"
+      ],
+      "vmArgs": [
+        "--add-opens",
+        "java.base/java.lang.invoke\u003dALL-UNNAMED",
+        "--add-exports",
+        "jdk.naming.dns/com.sun.jndi.dns\u003djava.naming",
+        "-Dneoforge.enabledGameTestNamespaces\u003dsimple_translate",
+        "-Djava.net.preferIPv6Addresses\u003dsystem"
+      ],
+      "cwd": "${workspaceFolder}\\runs\\server",
+      "env": {
+        "MOD_CLASSES": "SimpleTranslate-NeoForge-1.21.11%%D:\\mc\\简单翻译\\neoforge\\SimpleTranslate-NeoForge-1.21.11\\bin\\main"
+      },
+      "shortenCommandLine": "argfile"
+    },
+    {
+      "type": "java",
+      "request": "launch",
+      "name": "SimpleTranslate-NeoForge-1.21.11 - ServerData",
+      "presentation": {
+        "group": "NG - SimpleTranslate-NeoForge-1.21.11",
+        "order": 5
+      },
+      "projectName": "SimpleTranslate-NeoForge-1.21.11",
+      "mainClass": "net.neoforged.fml.startup.DataServer",
+      "args": [
+        "--fml.mcVersion",
+        "1.21.11",
+        "--fml.neoForgeVersion",
+        "21.11.42",
+        "--fml.neoFormVersion",
+        "20251209.172050"
+      ],
+      "vmArgs": [
+        "--add-opens",
+        "java.base/java.lang.invoke\u003dALL-UNNAMED",
+        "--add-exports",
+        "jdk.naming.dns/com.sun.jndi.dns\u003djava.naming",
+        "-Dneoforge.enabledGameTestNamespaces\u003dsimple_translate",
+        "-Djava.net.preferIPv6Addresses\u003dsystem"
+      ],
+      "cwd": "${workspaceFolder}\\runs\\serverData",
+      "env": {
+        "MOD_CLASSES": "SimpleTranslate-NeoForge-1.21.11%%D:\\mc\\简单翻译\\neoforge\\SimpleTranslate-NeoForge-1.21.11\\bin\\main"
+      },
+      "shortenCommandLine": "argfile"
+    }
+  ]
+}

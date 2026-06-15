@@ -1,0 +1,439 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SimpleTranslate 1.20.1 Fabric — 格式保真与修复计划</title>
+  <style>
+    body { font-family: system-ui, sans-serif; margin: 1rem; background: #fafafa; }
+    pre { white-space: pre-wrap; word-wrap: break-word; background: #fff; border: 1px solid #ddd; padding: 1.5rem; border-radius: 6px; line-height: 1.6; }
+  </style>
+</head>
+<body>
+<pre>
+# SimpleTranslate 1.20.1 Fabric — 格式保真与修复计划
+
+**日期**：2026-06-11  
+**基准版本**：`fabric/SimpleTranslate-Fabric-1.20.1`  
+**核心管线**：`DirectSurfaceTranslator` → `DirectFormattedTranslationPipeline`  
+**三种序列化模式**：`fixed`（固定 run 槽位）/ `free`（行内 `<g>` 可重排）/ `line-text`（整行纯文本，保留行级 base 样式）  
+**审计来源**：FIX_PLAN_1.20.1_token-bugs 审计、格式保真差距分析、架构能力评估（对话记录整合）
+
+---
+
+## 1. 目标与成功标准
+
+### 1.1 核心目标
+
+译文与原文在 Minecraft 客户端渲染上**格式色彩一模一样**，包括但不限于：
+
+- 颜色（`ChatFormatting` / RGB）
+- 粗体、斜体、下划线、删除线、混淆（obfuscated）
+- `clickEvent`、`hoverEvent`（含 show_text / show_item 等载荷）
+- 自定义 `font` 资源
+- `insertion`（Shift+点击插入文本）
+- 多 run / 多 `<g>` 分段样式不塌缩为单色
+
+### 1.2 验证门（全部通过方可视为完成）
+
+| 验证门 | 命令 / 方式 | 通过标准 |
+|--------|-------------|----------|
+| logic-checks | `scripts/run-logic-checks.ps1` | 输出 `SimpleTranslate logic checks passed` |
+| translation-fixtures | `scripts/run-translation-fixtures.ps1` | 输出 `SimpleTranslate direct formatted fixtures passed` |
+| 编译构建 | `./gradlew build` | 无编译/测试失败 |
+| 本地冒烟 | 1.20.1 Fabric 客户端进服 | 多色 tooltip、聊天链接、计分板动态数字、告示牌四行样式均正确 |
+| latest.log 审计 | 检查 `logs/latest.log` | 无异常重试风暴；`Translation lane` 退避递增；无大量 `blank-response` / `restore rejected` |
+
+---
+
+## 2. 现状评估（架构能力 vs 实际差距）
+
+### 2.1 架构能力（已具备）
+
+| 能力面 | 实现要点 | 当前表现 |
+|--------|----------|----------|
+| 告示牌 | `SignDirectDocument` + `mode="fixed"` 四行四 run | 固定槽位保真良好；click/hover 行可保留 |
+| Actionbar fixed | `TitleOverlayMixin` + `NumberTemplate` + `fixedLayout=true` | 动态数字已模板化，样式槽稳定 |
+| 系统聊天 free | `chat.system.direct` + `mode="free"` | 多 run 系统消息可分组翻译 |
+| Hover 多行 | `hover.lines.direct` + `translateComponents(fixedLayout=false)` | 换行拆行后 free 模式逐行处理 |
+| 书本查看 | `book.page.direct` + `fixedLayout=true` 分块 | 阅读模式段落样式基本保留 |
+
+### 2.2 六种格式失真点
+
+| # | 失真点 | 根因 | 典型症状 | 优先级 |
+|---|--------|------|----------|--------|
+| 1 | **签名盲区** | `styleSignature()` 仅编码 color/bold/italic/underline/strikethrough/obfuscated，click/hover 只记布尔存在性；**不含 font、insertion、click/hover 内容哈希**；run 合并用 `styleSignature().equals()` 而非 `Style.equals()` | 不同 font 或不同链接被合并；缓存键碰撞导致错误译文复用 | P0 |
+| 2 | **tooltip line-text 多色塌缩** | `shouldTranslateFreeLineAsUnit()` 在 `editableStyleSignatures.size() > 1` 时返回 false，但 line-text 模式仍只保留 `chooseSegmentBaseStyle()` 的单一 base 样式 | 如「青色粗体 Ring + 灰色 Amulet Slot」整行变灰或单色 | P0 |
+| 3 | **translatable 参数样式丢失** | `ComponentSegmentHelper.extractSegments()` 对 `TranslatableContents` 仅用 `getString()` 展平，**不展开 args 为带样式的子 Component** | `Component.translatable("key", styledArg)` 参数色/链接丢失 | P0 |
+| 4 | **聊天正文塌缩** | `ChatTranslationRuntime.applyChatBodyTranslation()` 将 bodyStart 之后所有 segment 的 `translatedText` 设为同一 `translatedBody`，其余清空 | 带前缀（玩家名/时间戳）的聊天正文变单色 | P0 |
+| 5 | **translateComponent 永远 free** | `DirectFormattedTranslationPipeline.translateComponent()` 硬编码 `fixedLayout=false`（L85）；`DirectSurfaceTranslator` 单组件入口未调用 `isFixedLayoutSurface()` | bossbar/entity/text_display/advancement 等本应为 fixed 的 surface 实际走 free 验证与 restore | **P0 独立任务** |
+| 6 | **纯字符串路径** | `translateTextAsync` / `ScoreboardTranslationHelper.translateString` / Bossbar string 路径用 `Component.literal(text)`，**无原始 Style** | 计分板 String 渲染 API 只能拿到纯文本，样式不可恢复 | 部分纳入（见风险） |
+
+---
+
+## 3. 已落实修复（无需再做）
+
+以下五项来自 `FIX_PLAN_1.20.1_token-bugs.md`，**均已合入 1.20.1 Fabric 基准**，本计划不再重复实施：
+
+| # | 修复项 | 改动文件 | 效果 |
+|---|--------|----------|------|
+| 1 | 失败请求指数退避 | `util/TranslationLane.java` | `FailureState` 递增延迟 6s→12s→…→10min 封顶；成功 `finish()` 复位；表超 8192 清空 |
+| 2 | matchesMapping 写缓存 | `translation/TranslationManager.java` | 仅完整映射结果入缓存，消除部分 slot 死循环 |
+| 3 | NumberTemplate 动态数字 | `util/NumberTemplate.java`、`ScoreboardTranslationHelper.java`、`BossHealthOverlayMixin.java`、`DeepSeekTranslationService.java` | `@@N@@` 占位符；计分板/Boss 数字变化不重复请求 |
+| 4 | 空术语过滤 | `translation/TranslationManager.java` | `collectTermHints` 过滤 `isBlank()` 空翻译 |
+| 5 | 匿名 key 竞态 | `translation/TranslationRequestQueue.java` | `AtomicLong ANONYMOUS_SEQUENCE` 独立于锁内 `nextSequence` |
+
+---
+
+## 4. 待修复项（按优先级分阶段）
+
+### P0 — 格式正确性（必须）
+
+#### 1.1 签名盲区：styleSignature 完备化 + run 合并改 Style.equals
+
+**问题**：当前 `styleSignature(Style)` 实现（`DirectFormattedTranslationPipeline` 约 L1812）缺少 font/insertion，click/hover 无内容哈希；`Template.fromComponents` 中相邻 run 合并比较 `previous.styleSignature().equals(...)` 导致语义不同的 Style 被合并。
+
+**改动**：
+- 扩展 `styleSignature`：加入 `font`、`insertion`、click/hover 事件类型 + 载荷稳定哈希（如 action/value/NBT 摘要）
+- run 合并条件改为完整 `Style` 语义比较：`Objects.equals(previous.style(), runStyle)`（**不要**写 `Style.equals(runStyle, previous.style())`，Java 中 `equals` 是实例方法）
+- 签名变更后 **必须 bump 缓存协议**（见 1.1b），不可继续沿用 `direct:v16-lineunit`
+
+**改动文件**：
+- `util/DirectFormattedTranslationPipeline.java`
+- `util/TranslationCacheKeys.java`（若签名算法变更）
+- `util/SignDirectDocument.java`（若独立签名逻辑）
+
+**验收**：logic-checks `checkDirectFormattedRoundTrip`、`checkRejectsChangedStyle`；fixtures `Changed style attributes are rejected`
+
+**回归夹具**：`translation-fixtures.json` #5；新增 font/click/hover 内容不同的双 run 用例
+
+---
+
+#### 1.1b 缓存协议 bump + 旧缓存隔离
+
+**问题**：1.1 签名、1.2 tooltip 序列化模式、run 合并规则均属**缓存结构边界变化**；若仍用 `direct:v16-lineunit`，旧 line-text 文档可能被新 restore 误吃，或新 free 文档与旧缓存键碰撞。
+
+**改动**：
+- `TranslationCacheKeys.PROTOCOL`：`direct:v16-lineunit` → `direct:v17-format`（或等价新名）
+- 旧协议条目在 `get()` / restore 失败时自然剔除；共享缓存 zip 导入校验 `manifest.protocol`
+- 在 §8.1 风险中明确：用户需重新翻译，**不接受**静默混用 v16/v17
+
+**改动文件**：`util/TranslationCacheKeys.java`、`cache/TranslationCache.java`、`network/SharedCacheStore.java`（如有协议校验）
+
+**验收**：logic-checks 缓存读写用新协议；旧 v16 文件不被误 restore
+
+---
+
+#### 1.1c translateComponent 单组件入口 fixedLayout 修复
+
+**问题**：`DirectFormattedTranslationPipeline.translateComponent()` 硬编码 `fixedLayout=false`（L85），`DirectSurfaceTranslator.translateComponent()` 未根据 surface 传入 `isFixedLayoutSurface()` 结果。影响 bossbar、entity、text_display、advancement 等所有单组件调用方。
+
+**改动**（二选一，推荐 A）：
+- **A**：`DirectSurfaceTranslator.translateComponent` 内根据 `isFixedLayoutSurface(directSurface(surface))` 传入 `fixedLayout`；`DirectFormattedTranslationPipeline.translateComponent` 增加 `fixedLayout` 参数或委托到 `translateComponents`
+- **B**：废弃单组件入口，全部调用方改为显式 `translateComponents(..., fixedLayout)`
+
+**改动文件**：`util/DirectSurfaceTranslator.java`、`util/DirectFormattedTranslationPipeline.java`；调用方无需改 surface 字符串
+
+**验收**：entity/text_display/advancement 单组件路径序列化文档 `mode="fixed"`；logic-checks 新增 spot check
+
+**顺序**：紧接 1.1 / 1.1b 之后、**1.2 之前**
+
+---
+
+#### 1.2 tooltip 多色行：整批切 free（禁止 line-text 内嵌 `<g>`）
+
+**问题**：物品 tooltip（`tooltip.item_context.direct`）默认 `line-text`；多色行被压成单一 `base` 样式。计划初稿曾写「line-text 根模式但行内嵌套 `<g>`」——**此方案不成立**：`isSafeLineTextBody` 拒绝 `<g`/`</g`（L1468-1469），`lineTextValidationFailure` 会拒收，`restoreLineText` 也只把 body 当纯文本恢复。
+
+**Template 结构约束**：根 `mode` 是**整份文档级别**的（`Template.fromComponents` 一次构建一个 `<st-doc mode="...">`），**不支持**同一批里某些行 line-text、某些行 free。
+
+**本次实现（写死）**：
+- 在 `Template.fromComponents` 构建 tooltip/hover 批之前，先扫描批内所有行
+- 若**任一行** `editableStyleSignatures.size() > 1`（存在多个可编辑样式）→ **整批**切到 `mode="free"` + 各行 `<g>` 分组
+- **仅当整批每一行都适合 line-text**（无多色可编辑段）时，才走 line-text 快路径
+- **禁止**：在 `mode="line-text"` 文档内嵌套 `<g>`（当前校验/restore 不支持）
+
+**后续优化（本次不做）**：
+- per-line mode（文档根 `mode` 按行分裂，允许混用）——工作量大，留作 v2 格式协议或独立迭代
+
+**改动文件**：
+- `util/DirectFormattedTranslationPipeline.java`（批级 `mode` 决策：先扫全批再定 line-text vs free）
+- `util/TooltipTranslationHelper.java`
+- `translation/DeepSeekTranslationService.java`（prompt 补充多色行走 free）
+
+**改动文件**：
+- `util/DirectFormattedTranslationPipeline.java`
+- `util/TooltipTranslationHelper.java`
+- `translation/DeepSeekTranslationService.java`（prompt 补充）
+- `scripts/run-translation-fixtures.ps1`（`checkRingTooltip` 行为变更：多色行应产生 `<g>` 且 restore 保留青色粗体）
+
+**验收**：fixtures #1 Ring Amulet Slot 青色粗体 + 灰色后缀分段保留；`checkSignedIdPapersTooltipStyles`
+
+**回归夹具**：fixtures #1、#2、#3（Signed ID Papers 多段样式）
+
+---
+
+#### 1.3 translatable 参数样式：ComponentSegmentHelper 展开 args
+
+**问题**：`ComponentSegmentHelper.getDirectText()` / `extractSegments()` 不处理 `TranslatableContents`，args 中嵌套的 `Component` 样式在序列化前已丢失。
+
+**改动**：
+- **禁止**简单用 `getString()` 拼回 translatable（会重复 sibling、丢语言模板边界）
+- **优先**用 Minecraft `Component.visit` / contents traversal：literal、translatable args、siblings 统一转成带 `Style` 的稳定 segment 流
+- 每个 arg 若为 `Component` 则递归展开；literal 模板边界用占位符或不可编辑 run 冻结
+- 确保展开后不重复兄弟文本（现有 `getDirectText` 防重复逻辑需覆盖）
+
+**改动文件**：
+- `util/ComponentSegmentHelper.java`
+- `util/DirectFormattedTranslationPipeline.java`（若序列化入口需调用展开）
+- `scripts/run-logic-checks.ps1`（新增 translatable args 往返用例）
+
+**验收**：新建夹具——`Component.translatable("demo", Component.literal("HP").withStyle(RED))` 序列化/restore 后红色保留
+
+**回归夹具**：logic-checks 新增 `checkTranslatableArgStyles`
+
+---
+
+#### 1.4 聊天正文：请求阶段与还原阶段统一走 direct formatted/free
+
+**问题**：`ChatTranslationRuntime.applyChatBodyTranslation()` 将译文整块写入第一个 body segment（L198-205），后续 segment 清空。更深层问题：**请求阶段**上下文翻译走 `translateTextAsync`（line-text 内部 + 只取 `getString()`），与分段缓存路径（`buildCachedSegmentTranslation`）分叉，按钮翻译与自动翻译行为不一致。
+
+**改动**：
+- **请求阶段**：带多 run 正文的聊天消息，上下文/整句翻译改为 `translateComponents` **free 模式**（正文区 Component 子树），不再仅用 `translateTextAsync` 压平字符串
+- **还原阶段**：用 free restore 得到的 `Component` 替换正文区，或按 run id 逐段写回 `translatedText`；**不要**只在 `applyChatBodyTranslation()` 末端拼字符串
+- 若 free restore 失败，**返回 null 保留原文**
+- `findChatBodyStart` 前缀检测保留，仅正文区参与映射；系统消息路径（`chat.system.direct`）保持 free 不变
+
+**改动文件**：
+- `util/ChatTranslationRuntime.java`
+- `mixin/ChatComponentMixin.java`（若调用链需调整）
+- `scripts/run-logic-checks.ps1`（`checkChatLineTextFallbackAndStyledPrefix` 扩展）
+
+**验收**：多色聊天链接消息正文翻译后链接色/下划线保留；失败时不显示半塌缩译文
+
+**回归夹具**：logic-checks `checkChatLineTextFallbackAndStyledPrefix`；fixtures #7 系统聊天
+
+---
+
+#### 1.5 清理 freeValidationFailure 死代码
+
+**问题**：`freeValidationFailure()` 中 L1204-1206、L1221-1223 对 `base`/`tail` 裸文本和 `DirectStatusTerms.apply` 的返回值**未用于校验**，属于死代码，掩盖潜在验证漏洞。
+
+**改动**：
+- 删除无用赋值，或补全对 gap 文本的校验逻辑（与 fixed 模式对齐）
+- 确保 free 模式「行内不允许 orphan 文本」规则被正确执行或明确文档化为例外
+
+**改动文件**：
+- `util/DirectFormattedTranslationPipeline.java`
+
+**验收**：logic-checks + fixtures 全绿；对故意插入 gap 文本的模型输出应 `restore` 失败
+
+---
+
+### P1 — 遗留 bug
+
+| # | 项 | 问题 | 改动 | 验收 |
+|---|-----|------|------|------|
+| 2.1 | DeepSeek HTTP 200 空内容 | `sendRequestWithProfile` 在 status 200 但 `parseResponse` 为空时仅 `warn` 返回 null，不触发队列重试 | 空结果抛 `RetryableTranslationException` | 模拟空流式响应，队列应退避重试而非立即成功 |
+| 2.2 | SignTranslationHelper 退避对齐 | 告示牌仍用固定 `FAILURE_RETRY_MS=5000` + 独立 `FAILURE_UNTIL_BY_SIGN_KEY`，未享受 `TranslationLane` 指数退避 | 统一走 `TranslationLane.fail(task, baseDelay)`；移除或对齐独立 failure map | 告示牌连续失败时日志显示递增 `nextRetryMs` |
+| 2.3 | putSharedIfAbsent 原子化 | `getLaneMap(lane,false).containsKey` 与 `getLaneMap(lane,true).put` 非原子，并发导入可双写 | `computeIfAbsent` / 单锁原子 check-and-put | 并发 logic-checks 压力用例或单元测试 |
+| 2.4 | CacheRecord 并发可见性 | `CacheRecord` 字段无 `volatile`，异步读可能见半写入 | 写路径同步或字段 volatile / 不可变快照 | 代码审查 + 现有 cache 测试保持通过 |
+| 2.5 | cancelSurfacePrefix 取消运行中任务 | 当前仅取消**排队**任务，in-flight HTTP 请求仍可能写回过期结果 | 为 QueuedTask 增加 generation/token；in-flight 完成时校验；或 Sign epoch 模式推广到其他 surface | 切换告示牌模式后无旧响应写回 |
+
+**主要改动文件**：
+- `translation/DeepSeekTranslationService.java`
+- `util/SignTranslationHelper.java`
+- `cache/TranslationCache.java`
+- `translation/TranslationRequestQueue.java`
+
+---
+
+### P2 — 优化（低风险）
+
+| # | 项 | 说明 |
+|---|-----|------|
+| 3.1 | getLaneMap miss 临时 map | `getLaneMap(lane, false)` 在 lane 不存在时返回**新的** `ConcurrentHashMap`，只读 miss 后的误写会静默丢失；改为 `Collections.emptyMap()` 或不可变空视图 |
+| 3.2 | MAX_CONCURRENT_REQUESTS 注释澄清 | `DeepSeekTranslationService.MAX_CONCURRENT_REQUESTS=2` 仅用于 `DETECTION_EXECUTOR` 探测池，与 `TranslationRequestQueue` 全局并行限制不同；补充注释避免误调 |
+| 3.3 | 渲染路径 Template memo | FIX_PLAN 标注的每帧 Template+SHA-256 优化，性能类，与格式无关，择机实施 |
+
+---
+
+## 5. 各 Surface 格式保真矩阵
+
+| Surface | 当前模式 | 目标模式 | 主要风险 | 纳入本次修复 |
+|---------|----------|----------|----------|--------------|
+| **聊天**（玩家消息） | segment mapping + 正文塌缩 | free（正文区） | 1.4 正文塌缩；链接/多色 run | **是** |
+| **聊天**（系统消息） | free / line-text | free | 已较好；缩写标题/footer | 回归覆盖 |
+| **tooltip**（物品） | line-text | 整批 line-text（全行单色）/ 整批 free `<g>`（任一行多色） | 1.2 多色塌缩；根 mode 文档级 | **是** |
+| **hover**（单行/多行） | free | free | 相对较好 | 回归覆盖 |
+| **书本**（阅读） | fixed | fixed | 分页块稳定 | 否（已达标） |
+| **书本**（编辑） | getString 受 vanilla 限制 | — | 无法获取完整 Component 树 | **否** |
+| **告示牌** | fixed（sign-group） | fixed | 1.1 签名；2.2 退避 | **是** |
+| **HUD title/subtitle** | fixed | fixed | 历史上下文一致性 | 否（已达标） |
+| **actionbar** | fixed + NumberTemplate | fixed | 动态数字已修 | 否 |
+| **bossbar** | fixed + NumberTemplate | fixed | 名称样式；数字已修 | 否 |
+| **计分板**（Component） | fixed + NumberTemplate | fixed | 1.1 签名 | **是** |
+| **计分板**（String 路径） | literal 无样式 | — | 6 纯字符串路径；渲染 API 限制 | **否** |
+| **成就**（toast/widget/plaque） | translateComponent→**free** | fixed（应用 isFixedLayoutSurface） | 1.5 + 单组件入口 fixedLayout | **部分** |
+| **实体名** | translateComponent→free（应为 fixed） | fixed | 1.1、1.5 | **部分** |
+| **TextDisplay** | translateComponent→free | fixed | 多槽样式；1.1 | **部分** |
+
+---
+
+## 6. 实施顺序与依赖
+
+```mermaid
+flowchart TD
+    A[1.1 styleSignature 完备化] --> B[1.1b 缓存协议 bump v17]
+    B --> C[1.1c translateComponent fixedLayout]
+    C --> D[1.2 tooltip 多色整批切 free]
+    A --> E[1.3 translatable visit 展开]
+    C --> F[1.4 聊天请求+还原统一 free]
+    D --> G[集成回归 fixtures]
+    E --> G
+    F --> G
+    H[1.5 清理 freeValidationFailure] --> G
+    G --> I[P1 遗留 bug 批次]
+    I --> J[P2 优化]
+```
+
+**推荐编号顺序**：
+
+1. **1.1** — 签名完备 + run 合并用 `Objects.equals` 比较 Style  
+2. **1.1b** — 协议 bump `direct:v17-format`，旧 v16 隔离  
+3. **1.1c** — `translateComponent` 按 surface 传 fixedLayout（**独立 P0，不可省略**）  
+4. **1.5** — 清理验证死代码  
+5. **1.2** — tooltip/hover：任一行多色 → **整批**切 free；全行单色才 line-text（**禁止**混用、禁止 line-text 内嵌 `<g>`）  
+6. **1.3** — translatable 用 visit 展开 args  
+7. **1.4** — 聊天请求阶段 + 还原阶段统一 free  
+8. **P1 批次** — 稳定性与并发  
+9. **P2** — 择机  
+
+### 各项摘要表
+
+| 项 | 改动文件 | 验收方式 | 回归夹具 |
+|----|----------|----------|----------|
+| 1.1 | `DirectFormattedTranslationPipeline.java`, `TranslationCacheKeys.java` | logic-checks + fixtures #5 | `checkRejectsChangedStyle` |
+| 1.1b | `TranslationCacheKeys.java`, `TranslationCache.java` | 新协议读写；旧 v16 不混用 | `checkEditableTranslationCache` |
+| 1.1c | `DirectSurfaceTranslator.java`, `DirectFormattedTranslationPipeline.java` | entity/advancement 文档 mode=fixed | （待增）`checkTranslateComponentFixedLayout` |
+| 1.2 | `DirectFormattedTranslationPipeline.java`, `TooltipTranslationHelper.java` | fixtures #1 #2 #3 | `checkRingTooltip`, `checkSignedIdPapersTooltipStyles` |
+| 1.3 | `ComponentSegmentHelper.java` | 新增 logic-check | `checkTranslatableArgStyles`（待增） |
+| 1.4 | `ChatTranslationRuntime.java`, `ChatComponentMixin.java` | logic-checks chat 系列 + 人工冒烟 | `checkChatLineTextFallbackAndStyledPrefix`, fixtures #7 |
+| 1.5 | `DirectFormattedTranslationPipeline.java` | 全量 scripts | fixtures #6 `Missing run tags are rejected` |
+| 2.1 | `DeepSeekTranslationService.java` | 单元/模拟空响应 | logic-checks 现有流式解析 |
+| 2.2 | `SignTranslationHelper.java` | latest.log 退避日志 | `checkSignModeEpoch` |
+| 2.3-2.5 | `TranslationCache.java`, `TranslationRequestQueue.java` | logic-checks cache 系列 | `checkEditableTranslationCache`, `checkCacheShareImportExport`（**不含**已撤掉的缓存删除/清空验收） |
+
+---
+
+## 7. 验证计划
+
+### 7.1 serializeForTest / restoreForTest 夹具用例清单
+
+**logic-checks（`run-logic-checks.ps1`）关键用例**：
+
+- `checkDirectFormattedRoundTrip` — fixed/free 往返
+- `checkHudTitleGroupDirect` — HUD 标题组
+- `checkTextDisplayDirectStyleSlots` — TextDisplay 多槽
+- `checkFrozenNumberPlaceholders` — `@@N@@` 冻结占位符
+- `checkChatLineTextFallbackAndStyledPrefix` — 聊天 line-text 与前缀
+- `checkSignModeEpoch` — 告示牌 epoch 隔离
+- `checkSharedSignComponentSerialization` — 告示牌共享缓存序列化
+- （待增）`checkTranslatableArgStyles` — translatable 参数样式
+- （待增）`checkStyleSignatureFontAndEvents` — font/click/hover 哈希
+
+**translation-fixtures（`run-translation-fixtures.ps1` + `translation-fixtures.json`）**：
+
+| ID | 名称 | 验证点 |
+|----|------|--------|
+| 1 | Ring Amulet Slot | 多色 tooltip → 修复后 `<g>` 分组，青色粗体保留 |
+| 2 | Acknowledgement tooltip | 三行三色（绿/紫斜/金） |
+| 3 | Start Game sign | 四行 fixed + 绿色 click 行 |
+| 4 | Scoreboard cache key | 与 tooltip 缓存隔离 |
+| 5 | Changed style rejected | 模型改 style 属性被拒绝 |
+| 6 | Missing run rejected | fixed 缺 run 被拒绝 |
+| 7 | System chat abbreviations | 系统聊天缩写标题/页脚 |
+| 8 | Loaded status consistency | 状态词一致翻译 |
+| 9 | Fullwidth avSYS status | 全角状态检测 |
+
+### 7.2 人工冒烟场景
+
+1. **多色 tooltip**：手持「戒指」类物品，悬停查看；青色粗体物品名 + 灰色属性行不重色  
+2. **聊天链接**：带 `[点击]` 绿色下划线链接的玩家消息，译文链接样式保留  
+3. **计分板动态数字**：`Time: 12:34` → `12:35` 不触发新 API 请求（NumberTemplate），文字样式不变  
+4. **告示牌**：四行菜单牌，可点击行绿色粗体保留；切换自动/手动模式无旧译文闪回  
+5. **成就 toast**：标题/描述颜色与原文一致（修复后 spot check）
+
+### 7.3 构建与日志
+
+```powershell
+cd fabric/SimpleTranslate-Fabric-1.20.1
+.\scripts\run-logic-checks.ps1
+.\scripts\run-translation-fixtures.ps1
+.\gradlew.bat build
+# 客户端冒烟后检查 logs/latest.log
+```
+
+---
+
+## 8. 风险与不做项
+
+### 8.1 已知风险（可接受）
+
+| 风险 | 说明 | 缓解 |
+|------|------|------|
+| 旧缓存因协议 bump 失效 | 1.1b 将 `direct:v16-lineunit` → `direct:v17-format` | **主动接受**；用户重新翻译；禁止 v16/v17 静默混用 |
+| 多色 tooltip 整批切 free | 批内任一行多色则整份文档 `mode` 从 line-text 变 free（非 per-line） | 由 v17 协议隔离；旧 line-text 缓存不会被新 restore 误吃 |
+| LLM 输出不稳定 | free 模式依赖模型遵守 `<g id>` 规则 | 严格 `freeValidationFailure` + 失败保原文 |
+
+### 8.2 明确不做项
+
+| 项 | 原因 |
+|----|------|
+| 书本编辑模式完整格式 | vanilla `BookEditScreen` 仅暴露 `getString()`，无法获取完整 Component 树 |
+| 计分板 String 渲染路径 | `ScoreboardMixin` 部分入口只有 `String`，无 Style 来源；受渲染 API 限制 |
+| tooltip per-line mode 混用 | 根 mode 文档级，不支持同批 line-text + free 混排 | 本次整批决策；per-line mode 留后续迭代 |
+| tooltip 上下文哈希碎片化 | FIX_PLAN 标注：需重新设计 tooltip 上下文键，影响面大 |
+| 按 surface 裁剪巨型 system prompt | 设计级改动，需翻译质量回归 |
+| `estimateMaxTokens` 字符≈token 估算 | 与 thinking 模式交互，需单独验证 |
+| 渲染路径 Template memo 优化 | 性能类，与格式保真无关 |
+
+### 8.3 FIX_PLAN 后续工作（延续记录）
+
+- 物品 tooltip 上下文哈希碎片化重设计  
+- 巨型 prompt 按 surface 裁剪  
+- `estimateMaxTokens` 改进  
+- 渲染路径 Template+SHA-256 memo  
+
+---
+
+## 9. 后续版本移植
+
+1. **前置条件**：1.20.1 Fabric 基准全部验证门通过（§1.2）  
+2. **移植流程**：按 `multiversion-support` / `simpletranslate-version-sync` 技能，以 `fabric/SimpleTranslate-Fabric-1.20.1` 为 canonical 源，逐版本 port 到：
+   - 其他 Fabric 版本（1.19.x–1.21.x）
+   - Forge / NeoForge 多版本工作区  
+3. **移植顺序建议**：先同 major 小版本（1.20.4 → 1.20.6），再 1.21.x NeoForge，最后 1.19.x  
+4. **每版本必做**：`gradlew build`、受影响版本 `run-logic-checks.ps1`、spot check 格式夹具  
+5. **注意**：Mixin 目标类名/方法签名随 MC 版本变化；`Style` / `Component` API 在 1.21+ 可能有差异，sign/tooltip 逻辑需逐版 diff  
+
+---
+
+## 附录：关键源码索引
+
+| 类 | 路径 | 职责 |
+|----|------|------|
+| DirectSurfaceTranslator | `util/DirectSurfaceTranslator.java` | Surface 门面；`isFixedLayoutSurface` |
+| DirectFormattedTranslationPipeline | `util/DirectFormattedTranslationPipeline.java` | fixed/free/line-text 序列化与 restore |
+| ComponentSegmentHelper | `util/ComponentSegmentHelper.java` | 段落提取 |
+| ChatTranslationRuntime | `util/ChatTranslationRuntime.java` | 聊天正文/系统消息翻译 |
+| TooltipTranslationHelper | `util/TooltipTranslationHelper.java` | 物品 tooltip 批量 |
+| TranslationLane | `util/TranslationLane.java` | 指数退避（已修） |
+| TranslationCache | `cache/TranslationCache.java` | 分 lane 缓存 |
+| NumberTemplate | `util/NumberTemplate.java` | 动态数字模板（已修） |
+
+---
+
+*文档版本：plan-v3（2026-06-11 Codex 终审）| plan-v2 + tooltip 整批 mode 决策写死（禁止 per-line 混用作为本次实现）*
+</pre>
+</body>
+</html>

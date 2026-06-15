@@ -1,0 +1,27 @@
+# Build outputs and Gradle state
+**/build/
+**/.gradle/
+**/bin/
+**/out/
+
+# Runtime and launcher-generated state
+**/run/
+**/logs/
+**/crash-reports/
+**/saves/
+**/run/config/
+**/options.txt
+**/usercache.json
+
+# Generated artifacts
+*.log
+*.tmp
+*.bak
+*.zip
+*.jar
+!**/gradle/wrapper/gradle-wrapper.jar
+
+# Local validation and screenshots
+_codex_validation_logs/
+mc-screen*.png
+neoforge-*-installer.jar.log

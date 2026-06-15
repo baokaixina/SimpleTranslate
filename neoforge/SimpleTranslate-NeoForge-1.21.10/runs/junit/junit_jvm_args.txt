@@ -1,0 +1,5 @@
+--add-opens
+java.base/java.lang.invoke=ALL-UNNAMED
+--add-exports
+jdk.naming.dns/com.sun.jndi.dns=java.naming
+-XX:HeapDumpPath=MojangTricksIntelDriversForPerformance_javaw.exe_minecraft.exe.heapdump

@@ -1,0 +1,77 @@
+pluginManagement {
+    repositories {
+        mavenLocal()
+        maven {
+            name = 'SimpleTranslate Local Maven'
+            url = file('.gradle/local-maven')
+            metadataSources {
+                gradleMetadata()
+                mavenPom()
+                artifact()
+            }
+        }
+        ivy {
+            name = 'SimpleTranslate NeoForge Dummy'
+            url = file('.gradle/repositories/ng_dummy_ng')
+            patternLayout {
+                artifact '[organisation]/[module]/[revision]/[artifact]-[revision](-[classifier]).[ext]'
+                ivy '[organisation]/[module]/[revision]/ivy-[revision]-ng2.xml'
+            }
+            metadataSources {
+                ivyDescriptor()
+                artifact()
+            }
+        }
+        gradlePluginPortal()
+        maven { url = 'https://maven.neoforged.net/releases' }
+        mavenCentral()
+    }
+}
+
+plugins {
+    id 'org.gradle.toolchains.foojay-resolver-convention' version '1.0.0'
+}
+
+dependencyResolutionManagement {
+    repositoriesMode.set(RepositoriesMode.PREFER_SETTINGS)
+    repositories {
+        ivy {
+            name = 'SimpleTranslate NeoForge Dummy'
+            url = file('.gradle/repositories/ng_dummy_ng')
+            patternLayout {
+                artifact '[organisation]/[module]/[revision]/[artifact]-[revision](-[classifier]).[ext]'
+                ivy '[organisation]/[module]/[revision]/ivy-[revision]-ng2.xml'
+            }
+            metadataSources {
+                ivyDescriptor()
+                artifact()
+            }
+        }
+        maven { url = file('.gradle/local-maven') }
+        maven {
+            name = 'Mojang Minecraft Libraries'
+            url = 'https://libraries.minecraft.net/'
+            metadataSources {
+                mavenPom()
+                artifact()
+            }
+        }
+        maven {
+            name = 'Mojang Meta'
+            url = 'https://maven.neoforged.net/mojang-meta/'
+            metadataSources {
+                gradleMetadata()
+                mavenPom()
+            }
+        }
+        maven {
+            name = 'NeoForged Releases'
+            url = 'https://maven.neoforged.net/releases/'
+        }
+        mavenCentral()
+    }
+}
+
+rootProject.name = 'SimpleTranslate-NeoForge-1.21.5'
+
+

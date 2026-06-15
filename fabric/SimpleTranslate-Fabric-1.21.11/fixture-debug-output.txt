@@ -1,0 +1,20 @@
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/8.14.2/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build 
+
+> Configure project :
+Fabric Loom: 1.13.6
+
+> Task :compileJava UP-TO-DATE
+
+BUILD SUCCESSFUL in 5s
+1 actionable task: 1 up-to-date
+SLF4J(W): No SLF4J providers were found.
+SLF4J(W): Defaulting to no-operation (NOP) logger implementation
+SLF4J(W): See https://www.slf4j.org/codes.html#noProviders for further details.
+Exception in thread "main" translation fixture checks failed with exit code 1
+At D:\mc\简单翻译\fabric\SimpleTranslate-Fabric-1.21.11\scripts\run-translation-fixtures.ps1:1152 char:9
++         throw "translation fixture checks failed with exit code $LAST ...
++         ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : OperationStopped: (translation fix...ith exit code 1:String) [], RuntimeException
+    + FullyQualifiedErrorId : translation fixture checks failed with exit code 1
+ 

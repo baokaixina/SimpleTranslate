@@ -1,0 +1,95 @@
+{
+  "cookies": [
+    {
+      "name": "yxd_token",
+      "value": "81cc048f5bea47957189dfb3125aa1a6",
+      "domain": "modfile.mcmod.cn",
+      "path": "/admin/23154",
+      "expires": -1,
+      "httpOnly": false,
+      "secure": false,
+      "sameSite": "Lax"
+    },
+    {
+      "name": "yxd_token",
+      "value": "71ec81e8eb0a6377aa38f4dd5b8f8004",
+      "domain": "www.mcmod.cn",
+      "path": "/class",
+      "expires": -1,
+      "httpOnly": false,
+      "secure": false,
+      "sameSite": "Lax"
+    },
+    {
+      "name": "yxd_token",
+      "value": "71ec81e8eb0a6377aa38f4dd5b8f8004",
+      "domain": "www.mcmod.cn",
+      "path": "/login",
+      "expires": -1,
+      "httpOnly": false,
+      "secure": false,
+      "sameSite": "Lax"
+    },
+    {
+      "name": "PHPSESSID",
+      "value": "1b5cqtdt1277d3qojcddp4ahp3",
+      "domain": "modfile.mcmod.cn",
+      "path": "/",
+      "expires": -1,
+      "httpOnly": false,
+      "secure": false,
+      "sameSite": "Lax"
+    },
+    {
+      "name": "MCMOD_SEED",
+      "value": "26bdejc3ff1jsu9nh9r992nff3",
+      "domain": "www.mcmod.cn",
+      "path": "/",
+      "expires": -1,
+      "httpOnly": false,
+      "secure": false,
+      "sameSite": "Lax"
+    },
+    {
+      "name": "_ga",
+      "value": "GA1.1.1453234910.1779556318",
+      "domain": ".mcmod.cn",
+      "path": "/",
+      "expires": 1814117026.996414,
+      "httpOnly": false,
+      "secure": false,
+      "sameSite": "Lax"
+    },
+    {
+      "name": "_uuid",
+      "value": "e99a7194a0f839efbd1ef945b7d041b5-CTaWzY-101d25cf-8ab0-09b5-3ee0-3014e9c87d02",
+      "domain": ".mcmod.cn",
+      "path": "/",
+      "expires": 1782149023.081042,
+      "httpOnly": false,
+      "secure": false,
+      "sameSite": "Lax"
+    },
+    {
+      "name": "MCMOD_SEED",
+      "value": "2rnftpsorah3tktrappm6o8n36",
+      "domain": "center.mcmod.cn",
+      "path": "/",
+      "expires": -1,
+      "httpOnly": false,
+      "secure": false,
+      "sameSite": "Lax"
+    },
+    {
+      "name": "_ga_QTE2TYRNX9",
+      "value": "GS2.1.s1779556317$o1$g1$t1779557044$j25$l0$h0",
+      "domain": ".mcmod.cn",
+      "path": "/",
+      "expires": 1814117044.691446,
+      "httpOnly": false,
+      "secure": false,
+      "sameSite": "Lax"
+    }
+  ],
+  "origins": []
+}

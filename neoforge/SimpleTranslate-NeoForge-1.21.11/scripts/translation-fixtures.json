@@ -1,0 +1,51 @@
+{
+  "version": "direct-formatted-fixtures-v1",
+  "description": "Offline fixtures for the direct formatted translation pipeline. The PowerShell harness builds Minecraft Components directly and checks reversible <st-doc>/<line>/<run> restore behavior.",
+  "fixtures": [
+    {
+      "id": 1,
+      "surface": "tooltip.item_context.direct",
+      "name": "Ring Amulet Slot keeps cyan bold styled token"
+    },
+    {
+      "id": 2,
+      "surface": "tooltip.item_context.direct",
+      "name": "Acknowledgement tooltip keeps title/lore/usage styles"
+    },
+    {
+      "id": 3,
+      "surface": "sign.lines.direct",
+      "name": "Start Game sign keeps four line slots and green click line"
+    },
+    {
+      "id": 4,
+      "surface": "scoreboard.component.direct",
+      "name": "Scoreboard cache key is isolated from tooltip cache"
+    },
+    {
+      "id": 5,
+      "surface": "tooltip.item_context.direct",
+      "name": "Changed style attributes are rejected"
+    },
+    {
+      "id": 6,
+      "surface": "tooltip.item_context.direct",
+      "name": "Missing run tags are rejected"
+    },
+    {
+      "id": 7,
+      "surface": "chat.system.direct",
+      "name": "System chat abbreviations heading and footer are translated"
+    },
+    {
+      "id": 8,
+      "surface": "chat.system.direct",
+      "name": "Repeated Loaded status terms translate consistently"
+    },
+    {
+      "id": 9,
+      "surface": "chat.system.direct",
+      "name": "Fullwidth avSYS status text is detected and normalized"
+    }
+  ]
+}

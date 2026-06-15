@@ -1,0 +1,9 @@
+pluginManagement {
+    repositories {
+        maven { url = "https://maven.neoforged.net/releases" }
+        gradlePluginPortal()
+        mavenCentral()
+    }
+}
+
+rootProject.name = "SimpleTranslate-NeoForge-1.21.11"
