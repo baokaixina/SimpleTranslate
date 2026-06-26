@@ -16,6 +16,8 @@ public final class HoldOriginalState {
     private static final EnumMap<HoldOriginalFeature, Boolean> previous = new EnumMap<>(HoldOriginalFeature.class);
     private static final Set<HoldOriginalFeature> STATE_SWAP_FEATURES = EnumSet.of(
             HoldOriginalFeature.CHAT,
+            HoldOriginalFeature.TOOLTIP_ITEM,
+            HoldOriginalFeature.TOOLTIP_HOVER,
             HoldOriginalFeature.TITLE,
             HoldOriginalFeature.ACTIONBAR);
     private static boolean registered;
@@ -92,6 +94,11 @@ public final class HoldOriginalState {
                     if (gui instanceof HoldOriginalAware aware) {
                         aware.simple_translate$onHoldOriginalChanged(feature, holding);
                     }
+                }
+                case TOOLTIP_ITEM, TOOLTIP_HOVER -> {
+                    // Holding original is a view-only override. Tooltip render/cache
+                    // state must survive so releasing the key can immediately show
+                    // the cached translation again.
                 }
                 default -> {}
             }

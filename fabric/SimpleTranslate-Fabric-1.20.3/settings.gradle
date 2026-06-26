@@ -6,4 +6,4 @@ pluginManagement {
     }
 }
 
-rootProject.name = "SimpleTranslate-Fabric-1.20.4"
+rootProject.name = "SimpleTranslate-Fabric-1.20.3"

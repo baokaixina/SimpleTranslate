@@ -33,8 +33,7 @@ public abstract class ScrollableSettingsScreen extends BaseSimpleTranslateScreen
     // Layout
     protected int contentWidth = 220;
     protected int entrySpacing = 28;
-    private Button saveButton;
-    private Button cancelButton;
+    private Button backButton;
 
     public ScrollableSettingsScreen(Component title, Screen parent) {
         super(title);
@@ -52,10 +51,16 @@ public abstract class ScrollableSettingsScreen extends BaseSimpleTranslateScreen
         // Build content
         buildContent();
 
-        // Calculate content height
-        contentHeight = entries.size() * entrySpacing + 20;
+        // Calculate content height from the real widget sizes. Most settings are
+        // compact rows, while previews may be taller.
+        contentHeight = 20;
+        for (SettingsEntry entry : entries) {
+            contentHeight += entry.widget == null
+                    ? entrySpacing
+                    : Math.max(entrySpacing, entry.widget.getHeight() + 8);
+        }
 
-        // Add bottom buttons
+        // Add bottom return button. Settings apply immediately as controls change.
         addBottomButtons();
 
         // Position all entries
@@ -68,28 +73,19 @@ public abstract class ScrollableSettingsScreen extends BaseSimpleTranslateScreen
     protected abstract void buildContent();
 
     /**
-     * Add save/back buttons at bottom
+     * Add the return button at bottom.
      */
     protected void addBottomButtons() {
         int centerX = this.width / 2;
         int buttonY = this.height - 25;
-        int halfWidth = (contentWidth - 10) / 2;
 
-        this.saveButton = Button.builder(
-                Component.translatable("screen.simple_translate.save"),
-                button -> saveAndClose())
-                .bounds(centerX - contentWidth / 2, buttonY, halfWidth, 20)
-                .build();
-        withTooltip(this.saveButton, "screen.simple_translate.save.tooltip");
-        this.addRenderableWidget(this.saveButton);
-
-        this.cancelButton = Button.builder(
-                Component.translatable("screen.simple_translate.cancel"),
+        this.backButton = Button.builder(
+                Component.translatable("screen.simple_translate.back"),
                 button -> this.onClose())
-                .bounds(centerX + 5, buttonY, halfWidth, 20)
+                .bounds(centerX - contentWidth / 2, buttonY, contentWidth, 20)
                 .build();
-        withTooltip(this.cancelButton, "screen.simple_translate.cancel.tooltip");
-        this.addRenderableWidget(this.cancelButton);
+        withTooltip(this.backButton, "screen.simple_translate.back.tooltip");
+        this.addRenderableWidget(this.backButton);
     }
 
     /**
@@ -130,7 +126,9 @@ public abstract class ScrollableSettingsScreen extends BaseSimpleTranslateScreen
                 entry.widget.active = entry.widget.visible;
             }
             entry.renderY = y;
-            y += entrySpacing;
+            y += entry.widget == null
+                    ? entrySpacing
+                    : Math.max(entrySpacing, entry.widget.getHeight() + 8);
         }
     }
 
@@ -184,31 +182,21 @@ public abstract class ScrollableSettingsScreen extends BaseSimpleTranslateScreen
     }
 
     private void renderWidgetsWithFixedBottomActions(GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
-        boolean saveVisible = this.saveButton != null && this.saveButton.visible;
-        boolean cancelVisible = this.cancelButton != null && this.cancelButton.visible;
-        if (this.saveButton != null) {
-            this.saveButton.visible = false;
-        }
-        if (this.cancelButton != null) {
-            this.cancelButton.visible = false;
+        boolean backVisible = this.backButton != null && this.backButton.visible;
+        if (this.backButton != null) {
+            this.backButton.visible = false;
         }
 
         super.render(graphics, mouseX, mouseY, partialTick);
 
-        if (this.saveButton != null) {
-            this.saveButton.visible = saveVisible;
-        }
-        if (this.cancelButton != null) {
-            this.cancelButton.visible = cancelVisible;
+        if (this.backButton != null) {
+            this.backButton.visible = backVisible;
         }
 
         renderAboveScrollableContentBeforeBottomActions(graphics, mouseX, mouseY, partialTick);
         drawBottomBar(graphics);
-        if (this.saveButton != null && this.saveButton.visible) {
-            this.saveButton.render(graphics, mouseX, mouseY, partialTick);
-        }
-        if (this.cancelButton != null && this.cancelButton.visible) {
-            this.cancelButton.render(graphics, mouseX, mouseY, partialTick);
+        if (this.backButton != null && this.backButton.visible) {
+            this.backButton.render(graphics, mouseX, mouseY, partialTick);
         }
     }
 
@@ -260,17 +248,17 @@ public abstract class ScrollableSettingsScreen extends BaseSimpleTranslateScreen
     @Override
     public boolean mouseClicked(double mouseX, double mouseY, int button) {
         if (isInBottomActionPanel(mouseX, mouseY)) {
-            if (this.saveButton != null && this.saveButton.mouseClicked(mouseX, mouseY, button)) {
-                this.setFocused(this.saveButton);
-                return true;
-            }
-            if (this.cancelButton != null && this.cancelButton.mouseClicked(mouseX, mouseY, button)) {
-                this.setFocused(this.cancelButton);
+            if (this.backButton != null && this.backButton.mouseClicked(mouseX, mouseY, button)) {
+                this.setFocused(this.backButton);
                 return true;
             }
             return true;
         }
-        return super.mouseClicked(mouseX, mouseY, button);
+        boolean handled = super.mouseClicked(mouseX, mouseY, button);
+        if (handled) {
+            applyLiveSettings();
+        }
+        return handled;
     }
 
     protected boolean isInBottomActionPanel(double mouseX, double mouseY) {
@@ -302,15 +290,32 @@ public abstract class ScrollableSettingsScreen extends BaseSimpleTranslateScreen
         return super.mouseDragged(mouseX, mouseY, button, dragX, dragY);
     }
 
+    @Override
+    public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
+        boolean handled = super.keyPressed(keyCode, scanCode, modifiers);
+        if (handled) {
+            applyLiveSettings();
+        }
+        return handled;
+    }
+
+    @Override
+    public boolean charTyped(char codePoint, int modifiers) {
+        boolean handled = super.charTyped(codePoint, modifiers);
+        if (handled) {
+            applyLiveSettings();
+        }
+        return handled;
+    }
+
     /**
-     * Override to save settings
+     * Override to apply settings from current widget/local state.
      */
     protected abstract void saveSettings();
 
-    protected void saveAndClose() {
+    protected void applyLiveSettings() {
         saveSettings();
         ModConfig.save();
-        this.onClose();
     }
 
     @Override

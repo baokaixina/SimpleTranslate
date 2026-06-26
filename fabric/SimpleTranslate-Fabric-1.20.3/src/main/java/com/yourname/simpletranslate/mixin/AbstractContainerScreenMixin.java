@@ -3,8 +3,10 @@ package com.yourname.simpletranslate.mixin;
 import com.yourname.simpletranslate.config.ModConfig;
 import com.yourname.simpletranslate.keybind.HoldOriginalFeature;
 import com.yourname.simpletranslate.keybind.HoldOriginalState;
-import com.yourname.simpletranslate.util.TooltipTranslationController;
-import com.yourname.simpletranslate.util.TooltipTranslationHelper;
+import com.yourname.simpletranslate.keybind.ModKeyBindings;
+import com.yourname.simpletranslate.feature.tooltip.TooltipTranslationController;
+import com.yourname.simpletranslate.feature.tooltip.TooltipTranslationHelper;
+import com.yourname.simpletranslate.feature.tooltip.TooltipTranslationTriggerState;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.screens.inventory.AbstractContainerScreen;
@@ -18,6 +20,7 @@ import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
+import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.List;
@@ -40,6 +43,16 @@ public abstract class AbstractContainerScreenMixin {
 
     @Shadow
     protected abstract List<Component> getTooltipFromContainerItem(ItemStack stack);
+
+    @Inject(method = "keyPressed", at = @At("HEAD"), cancellable = true, require = 0)
+    private void simple_translate$armHoveredTooltipTranslation(int keyCode, int scanCode, int modifiers,
+                                                               CallbackInfoReturnable<Boolean> cir) {
+        if (ModKeyBindings.matchesTranslateHoveredTooltipKey(keyCode, scanCode)
+                && TooltipTranslationTriggerState.hasEnabledShortcutMode()) {
+            TooltipTranslationTriggerState.armShortcutRequest();
+            cir.setReturnValue(true);
+        }
+    }
 
     @Inject(method = "renderTooltip", at = @At("HEAD"), cancellable = true)
     private void simple_translate$renderTranslatedItemTooltip(GuiGraphics graphics, int mouseX, int mouseY,

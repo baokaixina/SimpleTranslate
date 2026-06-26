@@ -1,6 +1,6 @@
 package com.yourname.simpletranslate.mixin;
 
-import com.yourname.simpletranslate.util.ChatButtonClickHandler;
+import com.yourname.simpletranslate.feature.chat.ChatButtonClickHandler;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.components.ChatComponent;
 import net.minecraft.client.gui.screens.ChatScreen;

@@ -4,22 +4,25 @@ import com.mojang.blaze3d.vertex.PoseStack;
 import com.yourname.simpletranslate.config.ModConfig;
 import com.yourname.simpletranslate.keybind.HoldOriginalFeature;
 import com.yourname.simpletranslate.keybind.HoldOriginalState;
-import com.yourname.simpletranslate.util.TooltipTranslationController;
-import com.yourname.simpletranslate.util.TooltipTranslationHelper;
+import com.yourname.simpletranslate.keybind.ModKeyBindings;
+import com.yourname.simpletranslate.feature.tooltip.TooltipTranslationController;
+import com.yourname.simpletranslate.feature.tooltip.TooltipTranslationHelper;
+import com.yourname.simpletranslate.feature.tooltip.TooltipTranslationTriggerState;
 import net.minecraft.client.Minecraft;
 import com.yourname.simpletranslate.compat.GuiGraphics;
-import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.gui.screens.inventory.AbstractContainerScreen;
 import net.minecraft.network.chat.Component;
 import net.minecraft.world.inventory.AbstractContainerMenu;
 import net.minecraft.world.inventory.Slot;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.TooltipFlag;
 import org.spongepowered.asm.mixin.Final;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
+import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.List;
@@ -40,9 +43,20 @@ public abstract class AbstractContainerScreenMixin {
     @Nullable
     protected Slot hoveredSlot;
 
+    @Inject(method = "keyPressed", at = @At("HEAD"), cancellable = true, require = 0)
+    private void simple_translate$armHoveredTooltipTranslation(int keyCode, int scanCode, int modifiers,
+                                                               CallbackInfoReturnable<Boolean> cir) {
+        if (ModKeyBindings.matchesTranslateHoveredTooltipKey(keyCode, scanCode)
+                && TooltipTranslationTriggerState.hasEnabledShortcutMode()) {
+            TooltipTranslationTriggerState.armShortcutRequest();
+            cir.setReturnValue(true);
+        }
+    }
+
     @Inject(method = "renderTooltip", at = @At("HEAD"), cancellable = true)
     private void simple_translate$renderTranslatedItemTooltip(PoseStack poseStack, int mouseX, int mouseY,
                                                               CallbackInfo ci) {
+        GuiGraphics graphics = new GuiGraphics(poseStack);
         if (TooltipTranslationController.isRenderingTranslated()) {
             return;
         }
@@ -57,12 +71,15 @@ public abstract class AbstractContainerScreenMixin {
         }
 
         ItemStack stack = this.hoveredSlot.getItem();
-        List<Component> original = this.getTooltipFromContainerItem(stack);
+        List<Component> original = stack.getTooltipLines(
+                Minecraft.getInstance().player,
+                Minecraft.getInstance().options.advancedItemTooltips
+                        ? TooltipFlag.Default.ADVANCED
+                        : TooltipFlag.Default.NORMAL);
         if (original == null || original.isEmpty()) {
             return;
         }
 
-        GuiGraphics graphics = new GuiGraphics(poseStack);
         if (TooltipTranslationHelper.isMarkedTranslatedTooltip(original)) {
             TooltipTranslationController.beginRenderingTranslated();
             try {
@@ -86,9 +103,4 @@ public abstract class AbstractContainerScreenMixin {
             }
         }
     }
-
-    private List<Component> getTooltipFromContainerItem(ItemStack stack) {
-        return ((Screen) (Object) this).getTooltipFromItem(stack);
-    }
 }
-

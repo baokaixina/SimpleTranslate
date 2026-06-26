@@ -69,6 +69,7 @@ public final class SimpleTranslateJsonFixtureChecks {
             assertTrue(root.getAsJsonArray("fixtures").size() >= 9, "surface fixture inventory");
 
             checkLooseComponentJsonAcceptance();
+            checkCustomFontSanitizer();
             checkHoverEventsFrozenForVisibleRequests();
             checkInvalidResponsesRejected();
             checkJsonTextNodeEditing();
@@ -95,6 +96,33 @@ public final class SimpleTranslateJsonFixtureChecks {
         assertEquals("\u9ad8\u7ea7\u4e3b\u52a8\u6280\u80fd", restored.get(0).getString(), "translated visible text");
         assertEquals("red", restored.get(0).getStyle().getColor().serialize(), "model color change accepted");
 
+        String customFontCjk = "[{\"text\":\"\u6e38\u620f\u9009\u9879\",\"color\":\"green\",\"font\":\"minecraft:dwarvesc\"}]";
+        List<Component> fontSanitized = JsonPassthroughPipeline.deserializeComponents(customFontCjk, originals);
+        assertNotNull(fontSanitized, "custom-font CJK response accepted");
+        String fontSanitizedJson = ComponentJsonCompat.toJson(fontSanitized.get(0));
+        assertTrue(!fontSanitizedJson.contains("minecraft:dwarvesc"),
+                "CJK text does not keep resource-pack custom font");
+
+        String mixedIconAndText = "[{\"text\":\"\uDBCC\uDC00\u6a61\u6728\u6cd5\u6756\uDBCC\uDC00\","
+                + "\"color\":\"white\",\"font\":\"minecraft:language/wynncraft\"}]";
+        List<Component> mixedSanitized = JsonPassthroughPipeline.deserializeComponents(mixedIconAndText, originals);
+        assertNotNull(mixedSanitized, "mixed icon and CJK response accepted");
+        String mixedJson = ComponentJsonCompat.toJson(mixedSanitized.get(0));
+        assertTrue(mixedJson.contains("minecraft:language/wynncraft"),
+                "private-use icon segment keeps resource-pack font");
+        assertTrue(mixedJson.contains("\u6a61\u6728\u6cd5\u6756"),
+                "CJK text segment remains visible after font split");
+
+        String inheritedWynnFont = "[{\"text\":\"\",\"font\":\"minecraft:language/wynncraft\","
+                + "\"extra\":[{\"text\":\"\u6a61\u6728\u6cd5\u6756\",\"color\":\"white\"}]}]";
+        List<Component> inheritedSanitized = JsonPassthroughPipeline.deserializeComponents(inheritedWynnFont, originals);
+        assertNotNull(inheritedSanitized, "inherited custom-font CJK response accepted");
+        String inheritedJson = ComponentJsonCompat.toJson(inheritedSanitized.get(0));
+        assertTrue(inheritedJson.contains("minecraft:default"),
+                "CJK child overrides inherited resource-pack custom font");
+        assertTrue(inheritedJson.contains("\u6a61\u6728\u6cd5\u6756"),
+                "CJK child text remains visible after inherited font override");
+
         String fenced = "```json\n" + changed + "\n```";
         assertNotNull(JsonPassthroughPipeline.deserializeComponents(fenced, originals), "markdown fence stripped");
 
@@ -109,6 +137,20 @@ public final class SimpleTranslateJsonFixtureChecks {
         assertEquals("\u5d4c\u5957\u4e2d\u6587", nested.get(0).getString(), "nested translated text retained");
     }
 
+
+    private static void checkCustomFontSanitizer() {
+        Component source = Component.literal("Oak Wood Wand");
+        List<Component> originals = List.of(source);
+        String inheritedWynnFont = "[{\"text\":\"\",\"font\":\"minecraft:language/wynncraft\","
+                + "\"extra\":[{\"text\":\"\u6a61\u6728\u6cd5\u6756\",\"color\":\"white\"}]}]";
+        List<Component> inheritedSanitized = JsonPassthroughPipeline.deserializeComponents(inheritedWynnFont, originals);
+        assertNotNull(inheritedSanitized, "inherited custom-font CJK response accepted");
+        String inheritedJson = ComponentJsonCompat.toJson(inheritedSanitized.get(0));
+        assertTrue(inheritedJson.contains("minecraft:default"),
+                "CJK child overrides inherited resource-pack custom font");
+        assertTrue(inheritedJson.contains("\u6a61\u6728\u6cd5\u6756"),
+                "CJK child text remains visible after inherited font override");
+    }
     @SuppressWarnings("unchecked")
     private static void checkHoverEventsFrozenForVisibleRequests() throws Exception {
         Component source = Component.literal("Open Menu").withStyle(style -> style.withHoverEvent(

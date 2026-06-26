@@ -3,8 +3,9 @@ package com.yourname.simpletranslate.mixin;
 import com.yourname.simpletranslate.config.ModConfig;
 import com.yourname.simpletranslate.keybind.HoldOriginalFeature;
 import com.yourname.simpletranslate.keybind.HoldOriginalState;
-import com.yourname.simpletranslate.util.AdvancementTranslationHelper;
-import com.yourname.simpletranslate.util.TooltipTranslationHelper;
+import com.yourname.simpletranslate.feature.advancement.AdvancementTranslationHelper;
+import com.yourname.simpletranslate.core.ComponentRenderSafety;
+import com.yourname.simpletranslate.feature.tooltip.TooltipTranslationHelper;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.renderer.MultiBufferSource;
 import net.minecraft.network.chat.Component;
@@ -23,7 +24,7 @@ public class AdvancementPlaquesMixin {
             method = "lambda$drawPlaque$0",
             at = @At(
                     value = "INVOKE",
-                    target = "Lnet/minecraft/client/gui/Font;drawInBatch(Lnet/minecraft/network/chat/Component;FFIZLcom/mojang/math/Matrix4f;Lnet/minecraft/client/renderer/MultiBufferSource;ZII)I",
+                    target = "Lnet/minecraft/client/gui/Font;drawInBatch(Lnet/minecraft/network/chat/Component;FFIZLorg/joml/Matrix4f;Lnet/minecraft/client/renderer/MultiBufferSource;Lnet/minecraft/client/gui/Font$DisplayMode;II)I",
                     remap = true
             ),
             require = 0,
@@ -31,15 +32,19 @@ public class AdvancementPlaquesMixin {
     )
     private int simple_translate$drawTranslatedPlaqueText(Font font, Component text, float x, float y, int color,
                                                           boolean shadow, Matrix4f matrix, MultiBufferSource buffer,
-                                                          boolean seeThrough, int backgroundColor,
+                                                          Font.DisplayMode displayMode, int backgroundColor,
                                                           int packedLight) {
-        Component translated = simple_translate$translatePlaqueText(text);
-        return font.drawInBatch(translated, x, y, color, shadow, matrix, buffer, seeThrough, backgroundColor, packedLight);
+        Component safeText = ComponentRenderSafety.sanitize(text);
+        Component translated = simple_translate$translatePlaqueText(safeText);
+        return font.drawInBatch(ComponentRenderSafety.sanitize(translated, safeText.getString()),
+                x, y, color, shadow, matrix, buffer,
+                displayMode == Font.DisplayMode.SEE_THROUGH, backgroundColor, packedLight);
     }
 
     @Unique
     private Component simple_translate$translatePlaqueText(Component component) {
-        if (component == null || !ModConfig.CONTENT_ADVANCEMENT_ENABLED.get()
+        component = ComponentRenderSafety.sanitize(component);
+        if (!ModConfig.CONTENT_ADVANCEMENT_ENABLED.get()
                 || HoldOriginalState.isHolding(HoldOriginalFeature.ADVANCEMENT)) {
             return component;
         }

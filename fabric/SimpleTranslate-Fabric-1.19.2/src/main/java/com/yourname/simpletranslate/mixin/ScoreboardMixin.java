@@ -3,7 +3,9 @@ package com.yourname.simpletranslate.mixin;
 import com.yourname.simpletranslate.config.ModConfig;
 import com.yourname.simpletranslate.keybind.HoldOriginalFeature;
 import com.yourname.simpletranslate.keybind.HoldOriginalState;
-import com.yourname.simpletranslate.util.ScoreboardTranslationHelper;
+import com.yourname.simpletranslate.core.DrawStringHelper;
+import com.yourname.simpletranslate.core.MixinRuntimeProbe;
+import com.yourname.simpletranslate.feature.hud.ScoreboardTranslationHelper;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.Gui;
 import com.yourname.simpletranslate.compat.GuiGraphics;
@@ -19,9 +21,10 @@ public class ScoreboardMixin {
     @Redirect(
             method = "displayScoreboardSidebar",
             at = @At(value = "INVOKE", target = "Lnet/minecraft/world/scores/Objective;getDisplayName()Lnet/minecraft/network/chat/Component;"),
-            require = 1
+            require = 0
     )
     private Component simple_translate$redirectSidebarTitle(Objective objective) {
+        MixinRuntimeProbe.matched("ScoreboardMixin#objectiveDisplayName");
         Component component = objective.getDisplayName();
         if (!ModConfig.HUD_SCOREBOARD_ENABLED.get()) {
             return component;
@@ -53,7 +56,8 @@ public class ScoreboardMixin {
         if (!ModConfig.HUD_SCOREBOARD_ENABLED.get() || HoldOriginalState.isHolding(HoldOriginalFeature.SCOREBOARD)) {
             return guiGraphics.drawString(font, component, x, y, color, shadow);
         }
-        return guiGraphics.drawString(font, ScoreboardTranslationHelper.translateComponent(component), x, y, color, shadow);
+        return DrawStringHelper.component(guiGraphics, font, component, x, y, color, shadow,
+                ScoreboardTranslationHelper::translateComponent);
     }
 
     @Redirect(
@@ -76,6 +80,7 @@ public class ScoreboardMixin {
         if (!ModConfig.HUD_SCOREBOARD_ENABLED.get() || HoldOriginalState.isHolding(HoldOriginalFeature.SCOREBOARD)) {
             return guiGraphics.drawString(font, text, x, y, color, shadow);
         }
-        return guiGraphics.drawString(font, ScoreboardTranslationHelper.translateString(text), x, y, color, shadow);
+        return DrawStringHelper.text(guiGraphics, font, text, x, y, color, shadow,
+                ScoreboardTranslationHelper::translateString);
     }
 }

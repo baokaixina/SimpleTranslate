@@ -28,6 +28,16 @@ public class GuiGraphics {
         return this.poseStack;
     }
 
+    public int guiWidth() {
+        Minecraft minecraft = Minecraft.getInstance();
+        return minecraft == null ? 0 : minecraft.getWindow().getGuiScaledWidth();
+    }
+
+    public int guiHeight() {
+        Minecraft minecraft = Minecraft.getInstance();
+        return minecraft == null ? 0 : minecraft.getWindow().getGuiScaledHeight();
+    }
+
     public void fill(int minX, int minY, int maxX, int maxY, int color) {
         net.minecraft.client.gui.GuiComponent.fill(this.poseStack, minX, minY, maxX, maxY, color);
     }

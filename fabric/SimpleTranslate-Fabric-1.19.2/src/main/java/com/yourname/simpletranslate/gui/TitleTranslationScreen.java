@@ -74,7 +74,6 @@ public class TitleTranslationScreen extends ScrollableSettingsScreen {
         this.batchIntervalInput.setMaxLength(5);
         this.batchIntervalInput.setFilter(value -> value == null || value.isEmpty() || value.matches("\\d{0,5}"));
         this.batchIntervalInput.setValue(Integer.toString(this.batchIntervalMs));
-        UiCompat.setHint(this.batchIntervalInput, Component.translatable("screen.simple_translate.hud.caption_time_hint"));
         withTooltip(this.batchIntervalInput, "screen.simple_translate.hud.caption_batch_interval.tooltip");
         addEntry(this.batchIntervalInput);
 
@@ -83,7 +82,6 @@ public class TitleTranslationScreen extends ScrollableSettingsScreen {
         this.collectWindowInput.setMaxLength(5);
         this.collectWindowInput.setFilter(value -> value == null || value.isEmpty() || value.matches("\\d{0,5}"));
         this.collectWindowInput.setValue(Integer.toString(this.collectWindowMs));
-        UiCompat.setHint(this.collectWindowInput, Component.translatable("screen.simple_translate.hud.caption_time_hint"));
         withTooltip(this.collectWindowInput, "screen.simple_translate.hud.caption_collect_window.tooltip");
         addEntry(this.collectWindowInput);
     }
@@ -113,3 +111,5 @@ public class TitleTranslationScreen extends ScrollableSettingsScreen {
         }
     }
 }
+
+

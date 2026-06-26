@@ -1,7 +1,6 @@
 package com.yourname.simpletranslate.keybind;
 
 import com.mojang.blaze3d.platform.InputConstants;
-import com.mojang.blaze3d.platform.Window;
 import com.yourname.simpletranslate.config.ModConfig;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.minecraft.client.Minecraft;
@@ -17,6 +16,8 @@ public final class HoldOriginalState {
     private static final EnumMap<HoldOriginalFeature, Boolean> previous = new EnumMap<>(HoldOriginalFeature.class);
     private static final Set<HoldOriginalFeature> STATE_SWAP_FEATURES = EnumSet.of(
             HoldOriginalFeature.CHAT,
+            HoldOriginalFeature.TOOLTIP_ITEM,
+            HoldOriginalFeature.TOOLTIP_HOVER,
             HoldOriginalFeature.TITLE,
             HoldOriginalFeature.ACTIONBAR);
     private static boolean registered;
@@ -48,7 +49,7 @@ public final class HoldOriginalState {
 
     private static void tick(Minecraft mc) {
         boolean enabled = ModConfig.HOLD_ORIGINAL_ENABLED.get();
-        Window window = mc.getWindow();
+        com.mojang.blaze3d.platform.Window window = mc.getWindow();
 
         for (HoldOriginalFeature feature : HoldOriginalFeature.values()) {
             boolean pressed = false;
@@ -93,6 +94,11 @@ public final class HoldOriginalState {
                     if (gui instanceof HoldOriginalAware aware) {
                         aware.simple_translate$onHoldOriginalChanged(feature, holding);
                     }
+                }
+                case TOOLTIP_ITEM, TOOLTIP_HOVER -> {
+                    // Holding original is a view-only override. Tooltip render/cache
+                    // state must survive so releasing the key can immediately show
+                    // the cached translation again.
                 }
                 default -> {}
             }

@@ -46,3 +46,5 @@ public class BookTranslationScreen extends ScrollableSettingsScreen {
         ModConfig.TOOLTIP_BOOK_HOVER_ENABLED.set(hoverEnabled);
     }
 }
+
+

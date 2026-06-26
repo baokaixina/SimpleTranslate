@@ -10,4 +10,3 @@ public final class ScreenBackgrounds {
         graphics.fill(0, 0, width, height, 0xC0101010);
     }
 }
-

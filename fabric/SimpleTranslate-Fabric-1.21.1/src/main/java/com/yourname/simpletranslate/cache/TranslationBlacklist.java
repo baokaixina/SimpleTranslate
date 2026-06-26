@@ -16,15 +16,11 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.regex.Pattern;
 
 /**
  * Stores text snippets that should never be sent through translation.
  */
 public class TranslationBlacklist {
-    private static final Pattern INTERNAL_MARKER_PATTERN =
-            Pattern.compile("@{3}\\s*(?:SEG|TTS|CTX|S|S_END)\\s*[0-9A-Za-z_]*\\s*@{3}", Pattern.CASE_INSENSITIVE);
-
     private final Path blacklistFile;
     private final Map<String, String> entries;
     private final Gson gson;
@@ -204,7 +200,6 @@ public class TranslationBlacklist {
         }
 
         String withoutFormatting = stripMinecraftFormatting(text);
-        withoutFormatting = INTERNAL_MARKER_PATTERN.matcher(withoutFormatting).replaceAll("");
         return withoutFormatting.trim().toLowerCase(Locale.ROOT);
     }
 

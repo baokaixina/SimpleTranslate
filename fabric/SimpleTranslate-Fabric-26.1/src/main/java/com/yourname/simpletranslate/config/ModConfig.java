@@ -38,6 +38,7 @@ public class ModConfig {
     public static final ConfigValue<String> SOURCE_LANGUAGE = stringValue("language.sourceLanguage", "auto");
     public static final ConfigValue<String> TARGET_LANGUAGE = stringValue("language.targetLanguage", "zh_cn");
     public static final BooleanValue GLOBAL_ENABLED = bool("general.globalEnabled", true);
+    public static final BooleanValue CUSTOM_FONT_CJK_FIX_ENABLED = bool("general.customFontCjkFixEnabled", true);
     public static final BooleanValue TOKEN_MONITOR_ENABLED = bool("monitor.tokenEnabled", false);
     public static final BooleanValue CHAT_ENABLED = bool("chat.enabled", true);
     public static final EnumValue<TranslationMode> CHAT_MODE = enumValue("chat.mode", TranslationMode.BUTTON, TranslationMode.class);

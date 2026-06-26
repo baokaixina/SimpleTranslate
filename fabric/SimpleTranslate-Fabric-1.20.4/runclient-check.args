@@ -40,5 +40,5 @@ release
 480
 --quickPlayPath
 C:\Users\bkx\AppData\Local\Temp\codex-mc-test-clients\fabric-1.20.4-Fabric_0.19.3\versions\1.20.4-Fabric_0.19.3\codex-quickplay.json
---quickPlaySingleplayer
-"Midland v1.5.3"
+--quickPlayMultiplayer
+127.0.0.1:25931

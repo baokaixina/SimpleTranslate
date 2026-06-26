@@ -3,7 +3,7 @@ package com.yourname.simpletranslate.gui;
 import com.yourname.simpletranslate.SimpleTranslateMod;
 import com.yourname.simpletranslate.config.ModConfig;
 import com.yourname.simpletranslate.config.ModConfig.ApiFormat;
-import com.yourname.simpletranslate.translation.TranslationService;
+import com.yourname.simpletranslate.api.TranslationDiagnostics;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.components.CycleButton;
@@ -22,6 +22,7 @@ public class ModelSettingsScreen extends ScrollableSettingsScreen {
     private String currentApiKey;
     private String currentModelId;
     private ApiFormat currentApiFormat;
+    private boolean currentThinkingEnabled;
     private int currentMaxParallelRequests;
     private String status = "";
     private boolean checking;
@@ -30,6 +31,7 @@ public class ModelSettingsScreen extends ScrollableSettingsScreen {
     private EditBox apiKeyInput;
     private EditBox modelInput;
     private CycleButton<ApiFormat> formatButton;
+    private CycleButton<Boolean> thinkingButton;
     private CycleButton<Integer> maxParallelButton;
     private Button checkButton;
 
@@ -39,6 +41,7 @@ public class ModelSettingsScreen extends ScrollableSettingsScreen {
         this.currentApiKey = ModConfig.DEEPSEEK_API_KEY.get();
         this.currentModelId = ModConfig.DEEPSEEK_MODEL.get();
         this.currentApiFormat = ModConfig.API_FORMAT.get();
+        this.currentThinkingEnabled = ModConfig.DEEPSEEK_THINKING_ENABLED.get();
         this.currentMaxParallelRequests = ModConfig.API_MAX_PARALLEL_REQUESTS.get();
         this.contentWidth = 300;
     }
@@ -51,7 +54,6 @@ public class ModelSettingsScreen extends ScrollableSettingsScreen {
                 Component.translatable("screen.simple_translate.model_settings.api_url"));
         this.apiUrlInput.setMaxLength(512);
         this.apiUrlInput.setValue(this.currentApiUrl);
-        UiCompat.setHint(this.apiUrlInput, Component.translatable("screen.simple_translate.model_settings.api_url_hint"));
         withTooltip(this.apiUrlInput, "screen.simple_translate.model_settings.api_url.tooltip");
         addEntry(this.apiUrlInput);
 
@@ -59,7 +61,6 @@ public class ModelSettingsScreen extends ScrollableSettingsScreen {
                 Component.translatable("screen.simple_translate.model_settings.api_key"));
         this.apiKeyInput.setMaxLength(512);
         this.apiKeyInput.setValue(this.currentApiKey);
-        UiCompat.setHint(this.apiKeyInput, Component.translatable("screen.simple_translate.model_settings.api_key_hint"));
         withTooltip(this.apiKeyInput, "screen.simple_translate.model_settings.api_key.tooltip");
         this.apiKeyInput.setFormatter((value, pos) -> value.isEmpty()
                 ? FormattedCharSequence.EMPTY
@@ -70,7 +71,6 @@ public class ModelSettingsScreen extends ScrollableSettingsScreen {
                 Component.translatable("screen.simple_translate.model_settings.model_id"));
         this.modelInput.setMaxLength(256);
         this.modelInput.setValue(this.currentModelId);
-        UiCompat.setHint(this.modelInput, Component.translatable("screen.simple_translate.model_settings.model_hint"));
         withTooltip(this.modelInput, "screen.simple_translate.model_settings.model_id.tooltip");
         addEntry(this.modelInput);
 
@@ -88,6 +88,16 @@ public class ModelSettingsScreen extends ScrollableSettingsScreen {
         withTooltip(this.formatButton, "screen.simple_translate.model_settings.api_format.tooltip");
         addEntry(this.formatButton);
 
+        this.thinkingButton = CycleButton.onOffBuilder(this.currentThinkingEnabled)
+                .create(0, 0, this.contentWidth, 20,
+                        Component.translatable("screen.simple_translate.thinking"),
+                        (button, value) -> {
+                            this.currentThinkingEnabled = value;
+                            applyLiveSettings();
+                        });
+        withTooltip(this.thinkingButton, "screen.simple_translate.thinking.tooltip");
+        addEntry(this.thinkingButton);
+
         this.maxParallelButton = CycleButton.<Integer>builder(value -> Component.literal(String.valueOf(value)))
                 .withValues(1, 2, 3, 4, 5, 6, 7, 8)
                 .withInitialValue(this.currentMaxParallelRequests)
@@ -102,7 +112,7 @@ public class ModelSettingsScreen extends ScrollableSettingsScreen {
                 : (this.status.isBlank()
                         ? Component.translatable("screen.simple_translate.model_settings.check")
                         : Component.literal(shortText(this.status)));
-        this.checkButton = UiCompat.buttonBuilder(
+        this.checkButton = ButtonCompat.builder(
                 checkLabel,
                 button -> checkApi())
                 .bounds(0, 0, this.contentWidth, 20)
@@ -131,6 +141,9 @@ public class ModelSettingsScreen extends ScrollableSettingsScreen {
         }
         if (this.maxParallelButton != null) {
             this.maxParallelButton.active = this.maxParallelButton.visible && enabled;
+        }
+        if (this.thinkingButton != null) {
+            this.thinkingButton.active = this.thinkingButton.visible && enabled;
         }
         if (this.checkButton != null) {
             this.checkButton.active = this.checkButton.visible && enabled;
@@ -175,7 +188,7 @@ public class ModelSettingsScreen extends ScrollableSettingsScreen {
                 });
     }
 
-    private void finishCheck(TranslationService.ModelAccessResult result) {
+    private void finishCheck(TranslationDiagnostics.ModelAccess result) {
         captureInputs();
         this.checking = false;
         if (result != null && result.success()) {
@@ -207,18 +220,35 @@ public class ModelSettingsScreen extends ScrollableSettingsScreen {
     @Override
     protected void saveSettings() {
         captureInputs();
-        ModConfig.DEEPSEEK_API_KEY.set(this.currentApiKey);
-        ModConfig.DEEPSEEK_API_URL.set(ModConfig.normalizeApiUrl(this.currentApiUrl));
-        ModConfig.API_FORMAT.set(this.currentApiFormat);
-        ModConfig.API_MAX_PARALLEL_REQUESTS.set(this.currentMaxParallelRequests);
-        ModConfig.DEEPSEEK_MODEL.set(this.currentApiFormat == ApiFormat.DEEPSEEK_CHAT
+        String oldApiKey = ModConfig.DEEPSEEK_API_KEY.get();
+        String oldApiUrl = ModConfig.DEEPSEEK_API_URL.get();
+        ApiFormat oldApiFormat = ModConfig.API_FORMAT.get();
+        int oldMaxParallel = ModConfig.API_MAX_PARALLEL_REQUESTS.get();
+        String oldModel = ModConfig.DEEPSEEK_MODEL.get();
+        boolean oldThinkingEnabled = ModConfig.DEEPSEEK_THINKING_ENABLED.get();
+
+        String normalizedApiUrl = ModConfig.normalizeApiUrl(this.currentApiUrl);
+        String normalizedModel = this.currentApiFormat == ApiFormat.DEEPSEEK_CHAT
                 ? ModConfig.normalizeDeepSeekModelId(this.currentModelId)
                 : (this.currentModelId == null || this.currentModelId.isBlank()
                         ? this.currentApiFormat.getDefaultModel()
-                        : this.currentModelId));
-        ModConfig.DEEPSEEK_THINKING_ENABLED.set(false);
-        SimpleTranslateMod.getLogger().info("Model settings saved format={} model={} maxParallel={}",
-                this.currentApiFormat, ModConfig.DEEPSEEK_MODEL.get(), this.currentMaxParallelRequests);
+                        : this.currentModelId);
+        ModConfig.DEEPSEEK_API_KEY.set(this.currentApiKey);
+        ModConfig.DEEPSEEK_API_URL.set(normalizedApiUrl);
+        ModConfig.API_FORMAT.set(this.currentApiFormat);
+        ModConfig.API_MAX_PARALLEL_REQUESTS.set(this.currentMaxParallelRequests);
+        ModConfig.DEEPSEEK_MODEL.set(normalizedModel);
+        ModConfig.DEEPSEEK_THINKING_ENABLED.set(this.currentThinkingEnabled);
+        boolean changed = !oldApiKey.equals(this.currentApiKey)
+                || !oldApiUrl.equals(normalizedApiUrl)
+                || oldApiFormat != this.currentApiFormat
+                || oldMaxParallel != this.currentMaxParallelRequests
+                || oldThinkingEnabled != this.currentThinkingEnabled
+                || !oldModel.equals(normalizedModel);
+        if (changed) {
+            SimpleTranslateMod.getLogger().info("Model settings changed format={} model={} maxParallel={}",
+                    this.currentApiFormat, ModConfig.DEEPSEEK_MODEL.get(), this.currentMaxParallelRequests);
+        }
     }
 
     private String text(String key, Object... args) {
@@ -236,3 +266,5 @@ public class ModelSettingsScreen extends ScrollableSettingsScreen {
         return compact.length() > 64 ? compact.substring(0, 61) + "..." : compact;
     }
 }
+
+

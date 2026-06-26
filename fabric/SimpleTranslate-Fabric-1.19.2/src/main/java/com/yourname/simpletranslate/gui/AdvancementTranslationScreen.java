@@ -36,3 +36,5 @@ public class AdvancementTranslationScreen extends ScrollableSettingsScreen {
         ModConfig.CONTENT_ADVANCEMENT_ENABLED.set(advancementEnabled);
     }
 }
+
+

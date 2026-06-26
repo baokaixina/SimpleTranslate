@@ -63,7 +63,10 @@ public class HoldOriginalScreen extends BaseSimpleTranslateScreen {
         CycleButton<Boolean> masterToggle = CycleButton.onOffBuilder(masterEnabled)
                 .create(centerX - rowWidth / 2, startY, rowWidth, rowHeight,
                         Component.translatable("screen.simple_translate.hold_original.master_enabled"),
-                        (button, value) -> masterEnabled = value);
+                        (button, value) -> {
+                            masterEnabled = value;
+                            applySettings();
+                        });
         withTooltip(masterToggle, "screen.simple_translate.hold_original.master_enabled.tooltip");
         addScrollableWidget(masterToggle, startY);
 
@@ -110,24 +113,15 @@ public class HoldOriginalScreen extends BaseSimpleTranslateScreen {
 
         contentHeight = startY + 20;
 
-        int halfWidth = (rowWidth - 10) / 2;
         int bottomY = Math.max(2, this.height - 28);
 
-        Button saveButton = Button.builder(
-                Component.translatable("screen.simple_translate.save"),
-                btn -> saveAndClose())
-                .bounds(centerX - rowWidth / 2, bottomY, halfWidth, rowHeight)
-                .build();
-        withTooltip(saveButton, "screen.simple_translate.save.tooltip");
-        this.addRenderableWidget(saveButton);
-
-        Button cancelButton = Button.builder(
-                Component.translatable("screen.simple_translate.cancel"),
+        Button backButton = Button.builder(
+                Component.translatable("screen.simple_translate.back"),
                 btn -> this.onClose())
-                .bounds(centerX + 5, bottomY, halfWidth, rowHeight)
+                .bounds(centerX - rowWidth / 2, bottomY, rowWidth, rowHeight)
                 .build();
-        withTooltip(cancelButton, "screen.simple_translate.cancel.tooltip");
-        this.addRenderableWidget(cancelButton);
+        withTooltip(backButton, "screen.simple_translate.back.tooltip");
+        this.addRenderableWidget(backButton);
 
         repositionWidgets();
     }
@@ -174,6 +168,7 @@ public class HoldOriginalScreen extends BaseSimpleTranslateScreen {
         if (recordingFeature == feature) {
             recordingFeature = null;
         }
+        applySettings();
     }
 
     private void cancelRecording() {
@@ -197,6 +192,7 @@ public class HoldOriginalScreen extends BaseSimpleTranslateScreen {
             btn.setMessage(getKeyDisplayName(keyCode));
         }
         recordingFeature = null;
+        applySettings();
     }
 
     private Component getKeyDisplayName(int keyCode) {
@@ -315,13 +311,12 @@ public class HoldOriginalScreen extends BaseSimpleTranslateScreen {
         }
     }
 
-    private void saveAndClose() {
+    private void applySettings() {
         ModConfig.HOLD_ORIGINAL_ENABLED.set(masterEnabled);
         for (HoldOriginalFeature feature : HoldOriginalFeature.values()) {
             feature.getKeyConfig().set(pendingKeys.get(feature));
         }
         ModConfig.save();
-        this.onClose();
     }
 
     @Override

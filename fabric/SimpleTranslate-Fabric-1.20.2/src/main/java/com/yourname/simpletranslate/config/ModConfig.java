@@ -33,17 +33,32 @@ public class ModConfig {
     public static final ConfigValue<String> DEEPSEEK_API_URL = stringValue("api.apiUrl", DEFAULT_API_URL);
     public static final EnumValue<ApiFormat> API_FORMAT = enumValue("api.format", ApiFormat.DEEPSEEK_CHAT, ApiFormat.class);
     public static final IntValue API_MAX_PARALLEL_REQUESTS = intValue("api.maxParallelRequests", 5, 1, 8);
+    public static final IntValue API_MAX_IN_FLIGHT_BATCHES = intValue("api.maxInFlightBatches", 2, 1, 2);
+    public static final IntValue API_DIRECT_BATCH_DELAY_MS = intValue("api.directBatchDelayMs", 50, 0, 200);
     public static final ConfigValue<String> SOURCE_LANGUAGE = stringValue("language.sourceLanguage", "auto");
     public static final ConfigValue<String> TARGET_LANGUAGE = stringValue("language.targetLanguage", "zh_cn");
     public static final BooleanValue GLOBAL_ENABLED = bool("general.globalEnabled", true);
+    public static final BooleanValue CUSTOM_FONT_CJK_FIX_ENABLED = bool("general.customFontCjkFixEnabled", true);
+    public static final BooleanValue TOKEN_MONITOR_ENABLED = bool("monitor.tokenEnabled", false);
     public static final BooleanValue CHAT_ENABLED = bool("chat.enabled", true);
     public static final EnumValue<TranslationMode> CHAT_MODE = enumValue("chat.mode", TranslationMode.BUTTON, TranslationMode.class);
     public static final BooleanValue CHAT_CONTEXT_ENABLED = bool("chat.contextEnabled", false);
     public static final IntValue CHAT_CONTEXT_MESSAGE_COUNT = intValue("chat.contextMessageCount", 6, 0, 20);
-    public static final IntValue CHAT_CONTEXT_BATCH_INTERVAL_MS = intValue("chat.contextBatchIntervalMs", 1500, 500, 10000);
+    public static final IntValue CHAT_CONTEXT_BATCH_INTERVAL_MS = intValue("chat.contextBatchIntervalMs", 800, 500, 10000);
     public static final IntValue CHAT_CONTEXT_COLLECT_WINDOW_MS = intValue("chat.contextCollectWindowMs", 4500, 500, 30000);
     public static final BooleanValue TOOLTIP_ITEM_ENABLED = bool("tooltip.itemEnabled", false);
+    public static final EnumValue<TooltipTriggerMode> TOOLTIP_ITEM_TRIGGER_MODE =
+            enumValue("tooltip.itemTriggerMode", TooltipTriggerMode.HOVER, TooltipTriggerMode.class);
     public static final BooleanValue TOOLTIP_CHAT_HOVER_ENABLED = bool("tooltip.chatHoverEnabled", false);
+    public static final EnumValue<TooltipTriggerMode> TOOLTIP_CHAT_HOVER_TRIGGER_MODE =
+            enumValue("tooltip.chatHoverTriggerMode", TooltipTriggerMode.HOVER, TooltipTriggerMode.class);
+    public static final BooleanValue TOOLTIP_GLOW_ENABLED = bool("tooltip.glow.enabled", true);
+    public static final IntValue TOOLTIP_GLOW_LINE_WIDTH = intValue("tooltip.glow.lineWidth", 3, 1, 6);
+    public static final IntValue TOOLTIP_GLOW_SPREAD = intValue("tooltip.glow.spread", 6, 0, 12);
+    public static final IntValue TOOLTIP_GLOW_CYCLE_MS = intValue("tooltip.glow.cycleMs", 8000, 2000, 24000);
+    public static final IntValue TOOLTIP_GLOW_OPACITY = intValue("tooltip.glow.opacity", 180, 20, 255);
+    public static final EnumValue<TooltipGlowTheme> TOOLTIP_GLOW_THEME =
+            enumValue("tooltip.glow.theme", TooltipGlowTheme.SOFT, TooltipGlowTheme.class);
     public static final BooleanValue TOOLTIP_BOOK_HOVER_ENABLED = bool("tooltip.bookHoverEnabled", false);
     public static final BooleanValue CONTENT_BOOK_ENABLED = bool("content.bookEnabled", false);
     public static final IntValue CONTENT_BOOK_BOOKMARK_OFFSET_X = intValue("content.bookBookmarkOffsetX", 166, 0, 192);
@@ -63,30 +78,12 @@ public class ModConfig {
     public static final BooleanValue HUD_ACTIONBAR_ENABLED = bool("hud.actionbarEnabled", false);
     public static final BooleanValue HUD_TITLE_CONTEXT_ENABLED = bool("hud.titleContextEnabled", false);
     public static final BooleanValue HUD_HISTORY_CHAT_ENABLED = bool("hud.historyChatEnabled", false);
-    public static final IntValue HUD_CAPTION_BATCH_INTERVAL_MS = intValue("hud.captionBatchIntervalMs", 1500, 500, 10000);
+    public static final IntValue HUD_CAPTION_BATCH_INTERVAL_MS = intValue("hud.captionBatchIntervalMs", 800, 500, 10000);
     public static final IntValue HUD_CAPTION_COLLECT_WINDOW_MS = intValue("hud.captionCollectWindowMs", 4500, 500, 30000);
-    public static final ConfigValue<String> TRANSLATION_STYLE_PROMPT = stringValue("hud.stylePrompt", "");
-    @Deprecated
-    public static final ConfigValue<String> HUD_STYLE_PROMPT = TRANSLATION_STYLE_PROMPT;
     public static final IntValue TERM_AUTO_DETECT_COUNT = intValue("terms.autoDetectCount", 3, 1, 100);
     public static final BooleanValue TERM_AUTO_DETECT_ENABLED = bool("terms.autoDetectEnabled", true);
     public static final BooleanValue CACHE_ENABLED = bool("cache.enabled", true);
     public static final BooleanValue CACHE_SERVER_SHARE_ENABLED = bool("cache.serverShareEnabled", false);
-
-    public static final BooleanValue OCR_ENABLED = bool("ocr.enabled", false);
-    public static final BooleanValue OCR_USE_TRANSLATION_MODEL = bool("ocr.useTranslationModel", true);
-    public static final EnumValue<ApiFormat> OCR_API_FORMAT =
-            enumValue("ocr.apiFormat", ApiFormat.OPENAI_RESPONSES, ApiFormat.class);
-    public static final ConfigValue<String> OCR_API_URL =
-            stringValue("ocr.apiUrl", "https://api.openai.com/v1/responses");
-    public static final ConfigValue<String> OCR_API_KEY = stringValue("ocr.apiKey", "");
-    public static final ConfigValue<String> OCR_MODEL =
-            stringValue("ocr.model", ApiFormat.OPENAI_RESPONSES.getDefaultModel());
-    public static final IntValue OCR_REGION_WIDTH = intValue("ocr.regionWidth", 420, 80, 1600);
-    public static final IntValue OCR_REGION_HEIGHT = intValue("ocr.regionHeight", 180, 40, 900);
-    public static final IntValue OCR_REGION_X = intValue("ocr.regionX", -1, -1, 16000);
-    public static final IntValue OCR_REGION_Y = intValue("ocr.regionY", -1, -1, 9000);
-    public static final BooleanValue OCR_HISTORY_ENABLED = bool("ocr.historyEnabled", false);
 
     public static final BooleanValue HOLD_ORIGINAL_ENABLED = bool("holdOriginal.enabled", false);
     public static final IntValue HOLD_ORIGINAL_KEY_CHAT = intValue("holdOriginal.key.chat", -1, -1, 2000);
@@ -243,6 +240,10 @@ public class ModConfig {
     private static void migrateLegacyKeys(JsonObject root) {
         copyLegacyKey(root, "content.bookButtonOffsetX", CONTENT_BOOK_BOOKMARK_OFFSET_X.getKey());
         copyLegacyKey(root, "content.bookButtonOffsetY", CONTENT_BOOK_BOOKMARK_OFFSET_Y.getKey());
+        root.remove("chat.jsonPassthrough");
+        root.remove("tooltip.itemJsonPassthrough");
+        root.remove("tooltip.chatHoverJsonPassthrough");
+        root.remove("hud.stylePrompt");
         removeObsoleteHudHistoryWindowKeys(root);
         migrateLegacyLanguageDefaults(root);
     }
@@ -412,6 +413,18 @@ public class ModConfig {
     public enum TranslationMode {
         AUTO,
         BUTTON
+    }
+
+    public enum TooltipTriggerMode {
+        HOVER,
+        SHORTCUT
+    }
+
+    public enum TooltipGlowTheme {
+        SOFT,
+        OCEAN,
+        AURORA,
+        SUNSET
     }
 
     public enum SignContextMode {

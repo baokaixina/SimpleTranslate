@@ -1,6 +1,7 @@
 package com.yourname.simpletranslate.gui;
 
 import com.mojang.blaze3d.vertex.PoseStack;
+
 import com.yourname.simpletranslate.SimpleTranslateMod;
 import com.yourname.simpletranslate.cache.TermDictionary;
 import net.minecraft.client.Minecraft;
@@ -57,8 +58,8 @@ public class TermManagerScreen extends BaseSimpleTranslateScreen {
                 inputY,
                 inputWidth,
                 20,
-                Component.literal("术语"));
-        UiCompat.setHint(this.newTermInput, Component.literal("输入原文术语..."));
+                Component.translatable("screen.simple_translate.terms.term"));
+        this.newTermInput.setHint(Component.translatable("screen.simple_translate.terms.term.hint"));
         withTooltip(this.newTermInput, "screen.simple_translate.terms.term.tooltip");
         this.addRenderableWidget(this.newTermInput);
 
@@ -68,12 +69,12 @@ public class TermManagerScreen extends BaseSimpleTranslateScreen {
                 inputY,
                 inputWidth,
                 20,
-                Component.literal("译文"));
-        UiCompat.setHint(this.newTranslationInput, Component.literal("输入术语译文..."));
+                Component.translatable("screen.simple_translate.cache.edit.translation"));
+        this.newTranslationInput.setHint(Component.translatable("screen.simple_translate.terms.translation.hint"));
         withTooltip(this.newTranslationInput, "screen.simple_translate.terms.translation.tooltip");
         this.addRenderableWidget(this.newTranslationInput);
 
-        this.addButton = UiCompat.buttonBuilder(
+        this.addButton = Button.builder(
                 Component.literal("+"),
                 button -> addTerm())
                 .bounds(centerX + 75, inputY, 20, 20)
@@ -81,8 +82,8 @@ public class TermManagerScreen extends BaseSimpleTranslateScreen {
         withTooltip(this.addButton, "screen.simple_translate.terms.add.tooltip");
         this.addRenderableWidget(this.addButton);
 
-        this.deleteButton = UiCompat.buttonBuilder(
-                Component.literal("删"),
+        this.deleteButton = Button.builder(
+                Component.translatable("screen.simple_translate.terms.delete_short"),
                 button -> deleteSelectedTerm())
                 .bounds(centerX + 100, inputY, 20, 20)
                 .build();
@@ -93,7 +94,7 @@ public class TermManagerScreen extends BaseSimpleTranslateScreen {
         int buttonY = this.height - 45;
         int buttonWidth = 80;
 
-        this.exportButton = UiCompat.buttonBuilder(
+        this.exportButton = Button.builder(
                 Component.translatable("screen.simple_translate.export"),
                 button -> exportTerms())
                 .bounds(centerX - buttonWidth * 2 - 10, buttonY, buttonWidth, 20)
@@ -101,7 +102,7 @@ public class TermManagerScreen extends BaseSimpleTranslateScreen {
         withTooltip(this.exportButton, "screen.simple_translate.terms.export.tooltip");
         this.addRenderableWidget(this.exportButton);
 
-        this.importButton = UiCompat.buttonBuilder(
+        this.importButton = Button.builder(
                 Component.translatable("screen.simple_translate.import"),
                 button -> importTerms())
                 .bounds(centerX - buttonWidth, buttonY, buttonWidth, 20)
@@ -109,7 +110,7 @@ public class TermManagerScreen extends BaseSimpleTranslateScreen {
         withTooltip(this.importButton, "screen.simple_translate.terms.import.tooltip");
         this.addRenderableWidget(this.importButton);
 
-        Button backButton = UiCompat.buttonBuilder(
+        Button backButton = Button.builder(
                 Component.translatable("screen.simple_translate.back"),
                 button -> this.onClose())
                 .bounds(centerX + 10, buttonY, buttonWidth, 20)
@@ -189,18 +190,19 @@ public class TermManagerScreen extends BaseSimpleTranslateScreen {
     }
 
     @Override
-    public void render(GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
+    public void render(PoseStack poseStack, int mouseX, int mouseY, float partialTick) {
+        GuiGraphics graphics = new GuiGraphics(poseStack);
         ScreenBackgrounds.renderPlain(graphics, this.width, this.height);
 
         // Draw title
         graphics.drawCenteredString(this.font, this.title, this.width / 2, 15, 0xFFFFFF);
 
         // Draw column headers
-        graphics.drawString(this.font, "术语", this.width / 2 - 150, 30, 0xAAAAAA);
-        graphics.drawString(this.font, "译文", this.width / 2 + 20, 30, 0xAAAAAA);
+        graphics.drawString(this.font, Component.translatable("screen.simple_translate.terms.term"), this.width / 2 - 150, 30, 0xAAAAAA);
+        graphics.drawString(this.font, Component.translatable("screen.simple_translate.cache.edit.translation"), this.width / 2 + 20, 30, 0xAAAAAA);
 
         drawBottomActionMask(graphics);
-        super.render(graphics, mouseX, mouseY, partialTick);
+        super.render(poseStack, mouseX, mouseY, partialTick);
     }
 
     private void drawBottomActionMask(GuiGraphics graphics) {
@@ -267,7 +269,9 @@ public class TermManagerScreen extends BaseSimpleTranslateScreen {
             graphics.drawString(TermManagerScreen.this.font, "->", centerX, top + 5, 0x888888);
 
             // Draw translation
-            String displayTranslation = translation.isEmpty() ? "(待翻译)" : translation;
+            String displayTranslation = translation.isEmpty()
+                    ? Component.translatable("screen.simple_translate.terms.empty_translation").getString()
+                    : translation;
             int translationColor = translation.isEmpty() ? 0xFF8888 : 0xFFFFFF;
             graphics.drawString(TermManagerScreen.this.font,
                     displayTranslation.length() > 20 ? displayTranslation.substring(0, 17) + "..." : displayTranslation,
@@ -282,10 +286,8 @@ public class TermManagerScreen extends BaseSimpleTranslateScreen {
 
         @Override
         public Component getNarration() {
-            return Component.literal(term + " 翻译为 " + translation);
+            return Component.translatable("screen.simple_translate.terms.narration", term, translation);
         }
     }
 }
-
-
 

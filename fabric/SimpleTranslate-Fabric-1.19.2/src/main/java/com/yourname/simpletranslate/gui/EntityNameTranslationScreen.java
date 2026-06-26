@@ -49,3 +49,5 @@ public class EntityNameTranslationScreen extends ScrollableSettingsScreen {
         ModConfig.CONTENT_ENTITY_NAME_RADIUS.set(entityNameRadius);
     }
 }
+
+

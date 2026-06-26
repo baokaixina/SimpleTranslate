@@ -581,6 +581,7 @@ public final class JsonPassthroughPipeline {
         try {
             String cleaned = stripNonJson(response);
             JsonElement root = JsonParser.parseString(cleaned);
+            sanitizeTranslatedFonts(root);
             if (!root.isJsonArray()) {
                 logDeserializationFailure(surface, "root-not-array", originals, -1, response);
                 return null;
@@ -653,13 +654,138 @@ public final class JsonPassthroughPipeline {
         }
         return restored;
     }
+    private static void sanitizeTranslatedFonts(JsonElement element) {
+        sanitizeTranslatedFonts(element, false);
+    }
 
+    private static void sanitizeTranslatedFonts(JsonElement element, boolean inheritedCustomFont) {
+        if (!ModConfig.CUSTOM_FONT_CJK_FIX_ENABLED.get() || element == null || element.isJsonNull()) {
+            return;
+        }
+        if (element.isJsonArray()) {
+            for (JsonElement child : element.getAsJsonArray()) {
+                sanitizeTranslatedFonts(child, inheritedCustomFont);
+            }
+            return;
+        }
+        if (!element.isJsonObject()) {
+            return;
+        }
+        JsonObject object = element.getAsJsonObject();
+        boolean explicitCustomFont = hasCustomFont(object);
+        boolean effectiveCustomFont = explicitCustomFont || inheritedCustomFont;
+        if (effectiveCustomFont && object.has("text") && object.get("text").isJsonPrimitive()) {
+            String text = object.get("text").getAsString();
+            if (containsCjk(text)) {
+                if (containsPrivateUse(text)) {
+                    splitMixedCustomFontText(object, text, inheritedCustomFont && !explicitCustomFont);
+                } else if (explicitCustomFont) {
+                    object.remove("font");
+                } else {
+                    object.addProperty("font", "minecraft:default");
+                }
+            }
+        }
+
+        boolean childInheritedCustomFont = hasCustomFont(object)
+                || (inheritedCustomFont && !hasDefaultFont(object));
+        for (Map.Entry<String, JsonElement> entry : List.copyOf(object.entrySet())) {
+            sanitizeTranslatedFonts(entry.getValue(), childInheritedCustomFont);
+        }
+    }
+
+    private static boolean hasCustomFont(JsonObject object) {
+        if (object == null || !object.has("font") || !object.get("font").isJsonPrimitive()) {
+            return false;
+        }
+        String font = object.get("font").getAsString();
+        return font != null && !font.isBlank() && !"minecraft:default".equals(font);
+    }
+
+    private static boolean hasDefaultFont(JsonObject object) {
+        if (object == null || !object.has("font") || !object.get("font").isJsonPrimitive()) {
+            return false;
+        }
+        return "minecraft:default".equals(object.get("font").getAsString());
+    }
+
+    private static void splitMixedCustomFontText(JsonObject object, String text, boolean inheritedOnlyCustomFont) {
+        JsonArray existingExtra = object.has("extra") && object.get("extra").isJsonArray()
+                ? object.getAsJsonArray("extra")
+                : null;
+        JsonArray split = new JsonArray();
+        int index = 0;
+        while (index < text.length()) {
+            int cp = text.codePointAt(index);
+            boolean privateUse = isPrivateUse(cp);
+            int end = index + Character.charCount(cp);
+            while (end < text.length() && isPrivateUse(text.codePointAt(end)) == privateUse) {
+                end += Character.charCount(text.codePointAt(end));
+            }
+            JsonObject segment = object.deepCopy();
+            segment.addProperty("text", text.substring(index, end));
+            segment.remove("extra");
+            if (!privateUse) {
+                if (inheritedOnlyCustomFont) {
+                    segment.addProperty("font", "minecraft:default");
+                } else {
+                    segment.remove("font");
+                }
+            }
+            split.add(segment);
+            index = end;
+        }
+        if (existingExtra != null) {
+            for (JsonElement child : existingExtra) {
+                split.add(child);
+            }
+        }
+        object.addProperty("text", "");
+        object.add("extra", split);
+    }
+
+    private static boolean containsCjk(String text) {
+        if (text == null || text.isEmpty()) {
+            return false;
+        }
+        for (int i = 0; i < text.length(); ) {
+            int cp = text.codePointAt(i);
+            Character.UnicodeScript script = Character.UnicodeScript.of(cp);
+            if (script == Character.UnicodeScript.HAN
+                    || script == Character.UnicodeScript.HIRAGANA
+                    || script == Character.UnicodeScript.KATAKANA
+                    || script == Character.UnicodeScript.HANGUL) {
+                return true;
+            }
+            i += Character.charCount(cp);
+        }
+        return false;
+    }
+
+    private static boolean containsPrivateUse(String text) {
+        if (text == null || text.isEmpty()) {
+            return false;
+        }
+        for (int i = 0; i < text.length(); ) {
+            int cp = text.codePointAt(i);
+            if (isPrivateUse(cp)) {
+                return true;
+            }
+            i += Character.charCount(cp);
+        }
+        return false;
+    }
+
+    private static boolean isPrivateUse(int cp) {
+        return (cp >= 0xE000 && cp <= 0xF8FF)
+                || (cp >= 0xF0000 && cp <= 0xFFFFD)
+                || (cp >= 0x100000 && cp <= 0x10FFFD);
+    }
     /**
      * Minecraft 1.20.1 rejects a component object that has only {@code extra}
      * children. Models commonly omit the empty root text emitted by vanilla,
      * so restore that one deterministic field without changing translated text.
-     */
-    private static JsonElement normalizeComponentJson(JsonElement element) {
+     */    private static JsonElement normalizeComponentJson(JsonElement element) {
         if (element == null || !element.isJsonObject()) {
             return element;
         }

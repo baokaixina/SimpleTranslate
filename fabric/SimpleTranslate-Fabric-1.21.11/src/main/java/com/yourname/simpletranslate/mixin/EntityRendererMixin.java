@@ -3,28 +3,28 @@ package com.yourname.simpletranslate.mixin;
 import com.yourname.simpletranslate.config.ModConfig;
 import com.yourname.simpletranslate.keybind.HoldOriginalFeature;
 import com.yourname.simpletranslate.keybind.HoldOriginalState;
-import com.yourname.simpletranslate.util.DirectFormattedTranslationPipeline;
-import com.yourname.simpletranslate.util.DirectSurfaceTranslator;
-import com.yourname.simpletranslate.util.TooltipTranslationHelper;
-import net.minecraft.client.Minecraft;
+import com.yourname.simpletranslate.core.ComponentTranslationResult;
+import com.yourname.simpletranslate.core.DirectSurfaceTranslator;
+import com.yourname.simpletranslate.feature.tooltip.TooltipTranslationHelper;
 import net.minecraft.client.renderer.entity.EntityRenderer;
+import net.minecraft.client.renderer.entity.state.EntityRenderState;
 import net.minecraft.network.chat.Component;
 import net.minecraft.world.entity.Entity;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Unique;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
-import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
+import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 /**
  * Translates entity name tags while preserving component styling.
  */
 @Mixin(EntityRenderer.class)
-public class EntityRendererMixin<T extends Entity> {
+public class EntityRendererMixin<T extends Entity, S extends EntityRenderState> {
 
-    @Inject(method = "getNameTag", at = @At("RETURN"), cancellable = true)
-    private void simple_translate$translateNameTag(T entity, CallbackInfoReturnable<Component> cir) {
-        Component displayName = cir.getReturnValue();
+    @Inject(method = "extractRenderState", at = @At("TAIL"))
+    private void simple_translate$translateNameTag(T entity, S state, float partialTick, CallbackInfo ci) {
+        Component displayName = state.nameTag;
         if (!ModConfig.CONTENT_ENTITY_NAME_ENABLED.get()) {
             return;
         }
@@ -32,28 +32,20 @@ public class EntityRendererMixin<T extends Entity> {
             return;
         }
 
-        if (!simple_translate$isEntityInRange(entity)) {
+        if (!simple_translate$isEntityInRange(state)) {
             return;
         }
 
-        cir.setReturnValue(simple_translate$translateWithStylePreservation(displayName));
+        state.nameTag = simple_translate$translateWithStylePreservation(displayName);
     }
 
     @Unique
-    private boolean simple_translate$isEntityInRange(T entity) {
-        if (entity == null) {
+    private boolean simple_translate$isEntityInRange(EntityRenderState state) {
+        if (state == null) {
             return false;
         }
-
-        Minecraft mc = Minecraft.getInstance();
-        if (mc.player == null) {
-            return false;
-        }
-
-        double distance = mc.player.distanceTo(entity);
         int radius = ModConfig.CONTENT_ENTITY_NAME_RADIUS.get();
-
-        return distance <= radius;
+        return state.distanceToCameraSq <= (double) radius * radius;
     }
 
     @Unique
@@ -71,7 +63,7 @@ public class EntityRendererMixin<T extends Entity> {
             return component;
         }
 
-        DirectFormattedTranslationPipeline.ComponentResult direct =
+        ComponentTranslationResult direct =
                 DirectSurfaceTranslator.translateComponent(component, "entity.name.direct", "entity-name");
         if (direct.handled) {
             return direct.component;

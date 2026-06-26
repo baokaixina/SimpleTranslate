@@ -3,12 +3,13 @@ package com.yourname.simpletranslate.mixin;
 import com.yourname.simpletranslate.config.ModConfig;
 import com.yourname.simpletranslate.keybind.HoldOriginalFeature;
 import com.yourname.simpletranslate.keybind.HoldOriginalState;
-import com.yourname.simpletranslate.util.AdvancementTranslationHelper;
-import com.yourname.simpletranslate.util.TooltipTranslationHelper;
+import com.yourname.simpletranslate.feature.advancement.AdvancementTranslationHelper;
+import com.yourname.simpletranslate.core.ComponentRenderSafety;
+import com.yourname.simpletranslate.core.MixinRuntimeProbe;
+import com.yourname.simpletranslate.feature.tooltip.TooltipTranslationHelper;
 import net.minecraft.advancements.AdvancementNode;
 import net.minecraft.advancements.DisplayInfo;
 import net.minecraft.client.Minecraft;
-import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.screens.advancements.AdvancementWidget;
 import net.minecraft.locale.Language;
@@ -89,98 +90,26 @@ public abstract class AdvancementWidgetMixin {
     @Redirect(
             method = "drawHover",
             at = @At(value = "FIELD", target = "Lnet/minecraft/client/gui/screens/advancements/AdvancementWidget;description:Ljava/util/List;"),
-            require = 1
+            require = 0
     )
     private List<FormattedCharSequence> simple_translate$redirectDescription(AdvancementWidget instance) {
+        MixinRuntimeProbe.matched("AdvancementWidgetMixin#description");
         return simple_translate$getDescriptionLinesForRender();
     }
 
     /**
-     * Redirect title field access because vanilla precomputes wrapped title
-     * lines in the constructor. drawString(Component) redirects never see the
-     * original title component.
+     * Redirect title lines because vanilla precomputes the title in the
+     * constructor. drawString(Component) redirects never see that original
+     * title component.
      */
     @Redirect(
             method = "drawHover",
             at = @At(value = "FIELD", target = "Lnet/minecraft/client/gui/screens/advancements/AdvancementWidget;titleLines:Ljava/util/List;"),
-            require = 1
-    )
-    private List<FormattedCharSequence> simple_translate$redirectTitle(AdvancementWidget instance) {
-        return simple_translate$getTitleForRender();
-    }
-
-    /**
-     * Redirect drawString for Component (5 params) - use cached translation with style preservation
-     */
-    @Redirect(
-            method = "drawHover",
-            at = @At(value = "INVOKE", target = "Lnet/minecraft/client/gui/GuiGraphics;drawString(Lnet/minecraft/client/gui/Font;Lnet/minecraft/network/chat/Component;III)I"),
             require = 0
     )
-    private int simple_translate$redirectDrawString5(GuiGraphics guiGraphics, Font font, Component component, int x, int y, int color) {
-        if (!ModConfig.CONTENT_ADVANCEMENT_ENABLED.get()) {
-            return guiGraphics.drawString(font, component, x, y, color);
-        }
-
-        Component translated = simple_translate$getTranslatedComponent(component);
-        return guiGraphics.drawString(font, translated, x, y, color);
-    }
-
-    /**
-     * Redirect drawString for Component (6 params with shadow) - use cached translation with style preservation
-     */
-    @Redirect(
-            method = "drawHover",
-            at = @At(value = "INVOKE", target = "Lnet/minecraft/client/gui/GuiGraphics;drawString(Lnet/minecraft/client/gui/Font;Lnet/minecraft/network/chat/Component;IIIZ)I"),
-            require = 0
-    )
-    private int simple_translate$redirectDrawString6(GuiGraphics guiGraphics, Font font, Component component, int x, int y, int color, boolean shadow) {
-        if (!ModConfig.CONTENT_ADVANCEMENT_ENABLED.get()) {
-            return guiGraphics.drawString(font, component, x, y, color, shadow);
-        }
-
-        Component translated = simple_translate$getTranslatedComponent(component);
-        return guiGraphics.drawString(font, translated, x, y, color, shadow);
-    }
-
-    /**
-     * Redirect drawString for FormattedCharSequence (5 params)
-     */
-    @Redirect(
-            method = "drawHover",
-            at = @At(value = "INVOKE", target = "Lnet/minecraft/client/gui/GuiGraphics;drawString(Lnet/minecraft/client/gui/Font;Lnet/minecraft/util/FormattedCharSequence;III)I"),
-            require = 0
-    )
-    private int simple_translate$redirectDrawStringFCS5(GuiGraphics guiGraphics, Font font, FormattedCharSequence text, int x, int y, int color) {
-        if (!ModConfig.CONTENT_ADVANCEMENT_ENABLED.get()) {
-            return guiGraphics.drawString(font, text, x, y, color);
-        }
-
-        Component translated = simple_translate$translateFormattedCharSequence(text);
-        if (translated != null) {
-            return guiGraphics.drawString(font, translated, x, y, color);
-        }
-        return guiGraphics.drawString(font, text, x, y, color);
-    }
-
-    /**
-     * Redirect drawString for FormattedCharSequence (6 params with shadow)
-     */
-    @Redirect(
-            method = "drawHover",
-            at = @At(value = "INVOKE", target = "Lnet/minecraft/client/gui/GuiGraphics;drawString(Lnet/minecraft/client/gui/Font;Lnet/minecraft/util/FormattedCharSequence;IIIZ)I"),
-            require = 0
-    )
-    private int simple_translate$redirectDrawStringFCS6(GuiGraphics guiGraphics, Font font, FormattedCharSequence text, int x, int y, int color, boolean shadow) {
-        if (!ModConfig.CONTENT_ADVANCEMENT_ENABLED.get()) {
-            return guiGraphics.drawString(font, text, x, y, color, shadow);
-        }
-
-        Component translated = simple_translate$translateFormattedCharSequence(text);
-        if (translated != null) {
-            return guiGraphics.drawString(font, translated, x, y, color, shadow);
-        }
-        return guiGraphics.drawString(font, text, x, y, color, shadow);
+    private List<FormattedCharSequence> simple_translate$redirectTitleLines(AdvancementWidget instance) {
+        MixinRuntimeProbe.matched("AdvancementWidgetMixin#title");
+        return simple_translate$getTitleLinesForRender();
     }
 
     @Unique
@@ -196,7 +125,7 @@ public abstract class AdvancementWidgetMixin {
             return this.description;
         }
 
-        Component original = this.display.getDescription();
+        Component original = ComponentRenderSafety.sanitize(this.display.getDescription());
         if (original == null) {
             return this.description;
         }
@@ -229,7 +158,18 @@ public abstract class AdvancementWidgetMixin {
 
         int maxWidth = Math.max(1, this.width - 3 - 5);
         List<FormattedText> lines = this.findOptimalLines(translatedComponent, maxWidth);
-        List<FormattedCharSequence> visual = lines != null ? Language.getInstance().getVisualOrder(lines) : this.description;
+        List<FormattedCharSequence> visual;
+        if (lines == null) {
+            visual = this.description;
+        } else {
+            visual = new java.util.ArrayList<>(Language.getInstance().getVisualOrder(lines));
+            while (visual.size() < this.description.size()) {
+                visual.add(FormattedCharSequence.EMPTY);
+            }
+            if (visual.size() > this.description.size()) {
+                visual = new java.util.ArrayList<>(visual.subList(0, this.description.size()));
+            }
+        }
 
         this.simple_translate$descriptionCacheKey = cacheKey;
         this.simple_translate$translatedDescription = visual;
@@ -238,7 +178,7 @@ public abstract class AdvancementWidgetMixin {
     }
 
     @Unique
-    private List<FormattedCharSequence> simple_translate$getTitleForRender() {
+    private List<FormattedCharSequence> simple_translate$getTitleLinesForRender() {
         if (!ModConfig.CONTENT_ADVANCEMENT_ENABLED.get()) {
             return this.titleLines;
         }
@@ -249,7 +189,7 @@ public abstract class AdvancementWidgetMixin {
             return this.titleLines;
         }
 
-        Component original = this.display.getTitle();
+        Component original = ComponentRenderSafety.sanitize(this.display.getTitle());
         if (original == null) {
             return this.titleLines;
         }
@@ -273,44 +213,14 @@ public abstract class AdvancementWidgetMixin {
             return this.simple_translate$translatedTitle;
         }
 
-        List<FormattedCharSequence> visual = this.minecraft.font.split(translatedComponent, 163);
+        List<FormattedText> clipped = this.minecraft.font.getSplitter().splitLines(translatedComponent, 163, Style.EMPTY);
+        List<FormattedCharSequence> visual = Language.getInstance().getVisualOrder(clipped);
+        if (visual.isEmpty()) {
+            visual = this.titleLines;
+        }
         this.simple_translate$titleCacheKey = cacheKey;
         this.simple_translate$translatedTitle = visual;
         return visual;
-    }
-
-    /**
-     * Get translated component using the batch translation helper
-     */
-    @Unique
-    private Component simple_translate$getTranslatedComponent(Component component) {
-        if (component == null) {
-            return null;
-        }
-        if (HoldOriginalState.isHolding(HoldOriginalFeature.ADVANCEMENT)) {
-            return component;
-        }
-
-        String text = component.getString();
-        if (text.isEmpty() || !simple_translate$containsEnglish(text)) {
-            return component;
-        }
-
-        return AdvancementTranslationHelper.translateComponent(component,
-                "advancement.widget.component.direct", "advancement-widget");
-    }
-
-    /**
-     * Translate FormattedCharSequence by extracting text with styles
-     */
-    @Unique
-    private Component simple_translate$translateFormattedCharSequence(FormattedCharSequence text) {
-        // FormattedCharSequence is already a visual slice produced by Minecraft's
-        // wrapping code. Translating it here would enqueue word fragments such as
-        // "of grand" and starve real component/document requests. Whole
-        // advancement components are translated through ensureTranslation and
-        // simple_translate$getDescriptionLinesForRender instead.
-        return null;
     }
 
     @Unique
@@ -324,8 +234,8 @@ public abstract class AdvancementWidgetMixin {
                 && this.advancementNode.holder().id() != null) {
             return "advancement:" + this.advancementNode.holder().id();
         }
-        String titleText = title == null ? "" : title.getString();
-        String descriptionText = description == null ? "" : description.getString();
+        String titleText = ComponentRenderSafety.sanitize(title).getString();
+        String descriptionText = ComponentRenderSafety.sanitize(description).getString();
         return "advancement:document:" + titleText.hashCode() + ":" + descriptionText.hashCode();
     }
 }

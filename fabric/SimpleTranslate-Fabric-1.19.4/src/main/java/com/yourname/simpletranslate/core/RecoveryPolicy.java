@@ -1,7 +1,7 @@
 package com.yourname.simpletranslate.core;
 
+import java.util.LinkedHashMap;
 import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Negative cache for repeatedly rejected translations.
@@ -15,7 +15,7 @@ public final class RecoveryPolicy {
     private static final long FREEZE_MS = 30L * 60L * 1000L;
     private static final int MAX_ENTRIES = 4096;
 
-    private static final Map<String, State> STATES = new ConcurrentHashMap<>();
+    private static final Map<String, State> STATES = new LinkedHashMap<>(64, 0.75f, true);
 
     private RecoveryPolicy() {
     }
@@ -24,40 +24,44 @@ public final class RecoveryPolicy {
         if (cacheKey == null || cacheKey.isBlank()) {
             return true;
         }
-        State state = STATES.get(cacheKey);
-        if (state == null) {
-            return true;
+        synchronized (STATES) {
+            State state = STATES.get(cacheKey);
+            return state == null
+                    || state.frozenUntil() <= 0
+                    || System.currentTimeMillis() >= state.frozenUntil();
         }
-        if (state.frozenUntil > 0 && System.currentTimeMillis() < state.frozenUntil) {
-            return false;
-        }
-        return true;
     }
 
     public static void recordRejected(String cacheKey) {
         if (cacheKey == null || cacheKey.isBlank()) {
             return;
         }
-        if (STATES.size() > MAX_ENTRIES) {
-            STATES.clear();
-        }
-        STATES.compute(cacheKey, (ignored, previous) -> {
-            int count = previous == null ? 1 : previous.rejections + 1;
+        synchronized (STATES) {
+            State previous = STATES.get(cacheKey);
+            int count = previous == null ? 1 : previous.rejections() + 1;
             long frozenUntil = count >= MAX_CONSECUTIVE_REJECTIONS
                     ? System.currentTimeMillis() + FREEZE_MS
                     : 0L;
-            return new State(count, frozenUntil);
-        });
+            STATES.put(cacheKey, new State(count, frozenUntil));
+            while (STATES.size() > MAX_ENTRIES) {
+                String eldest = STATES.keySet().iterator().next();
+                STATES.remove(eldest);
+            }
+        }
     }
 
     public static void recordSuccess(String cacheKey) {
         if (cacheKey != null) {
-            STATES.remove(cacheKey);
+            synchronized (STATES) {
+                STATES.remove(cacheKey);
+            }
         }
     }
 
     public static void clearAll() {
-        STATES.clear();
+        synchronized (STATES) {
+            STATES.clear();
+        }
     }
 
     private record State(int rejections, long frozenUntil) {

@@ -3,9 +3,9 @@ package com.yourname.simpletranslate.mixin;
 import com.yourname.simpletranslate.config.ModConfig;
 import com.yourname.simpletranslate.keybind.HoldOriginalFeature;
 import com.yourname.simpletranslate.keybind.HoldOriginalState;
-import com.yourname.simpletranslate.util.DirectFormattedTranslationPipeline;
-import com.yourname.simpletranslate.util.DirectSurfaceTranslator;
-import com.yourname.simpletranslate.util.TooltipTranslationHelper;
+import com.yourname.simpletranslate.core.ComponentTranslationResult;
+import com.yourname.simpletranslate.core.DirectSurfaceTranslator;
+import com.yourname.simpletranslate.feature.tooltip.TooltipTranslationHelper;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.renderer.entity.EntityRenderer;
 import net.minecraft.network.chat.Component;
@@ -78,7 +78,7 @@ public class EntityRendererMixin<T extends Entity> {
             return component;
         }
 
-        DirectFormattedTranslationPipeline.ComponentResult direct =
+        ComponentTranslationResult direct =
                 DirectSurfaceTranslator.translateComponent(component, "entity.name.direct", "entity-name");
         if (direct.handled) {
             return direct.component;

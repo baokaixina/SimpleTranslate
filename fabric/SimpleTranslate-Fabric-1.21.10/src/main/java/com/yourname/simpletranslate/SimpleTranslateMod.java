@@ -7,27 +7,32 @@ import com.google.gson.JsonParser;
 import com.mojang.logging.LogUtils;
 import com.yourname.simpletranslate.cache.TermDictionary;
 import com.yourname.simpletranslate.cache.TranslationBlacklist;
+import com.yourname.simpletranslate.cache.LineTranslationMemory;
 import com.yourname.simpletranslate.cache.TranslationCache;
-import com.yourname.simpletranslate.chat.ChatTranslationController;
-import com.yourname.simpletranslate.chat.ChatMessageStore;
-import com.yourname.simpletranslate.chat.ChatContextBatchTranslator;
+import com.yourname.simpletranslate.feature.chat.ChatTranslationController;
+import com.yourname.simpletranslate.feature.chat.ChatMessageStore;
+import com.yourname.simpletranslate.feature.chat.ChatContextBatchTranslator;
 import com.yourname.simpletranslate.config.ModConfig;
 import com.yourname.simpletranslate.keybind.HoldOriginalState;
 import com.yourname.simpletranslate.keybind.ModKeyBindings;
-import com.yourname.simpletranslate.network.SharedCacheClient;
-import com.yourname.simpletranslate.translation.TranslationManager;
-import com.yourname.simpletranslate.translation.TranslationRequestQueue;
-import com.yourname.simpletranslate.util.AdvancementTranslationHelper;
-import com.yourname.simpletranslate.util.BlacklistRefreshAware;
-import com.yourname.simpletranslate.util.BookTranslationHelper;
-import com.yourname.simpletranslate.util.HudTranslationHistory;
-import com.yourname.simpletranslate.util.ScoreboardTranslationHelper;
-import com.yourname.simpletranslate.util.SignContextSelectionManager;
-import com.yourname.simpletranslate.util.SignSelectionHighlighter;
-import com.yourname.simpletranslate.util.SignTranslationHelper;
-import com.yourname.simpletranslate.util.TooltipTranslationHelper;
-import com.yourname.simpletranslate.util.TranslationLanes;
+import com.yourname.simpletranslate.cache.SharedCacheClient;
+import com.yourname.simpletranslate.transport.TranslationManager;
+import com.yourname.simpletranslate.transport.TranslationRequestQueue;
+import com.yourname.simpletranslate.feature.advancement.AdvancementTranslationHelper;
+import com.yourname.simpletranslate.core.BlacklistRefreshAware;
+import com.yourname.simpletranslate.feature.book.BookTranslationHelper;
+import com.yourname.simpletranslate.feature.hud.HudTranslationHistory;
+import com.yourname.simpletranslate.feature.hud.ScoreboardTranslationHelper;
+import com.yourname.simpletranslate.feature.sign.SignContextSelectionManager;
+import com.yourname.simpletranslate.feature.sign.SignSelectionHighlighter;
+import com.yourname.simpletranslate.feature.sign.SignTranslationHelper;
+import com.yourname.simpletranslate.feature.tooltip.TooltipTranslationHelper;
+import com.yourname.simpletranslate.core.JsonPassthroughPipeline;
+import com.yourname.simpletranslate.transport.TranslationLanes;
+import com.yourname.simpletranslate.transport.TokenUsageMonitor;
 import net.fabricmc.api.ClientModInitializer;
+import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientLifecycleEvents;
+import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayConnectionEvents;
 import net.fabricmc.loader.api.FabricLoader;
 import net.minecraft.client.Minecraft;
@@ -38,9 +43,12 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
+import java.util.Comparator;
 import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Locale;
 import java.util.Set;
+import java.util.regex.Pattern;
 
 import net.minecraft.world.level.storage.LevelResource;
 
@@ -52,6 +60,7 @@ public class SimpleTranslateMod implements ClientModInitializer {
     private static final String CACHE_SETTINGS_FILE = "cache_settings.json";
 
     private static TranslationCache translationCache;
+    private static LineTranslationMemory lineTranslationMemory;
     private static TermDictionary termDictionary;
     private static TranslationBlacklist translationBlacklist;
     private static TranslationManager translationManager;
@@ -61,6 +70,7 @@ public class SimpleTranslateMod implements ClientModInitializer {
     private static volatile long runtimeRevision = 0L;
     private static long blacklistRevision = 0L;
     private static boolean currentCacheServerShareEnabled = false;
+    private static boolean firstRunHintShown = false;
 
     @Override
     public void onInitializeClient() {
@@ -69,6 +79,8 @@ public class SimpleTranslateMod implements ClientModInitializer {
 
         translationCache = new TranslationCache(configDir.resolve("cache.json"));
         translationCache.load();
+        lineTranslationMemory = new LineTranslationMemory(configDir.resolve("line_memory.json"));
+        lineTranslationMemory.load();
         loadCacheScopeSettings(null);
         translationBlacklist = new TranslationBlacklist(configDir.resolve("blacklist.json"));
         translationBlacklist.load();
@@ -77,24 +89,37 @@ public class SimpleTranslateMod implements ClientModInitializer {
 
         ModKeyBindings.register();
         ChatContextBatchTranslator.register();
+        ClientTickEvents.END_CLIENT_TICK.register(client -> ChatContextBatchTranslator.tickAllCollectors());
         HoldOriginalState.register();
         SignSelectionHighlighter.register();
         SharedCacheClient.register();
 
         ClientPlayConnectionEvents.JOIN.register((handler, sender, client) -> {
-            String worldId = getWorldIdentifier();
-            if (worldId != null && !worldId.equals(currentWorldId)) {
-                resetTranslationRuntime("world-switch:" + (currentWorldId == null ? "none" : currentWorldId) + "->" + worldId);
-                currentWorldId = worldId;
-                switchWorldData(worldId);
-                LOGGER.debug("Switched to world data for: {}", worldId);
+            try {
+                String worldId = getWorldIdentifier();
+                if (worldId != null && !worldId.equals(currentWorldId)) {
+                    resetTranslationRuntime("world-switch:" + (currentWorldId == null ? "none" : currentWorldId) + "->" + worldId);
+                    currentWorldId = worldId;
+                    switchWorldData(worldId);
+                    LOGGER.debug("Switched to world data for: {}", worldId);
+                }
+            } catch (Throwable error) {
+                LOGGER.error("SimpleTranslate failed to switch world data on join; continuing with current state", error);
             }
-            SharedCacheClient.onJoinedWorld();
+            try {
+                SharedCacheClient.onJoinedWorld();
+            } catch (Throwable error) {
+                LOGGER.error("SimpleTranslate shared-cache join failed; continuing", error);
+            }
+            showFirstRunHintIfNeeded(client);
         });
 
         ClientPlayConnectionEvents.DISCONNECT.register((handler, client) -> {
             if (translationCache != null) {
                 translationCache.flush();
+            }
+            if (lineTranslationMemory != null) {
+                lineTranslationMemory.flush();
             }
             if (termDictionary != null) {
                 termDictionary.save();
@@ -106,11 +131,52 @@ public class SimpleTranslateMod implements ClientModInitializer {
             termDictionary = null;
             currentWorldId = null;
             lastLegacyLocalWorldIds = Set.of();
+            firstRunHintShown = false;
             SharedCacheClient.onDisconnected();
             switchGlobalData();
         });
+        ClientLifecycleEvents.CLIENT_STOPPING.register(client -> shutdown());
 
         LOGGER.info("Simple Translate Fabric mod initialized");
+    }
+
+    private static void shutdown() {
+        if (translationCache != null) {
+            translationCache.flush();
+        }
+        if (lineTranslationMemory != null) {
+            lineTranslationMemory.flush();
+        }
+        if (termDictionary != null) {
+            termDictionary.save();
+        }
+        if (translationBlacklist != null) {
+            translationBlacklist.save();
+        }
+        TranslationRequestQueue.shutdown();
+        JsonPassthroughPipeline.shutdown();
+        if (translationManager != null) {
+            translationManager.shutdown();
+        }
+        TranslationCache.shutdownExecutor();
+    }
+
+    private static void showFirstRunHintIfNeeded(Minecraft client) {
+        if (firstRunHintShown) {
+            return;
+        }
+        firstRunHintShown = true;
+        var manager = getTranslationManager();
+        if (manager != null && manager.isReady()) {
+            return;
+        }
+        if (client == null || client.player == null) {
+            return;
+        }
+        client.player.displayClientMessage(
+                net.minecraft.network.chat.Component.translatable("chat.simple_translate.first_run_hint"),
+                true
+        );
     }
 
     private static String getWorldIdentifier() {
@@ -127,17 +193,26 @@ public class SimpleTranslateMod implements ClientModInitializer {
             Set<String> legacyIds = new LinkedHashSet<>();
             legacyIds.add(sanitizeFilename("local_" + levelName));
             legacyIds.add(sanitizeFilename("local_" + stripMinecraftFormatting(levelName)));
-            lastLegacyLocalWorldIds = legacyIds;
             try {
                 Path worldPath = mc.getSingleplayerServer().getWorldPath(LevelResource.ROOT)
                         .toAbsolutePath()
                         .normalize();
                 String folderName = worldPath.getFileName() == null ? levelName : worldPath.getFileName().toString();
-                String pathHash = Integer.toHexString(worldPath.toString().toLowerCase(Locale.ROOT).hashCode());
-                return sanitizeFilename("local_" + folderName + "_" + pathHash);
+                String stableWorldId = sanitizeFilename("local_" + folderName);
+                String pathWorldId = sanitizeFilename("local_" + folderName + "_"
+                        + Integer.toHexString(worldPath.toString().toLowerCase(Locale.ROOT).hashCode()));
+                legacyIds.add(pathWorldId);
+                legacyIds.addAll(discoverHashedLocalWorldIds(stableWorldId));
+                legacyIds.remove(stableWorldId);
+                lastLegacyLocalWorldIds = Set.copyOf(legacyIds);
+                return stableWorldId;
             } catch (Exception e) {
-                LOGGER.debug("Falling back to legacy local world id for {}", levelName, e);
-                return legacyIds.iterator().next();
+                String stableWorldId = sanitizeFilename("local_" + stripMinecraftFormatting(levelName));
+                legacyIds.addAll(discoverHashedLocalWorldIds(stableWorldId));
+                legacyIds.remove(stableWorldId);
+                lastLegacyLocalWorldIds = Set.copyOf(legacyIds);
+                LOGGER.debug("Falling back to stable local world id for {}", levelName, e);
+                return stableWorldId;
             }
         }
 
@@ -156,9 +231,37 @@ public class SimpleTranslateMod implements ClientModInitializer {
         return name.replaceAll("(?i)[§&][0-9a-fk-or]", "");
     }
 
+    private static Set<String> discoverHashedLocalWorldIds(String stableWorldId) {
+        Set<String> discovered = new LinkedHashSet<>();
+        if (configDir == null || stableWorldId == null || stableWorldId.isBlank()) {
+            return discovered;
+        }
+        Pattern hashedScope = Pattern.compile(Pattern.quote(stableWorldId) + "_[0-9a-f]{1,8}");
+        discoverMatchingScopeDirectories(configDir.resolve("cache"), hashedScope, discovered);
+        discoverMatchingScopeDirectories(configDir.resolve("terms"), hashedScope, discovered);
+        return discovered;
+    }
+
+    private static void discoverMatchingScopeDirectories(Path root, Pattern pattern, Set<String> target) {
+        if (root == null || pattern == null || target == null || !Files.isDirectory(root)) {
+            return;
+        }
+        try (var stream = Files.list(root)) {
+            stream.filter(Files::isDirectory)
+                    .map(path -> path.getFileName() == null ? "" : path.getFileName().toString())
+                    .filter(name -> pattern.matcher(name).matches())
+                    .forEach(target::add);
+        } catch (IOException e) {
+            LOGGER.debug("Unable to discover legacy cache scopes under {}", root, e);
+        }
+    }
+
     private static void switchWorldData(String worldId) {
         if (translationCache != null) {
             translationCache.flush();
+        }
+        if (lineTranslationMemory != null) {
+            lineTranslationMemory.flush();
         }
         if (termDictionary != null) {
             termDictionary.save();
@@ -169,6 +272,8 @@ public class SimpleTranslateMod implements ClientModInitializer {
         Path worldCacheDir = configDir.resolve("cache").resolve(worldId);
         translationCache = new TranslationCache(worldCacheDir.resolve("translations.json"));
         translationCache.load();
+        lineTranslationMemory = new LineTranslationMemory(worldCacheDir.resolve("line_memory.json"));
+        lineTranslationMemory.load();
         loadCacheScopeSettings(worldId);
 
         Path worldTermsDir = configDir.resolve("terms").resolve(worldId);
@@ -198,6 +303,8 @@ public class SimpleTranslateMod implements ClientModInitializer {
         }
         translationCache = new TranslationCache(configDir.resolve("cache.json"));
         translationCache.load();
+        lineTranslationMemory = new LineTranslationMemory(configDir.resolve("line_memory.json"));
+        lineTranslationMemory.load();
         loadCacheScopeSettings(null);
     }
 
@@ -210,14 +317,20 @@ public class SimpleTranslateMod implements ClientModInitializer {
         Path targetCacheDir = configDir.resolve("cache").resolve(worldId);
         Path targetTermsDir = configDir.resolve("terms").resolve(worldId);
         Path targetTermsFile = targetTermsDir.resolve("terms.json");
-        for (String legacyWorldId : legacyWorldIds) {
-            if (legacyWorldId == null || legacyWorldId.isBlank() || legacyWorldId.equals(worldId)) {
-                continue;
-            }
-
+        TranslationCache mergedCache = new TranslationCache(targetCacheDir.resolve("translations.json"));
+        mergedCache.load();
+        LineTranslationMemory mergedLineMemory =
+                new LineTranslationMemory(targetCacheDir.resolve("line_memory.json"));
+        mergedLineMemory.load();
+        List<String> orderedLegacyWorldIds = legacyWorldIds.stream()
+                .filter(id -> id != null && !id.isBlank() && !id.equals(worldId))
+                .sorted(Comparator.comparingLong(SimpleTranslateMod::legacyScopeModifiedTime).reversed())
+                .toList();
+        for (String legacyWorldId : orderedLegacyWorldIds) {
             Path legacyCacheDir = configDir.resolve("cache").resolve(legacyWorldId);
-            if (Files.exists(legacyCacheDir) && shouldMigrateCacheDirectory(targetCacheDir)) {
-                copyDirectoryFiles(legacyCacheDir, targetCacheDir, "cache", legacyWorldId, worldId);
+            if (Files.isDirectory(legacyCacheDir)) {
+                mergeLegacyTranslationCache(mergedCache, legacyCacheDir, legacyWorldId, worldId);
+                mergedLineMemory.mergeFrom(legacyCacheDir.resolve("line_memory.json"));
             }
 
             Path legacyTermsFile = configDir.resolve("terms").resolve(legacyWorldId).resolve("terms.json");
@@ -231,46 +344,56 @@ public class SimpleTranslateMod implements ClientModInitializer {
                 }
             }
         }
+        mergedCache.flush();
+        mergedLineMemory.flush();
     }
 
-    private static boolean shouldMigrateCacheDirectory(Path targetCacheDir) {
-        if (!Files.exists(targetCacheDir)) {
-            return true;
+    private static long legacyScopeModifiedTime(String worldId) {
+        if (configDir == null || worldId == null || worldId.isBlank()) {
+            return Long.MIN_VALUE;
         }
-        try (var stream = Files.list(targetCacheDir)) {
-            return stream.noneMatch(path -> Files.isRegularFile(path)
-                    && path.getFileName() != null
-                    && path.getFileName().toString().endsWith(".json"));
-        } catch (IOException e) {
-            LOGGER.debug("Unable to inspect target cache directory {}", targetCacheDir, e);
-            return false;
-        }
-    }
-
-    private static void copyDirectoryFiles(Path sourceDir, Path targetDir, String label, String fromWorldId,
-                                           String toWorldId) {
+        Path cacheDir = configDir.resolve("cache").resolve(worldId);
         try {
-            Files.createDirectories(targetDir);
-            try (var stream = Files.list(sourceDir)) {
-                stream.filter(Files::isRegularFile)
-                        .forEach(source -> {
-                            try {
-                                Files.copy(source, targetDir.resolve(source.getFileName()),
-                                        StandardCopyOption.COPY_ATTRIBUTES);
-                            } catch (IOException e) {
-                                LOGGER.warn("Failed to migrate {} file {} from {} to {}",
-                                        label, source.getFileName(), fromWorldId, toWorldId, e);
-                            }
-                        });
-            }
-            LOGGER.info("Migrated legacy world {} from {} to {}", label, fromWorldId, toWorldId);
+            return Files.exists(cacheDir)
+                    ? Files.getLastModifiedTime(cacheDir).toMillis()
+                    : Long.MIN_VALUE;
         } catch (IOException e) {
-            LOGGER.warn("Failed to migrate legacy world {} from {} to {}", label, fromWorldId, toWorldId, e);
+            return Long.MIN_VALUE;
+        }
+    }
+
+    private static void mergeLegacyTranslationCache(TranslationCache targetCache, Path sourceDir,
+                                                    String fromWorldId, String toWorldId) {
+        if (targetCache == null || sourceDir == null || !Files.isDirectory(sourceDir)) {
+            return;
+        }
+        int imported = 0;
+        try (var stream = Files.list(sourceDir)) {
+            for (Path source : stream.filter(Files::isRegularFile).toList()) {
+                String name = source.getFileName() == null
+                        ? "" : source.getFileName().toString().toLowerCase();
+                if (!name.endsWith(".json")
+                        || "line_memory.json".equals(name)
+                        || CACHE_SETTINGS_FILE.equals(name)) {
+                    continue;
+                }
+                imported += targetCache.importFromFile(source, true).imported();
+            }
+            if (imported > 0) {
+                LOGGER.info("Merged {} cached translations from legacy world scope {} into {}",
+                        imported, fromWorldId, toWorldId);
+            }
+        } catch (IOException e) {
+            LOGGER.warn("Failed to merge legacy world cache from {} to {}", fromWorldId, toWorldId, e);
         }
     }
 
     public static TranslationCache getTranslationCache() {
         return translationCache;
+    }
+
+    public static LineTranslationMemory getLineTranslationMemory() {
+        return lineTranslationMemory;
     }
 
     public static TermDictionary getTermDictionary() {
@@ -328,12 +451,15 @@ public class SimpleTranslateMod implements ClientModInitializer {
         resetTranslationRuntime("language-settings");
     }
 
-    public static void onStyleSettingsChanged() {
-        resetTranslationRuntime("style-settings");
-    }
-
     public static void onTranslationCacheEdited() {
         resetTranslationRuntime("cache-edit");
+    }
+
+    public static void onGlobalTranslationSettingChanged(boolean enabled) {
+        if (!enabled) {
+            ChatContextBatchTranslator.restoreVisibleOriginalMessages();
+        }
+        resetTranslationRuntime("global-translation:" + (enabled ? "enabled" : "disabled"));
     }
 
     public static void onSharedTranslationCacheImported() {
@@ -353,6 +479,7 @@ public class SimpleTranslateMod implements ClientModInitializer {
         ScoreboardTranslationHelper.clearLocalCache();
         SignTranslationHelper.clearAllCache();
         SignContextSelectionManager.clearAll();
+        TokenUsageMonitor.clear();
         LOGGER.debug("Reset SimpleTranslate runtime state: {} (revision={})", reason, runtimeRevision);
     }
 

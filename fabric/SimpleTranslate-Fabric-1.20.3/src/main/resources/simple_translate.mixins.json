@@ -8,7 +8,6 @@
     "client": [
         "ChatComponentMixin",
         "ChatScreenMixin",
-        "KeyboardHandlerMixin",
         "AbstractContainerScreenMixin",
         "BookViewScreenMixin",
         "BookEditScreenMixin",
@@ -16,8 +15,6 @@
         "SignRendererMixin",
         "SignTextMixin",
         "HoverTooltipMixin",
-        "MouseHandlerMixin",
-        "ScreenMixin",
         "ScoreboardMixin",
         "BossHealthOverlayMixin",
         "TitleOverlayMixin",

@@ -1,7 +1,8 @@
 package com.yourname.simpletranslate.gui;
 
-import com.mojang.blaze3d.platform.InputConstants;
 import com.mojang.blaze3d.vertex.PoseStack;
+
+import com.mojang.blaze3d.platform.InputConstants;
 import com.yourname.simpletranslate.config.ModConfig;
 import com.yourname.simpletranslate.keybind.HoldOriginalFeature;
 import net.minecraft.ChatFormatting;
@@ -64,7 +65,10 @@ public class HoldOriginalScreen extends BaseSimpleTranslateScreen {
         CycleButton<Boolean> masterToggle = CycleButton.onOffBuilder(masterEnabled)
                 .create(centerX - rowWidth / 2, startY, rowWidth, rowHeight,
                         Component.translatable("screen.simple_translate.hold_original.master_enabled"),
-                        (button, value) -> masterEnabled = value);
+                        (button, value) -> {
+                            masterEnabled = value;
+                            applySettings();
+                        });
         withTooltip(masterToggle, "screen.simple_translate.hold_original.master_enabled.tooltip");
         addScrollableWidget(masterToggle, startY);
 
@@ -81,7 +85,7 @@ public class HoldOriginalScreen extends BaseSimpleTranslateScreen {
             int keyButtonX = rowX + labelWidth + 5;
             int clearButtonX = keyButtonX + keyWidth + 5;
 
-            Button keyButton = UiCompat.buttonBuilder(
+            Button keyButton = ButtonCompat.builder(
                     getKeyDisplayName(pendingKeys.get(feature)),
                     btn -> startRecording(feature))
                     .bounds(keyButtonX, featureLabelY, keyWidth, rowHeight)
@@ -92,7 +96,7 @@ public class HoldOriginalScreen extends BaseSimpleTranslateScreen {
             keyButtons.put(feature, keyButton);
             addScrollableWidget(keyButton, featureLabelY);
 
-            Button clearButton = UiCompat.buttonBuilder(
+            Button clearButton = ButtonCompat.builder(
                     Component.translatable("screen.simple_translate.hold_original.clear"),
                     btn -> clearKey(feature))
                     .bounds(clearButtonX, featureLabelY, clearWidth, rowHeight)
@@ -111,24 +115,15 @@ public class HoldOriginalScreen extends BaseSimpleTranslateScreen {
 
         contentHeight = startY + 20;
 
-        int halfWidth = (rowWidth - 10) / 2;
         int bottomY = Math.max(2, this.height - 28);
 
-        Button saveButton = UiCompat.buttonBuilder(
-                Component.translatable("screen.simple_translate.save"),
-                btn -> saveAndClose())
-                .bounds(centerX - rowWidth / 2, bottomY, halfWidth, rowHeight)
-                .build();
-        withTooltip(saveButton, "screen.simple_translate.save.tooltip");
-        this.addRenderableWidget(saveButton);
-
-        Button cancelButton = UiCompat.buttonBuilder(
-                Component.translatable("screen.simple_translate.cancel"),
+        Button backButton = ButtonCompat.builder(
+                Component.translatable("screen.simple_translate.back"),
                 btn -> this.onClose())
-                .bounds(centerX + 5, bottomY, halfWidth, rowHeight)
+                .bounds(centerX - rowWidth / 2, bottomY, rowWidth, rowHeight)
                 .build();
-        withTooltip(cancelButton, "screen.simple_translate.cancel.tooltip");
-        this.addRenderableWidget(cancelButton);
+        withTooltip(backButton, "screen.simple_translate.back.tooltip");
+        this.addRenderableWidget(backButton);
 
         repositionWidgets();
     }
@@ -145,7 +140,7 @@ public class HoldOriginalScreen extends BaseSimpleTranslateScreen {
             AbstractWidget widget = scrollableWidgets.get(i);
             int baseY = widgetBaseY.get(i);
             int newY = baseY - (int) scrollOffset;
-            UiCompat.setY(widget, newY);
+            widget.y = newY;
             boolean visible = newY >= viewportTop - 10 && newY < clipBottom;
             widget.visible = visible;
             widget.active = visible;
@@ -175,6 +170,7 @@ public class HoldOriginalScreen extends BaseSimpleTranslateScreen {
         if (recordingFeature == feature) {
             recordingFeature = null;
         }
+        applySettings();
     }
 
     private void cancelRecording() {
@@ -198,6 +194,7 @@ public class HoldOriginalScreen extends BaseSimpleTranslateScreen {
             btn.setMessage(getKeyDisplayName(keyCode));
         }
         recordingFeature = null;
+        applySettings();
     }
 
     private Component getKeyDisplayName(int keyCode) {
@@ -234,8 +231,8 @@ public class HoldOriginalScreen extends BaseSimpleTranslateScreen {
         if (recordingFeature != null) {
             Button recordingBtn = keyButtons.get(recordingFeature);
             if (recordingBtn != null && recordingBtn.visible
-                    && mouseX >= UiCompat.getX(recordingBtn) && mouseX <= UiCompat.getX(recordingBtn) + recordingBtn.getWidth()
-                    && mouseY >= UiCompat.getY(recordingBtn) && mouseY <= UiCompat.getY(recordingBtn) + 20) {
+                    && mouseX >= recordingBtn.x && mouseX <= recordingBtn.x + recordingBtn.getWidth()
+                    && mouseY >= recordingBtn.y && mouseY <= recordingBtn.y + recordingBtn.getHeight()) {
                 cancelRecording();
                 return true;
             }
@@ -257,7 +254,8 @@ public class HoldOriginalScreen extends BaseSimpleTranslateScreen {
     }
 
     @Override
-    public void render(GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
+    public void render(PoseStack poseStack, int mouseX, int mouseY, float partialTick) {
+        GuiGraphics graphics = new GuiGraphics(poseStack);
         ScreenBackgrounds.renderPlain(graphics, this.width, this.height);
         graphics.drawCenteredString(this.font, this.title, this.width / 2, 12, 0xFFFFFF);
 
@@ -268,8 +266,8 @@ public class HoldOriginalScreen extends BaseSimpleTranslateScreen {
         for (int i = 0; i < scrollableWidgets.size(); i++) {
             AbstractWidget w = scrollableWidgets.get(i);
             if (w instanceof LabelWidget labelWidget && w.visible) {
-                int textY = UiCompat.getY(w) + (20 - this.font.lineHeight) / 2;
-                graphics.drawString(this.font, labelWidget.label, UiCompat.getX(w), textY, 0xCCCCCC);
+                int textY = w.y + (w.getHeight() - this.font.lineHeight) / 2;
+                graphics.drawString(this.font, labelWidget.label, w.x, textY, 0xCCCCCC);
             }
         }
 
@@ -280,7 +278,7 @@ public class HoldOriginalScreen extends BaseSimpleTranslateScreen {
         }
 
         drawBottomActionMask(graphics);
-        super.render(graphics, mouseX, mouseY, partialTick);
+        super.render(poseStack, mouseX, mouseY, partialTick);
 
         int hintY = this.height - 44;
         if (recordingFeature != null) {
@@ -316,13 +314,12 @@ public class HoldOriginalScreen extends BaseSimpleTranslateScreen {
         }
     }
 
-    private void saveAndClose() {
+    private void applySettings() {
         ModConfig.HOLD_ORIGINAL_ENABLED.set(masterEnabled);
         for (HoldOriginalFeature feature : HoldOriginalFeature.values()) {
             feature.getKeyConfig().set(pendingKeys.get(feature));
         }
         ModConfig.save();
-        this.onClose();
     }
 
     @Override
@@ -346,10 +343,10 @@ public class HoldOriginalScreen extends BaseSimpleTranslateScreen {
 
         @Override
         public void renderButton(PoseStack poseStack, int mouseX, int mouseY, float partialTick) {
+            GuiGraphics graphics = new GuiGraphics(poseStack);
             // Rendering handled by parent screen (so it respects scissor/scroll)
         }
 
-        @Override
         public void updateNarration(net.minecraft.client.gui.narration.NarrationElementOutput narrationElementOutput) {
         }
     }

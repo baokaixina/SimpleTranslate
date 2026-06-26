@@ -1,14 +1,18 @@
 package com.yourname.simpletranslate.mixin;
 
 import com.mojang.blaze3d.vertex.PoseStack;
+import com.yourname.simpletranslate.compat.GuiGraphics;
 import com.yourname.simpletranslate.config.ModConfig;
+import com.yourname.simpletranslate.feature.tooltip.TooltipTranslationController;
+import com.yourname.simpletranslate.feature.tooltip.TooltipTranslationGlowRenderer;
+import com.yourname.simpletranslate.feature.tooltip.TooltipTranslationHelper;
 import com.yourname.simpletranslate.keybind.HoldOriginalFeature;
 import com.yourname.simpletranslate.keybind.HoldOriginalState;
-import com.yourname.simpletranslate.util.TooltipTranslationController;
-import com.yourname.simpletranslate.util.TooltipTranslationHelper;
 import net.minecraft.client.Minecraft;
+import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.gui.screens.inventory.BookViewScreen;
+import net.minecraft.client.gui.screens.inventory.tooltip.ClientTooltipComponent;
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.chat.HoverEvent;
 import net.minecraft.network.chat.Style;
@@ -21,128 +25,160 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 import java.util.List;
 import java.util.Optional;
+import java.util.function.Consumer;
 
-/**
- * Intercepts hover tooltips in chat/book screens and materialized tooltip lists.
- * Minecraft 1.19.4 renders through Screen/PoseStack, so this keeps the old
- * descriptor while sharing the same controller and cache-miss queue as newer
- * GuiGraphics targets.
- */
 @Mixin(Screen.class)
 public class HoverTooltipMixin {
 
     @Inject(method = "renderComponentHoverEffect", at = @At("HEAD"), cancellable = true)
-    private void onRenderComponentHoverEffect(PoseStack poseStack, Style style, int mouseX, int mouseY, CallbackInfo ci) {
-        if (style == null) {
+    private void simple_translate$onRenderComponentHoverEffect(PoseStack poseStack, Style style, int mouseX, int mouseY,
+                                                               CallbackInfo ci) {
+        if (style == null || HoldOriginalState.isHolding(HoldOriginalFeature.TOOLTIP_HOVER)) {
             return;
         }
-
         HoverEvent hoverEvent = style.getHoverEvent();
         if (hoverEvent == null || hoverEvent.getAction() != HoverEvent.Action.SHOW_TEXT) {
             return;
         }
-
         Component hoverText = hoverEvent.getValue(HoverEvent.Action.SHOW_TEXT);
-        if (!TooltipTranslationController.shouldTranslateChatHover(hoverText)
-                && !simple_translate$shouldTranslateBookHover(hoverText)) {
+        if (!TooltipTranslationController.shouldTranslateChatHover(hoverText) && !simple_translate$shouldTranslateBookHover()) {
             return;
         }
 
-        List<Component> translatedLines = TooltipTranslationHelper.translateHoverComponentLines(hoverText);
+        Font font = Minecraft.getInstance().font;
+        GuiGraphics graphics = new GuiGraphics(poseStack);
+        TooltipTranslationController.RenderContext context = TooltipTranslationController.resolveRenderContext();
+        boolean requestAllowed = TooltipTranslationController.allowRequest(context, List.of(hoverText));
+        List<Component> translatedLines = TooltipTranslationHelper.translateHoverComponentLines(hoverText, requestAllowed);
+
         if (translatedLines.size() == 1 && translatedLines.get(0) == hoverText) {
+            if (requestAllowed || TooltipTranslationHelper.isHoverTranslationPending(hoverText)) {
+                TooltipTranslationController.beginRenderingTranslated();
+                try {
+                    TooltipTranslationController.armPendingGlowForHover(hoverText, requestAllowed);
+                    graphics.renderTooltip(font,
+                            TooltipTranslationHelper.splitHoverComponentLinesForRender(hoverText),
+                            Optional.empty(), mouseX, mouseY);
+                } finally {
+                    TooltipTranslationController.endRenderingTranslated();
+                }
+                ci.cancel();
+            }
             return;
         }
+        simple_translate$renderWithGuard(graphics,
+                g -> g.renderTooltip(font, translatedLines, Optional.empty(), mouseX, mouseY), ci);
+    }
 
-        Screen screen = (Screen) (Object) this;
-        TooltipTranslationController.beginRenderingTranslated();
-        try {
-            screen.renderTooltip(poseStack, translatedLines, Optional.empty(), mouseX, mouseY);
-        } finally {
-            TooltipTranslationController.endRenderingTranslated();
+    @Inject(method = "renderTooltipInternal", at = @At("TAIL"))
+    private void simple_translate$renderPendingTranslationGlow(PoseStack poseStack,
+                                                               List<ClientTooltipComponent> components,
+                                                               int mouseX, int mouseY,
+                                                               CallbackInfo ci) {
+        if (!TooltipTranslationController.consumePendingGlow()) {
+            return;
         }
-        ci.cancel();
+        TooltipTranslationGlowRenderer.renderLegacy(new GuiGraphics(poseStack), Minecraft.getInstance().font,
+                components, mouseX, mouseY);
     }
 
     @Inject(
             method = "renderTooltip(Lcom/mojang/blaze3d/vertex/PoseStack;Ljava/util/List;Ljava/util/Optional;II)V",
-            at = @At("HEAD"),
-            cancellable = true
-    )
+            at = @At("HEAD"), cancellable = true)
     private void simple_translate$onRenderTooltipList(PoseStack poseStack, List<Component> components,
                                                       Optional<TooltipComponent> image, int mouseX, int mouseY,
                                                       CallbackInfo ci) {
         if (!TooltipTranslationController.shouldTranslateRenderedTooltip(components)) {
             return;
         }
-
         TooltipTranslationController.RenderContext context = TooltipTranslationController.resolveRenderContext();
-        List<Component> translated = TooltipTranslationController.translateForRender(components, context);
+        boolean requestAllowed = TooltipTranslationController.allowRequest(context, components);
+        List<Component> translated = TooltipTranslationController.translateForRender(components, context, requestAllowed);
+        GuiGraphics graphics = new GuiGraphics(poseStack);
+
         if (translated == components) {
+            if (TooltipTranslationController.shouldRenderPendingOriginal(components, context, requestAllowed)) {
+                List<Component> splitOriginal = TooltipTranslationHelper.splitHoverComponentsLinesForRender(components);
+                if (splitOriginal != components) {
+                    simple_translate$renderWithGuard(graphics,
+                            g -> g.renderTooltip(Minecraft.getInstance().font, splitOriginal, image, mouseX, mouseY), ci);
+                }
+            }
             return;
         }
-
-        Screen screen = (Screen) (Object) this;
-        TooltipTranslationController.beginRenderingTranslated();
-        try {
-            screen.renderTooltip(poseStack, translated, image, mouseX, mouseY);
-        } finally {
-            TooltipTranslationController.endRenderingTranslated();
-        }
-        ci.cancel();
+        simple_translate$renderWithGuard(graphics,
+                g -> g.renderTooltip(Minecraft.getInstance().font, translated, image, mouseX, mouseY), ci);
     }
 
-    @Inject(
-            method = "renderComponentTooltip(Lcom/mojang/blaze3d/vertex/PoseStack;Ljava/util/List;II)V",
-            at = @At("HEAD"),
-            cancellable = true
-    )
+    @Inject(method = "renderComponentTooltip", at = @At("HEAD"), cancellable = true)
     private void simple_translate$onRenderComponentTooltip(PoseStack poseStack, List<Component> components,
                                                            int mouseX, int mouseY, CallbackInfo ci) {
         if (!TooltipTranslationController.shouldTranslateRenderedTooltip(components)) {
             return;
         }
-
         TooltipTranslationController.RenderContext context = TooltipTranslationController.resolveRenderContext();
-        List<Component> translated = TooltipTranslationController.translateForRender(components, context);
+        boolean requestAllowed = TooltipTranslationController.allowRequest(context, components);
+        List<Component> translated = TooltipTranslationController.translateForRender(components, context, requestAllowed);
+        GuiGraphics graphics = new GuiGraphics(poseStack);
+
         if (translated == components) {
+            if (TooltipTranslationController.shouldRenderPendingOriginal(components, context, requestAllowed)) {
+                List<Component> splitOriginal = TooltipTranslationHelper.splitHoverComponentsLinesForRender(components);
+                if (splitOriginal != components) {
+                    simple_translate$renderWithGuard(graphics,
+                            g -> g.renderComponentTooltip(Minecraft.getInstance().font, splitOriginal, mouseX, mouseY), ci);
+                }
+            }
             return;
         }
-
-        Screen screen = (Screen) (Object) this;
-        TooltipTranslationController.beginRenderingTranslated();
-        try {
-            screen.renderComponentTooltip(poseStack, translated, mouseX, mouseY);
-        } finally {
-            TooltipTranslationController.endRenderingTranslated();
-        }
-        ci.cancel();
+        simple_translate$renderWithGuard(graphics,
+                g -> g.renderComponentTooltip(Minecraft.getInstance().font, translated, mouseX, mouseY), ci);
     }
 
     @Inject(
             method = "renderTooltip(Lcom/mojang/blaze3d/vertex/PoseStack;Lnet/minecraft/network/chat/Component;II)V",
-            at = @At("HEAD"),
-            cancellable = true
-    )
+            at = @At("HEAD"), cancellable = true)
     private void simple_translate$onRenderTooltipComponent(PoseStack poseStack, Component component, int mouseX, int mouseY,
                                                            CallbackInfo ci) {
+        if (component == null || TooltipTranslationController.isRenderingTranslated()) {
+            return;
+        }
+        if (TooltipTranslationHelper.isMarkedTranslatedTooltip(component)) {
+            return;
+        }
         if (!TooltipTranslationController.shouldTranslateRenderedTooltip(List.of(component))) {
             return;
         }
-
         TooltipTranslationController.RenderContext context = TooltipTranslationController.resolveRenderContext();
-        List<Component> translated = TooltipTranslationController.translateForRender(List.of(component), context);
+        List<Component> source = List.of(component);
+        boolean requestAllowed = TooltipTranslationController.allowRequest(context, source);
+        List<Component> translated = TooltipTranslationController.translateForRender(source, context, requestAllowed);
+        GuiGraphics graphics = new GuiGraphics(poseStack);
+
         if (translated.isEmpty() || (translated.size() == 1 && translated.get(0) == component)) {
+            if (TooltipTranslationController.shouldRenderPendingOriginal(source, context, requestAllowed)) {
+                List<Component> splitOriginal = TooltipTranslationHelper.splitHoverComponentLinesForRender(component);
+                if (splitOriginal.size() != 1 || splitOriginal.get(0) != component) {
+                    simple_translate$renderWithGuard(graphics,
+                            g -> g.renderTooltip(Minecraft.getInstance().font, splitOriginal, Optional.empty(), mouseX, mouseY), ci);
+                }
+            }
             return;
         }
+        simple_translate$renderWithGuard(graphics, g -> {
+            if (translated.size() == 1) {
+                g.renderTooltip(Minecraft.getInstance().font, translated.get(0), mouseX, mouseY);
+            } else {
+                g.renderTooltip(Minecraft.getInstance().font, translated, Optional.empty(), mouseX, mouseY);
+            }
+        }, ci);
+    }
 
-        Screen screen = (Screen) (Object) this;
+    @Unique
+    private void simple_translate$renderWithGuard(GuiGraphics guiGraphics, Consumer<GuiGraphics> renderer, CallbackInfo ci) {
         TooltipTranslationController.beginRenderingTranslated();
         try {
-            if (translated.size() == 1) {
-                screen.renderTooltip(poseStack, translated.get(0), mouseX, mouseY);
-            } else {
-                screen.renderTooltip(poseStack, translated, Optional.empty(), mouseX, mouseY);
-            }
+            renderer.accept(guiGraphics);
         } finally {
             TooltipTranslationController.endRenderingTranslated();
         }
@@ -150,15 +186,10 @@ public class HoverTooltipMixin {
     }
 
     @Unique
-    private static boolean simple_translate$shouldTranslateBookHover(Component hoverText) {
-        if (hoverText == null || TooltipTranslationController.isRenderingTranslated()) {
-            return false;
-        }
+    private static boolean simple_translate$shouldTranslateBookHover() {
         Screen screen = Minecraft.getInstance().screen;
         return screen instanceof BookViewScreen
                 && ModConfig.TOOLTIP_BOOK_HOVER_ENABLED.get()
-                && !HoldOriginalState.isHolding(HoldOriginalFeature.TOOLTIP_HOVER)
-                && !TooltipTranslationHelper.isMarkedTranslatedTooltip(hoverText)
-                && TooltipTranslationHelper.containsEnglish(hoverText.getString());
+                && !HoldOriginalState.isHolding(HoldOriginalFeature.TOOLTIP_HOVER);
     }
 }

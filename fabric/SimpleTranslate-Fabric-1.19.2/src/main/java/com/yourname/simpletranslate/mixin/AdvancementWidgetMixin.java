@@ -3,11 +3,13 @@ package com.yourname.simpletranslate.mixin;
 import com.yourname.simpletranslate.config.ModConfig;
 import com.yourname.simpletranslate.keybind.HoldOriginalFeature;
 import com.yourname.simpletranslate.keybind.HoldOriginalState;
-import com.yourname.simpletranslate.util.AdvancementTranslationHelper;
-import com.yourname.simpletranslate.util.TooltipTranslationHelper;
-import com.mojang.blaze3d.vertex.PoseStack;
+import com.yourname.simpletranslate.feature.advancement.AdvancementTranslationHelper;
+import com.yourname.simpletranslate.core.ComponentRenderSafety;
+import com.yourname.simpletranslate.core.MixinRuntimeProbe;
+import com.yourname.simpletranslate.feature.tooltip.TooltipTranslationHelper;
 import net.minecraft.advancements.Advancement;
 import net.minecraft.advancements.DisplayInfo;
+import com.mojang.blaze3d.vertex.PoseStack;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.screens.advancements.AdvancementWidget;
 import net.minecraft.locale.Language;
@@ -28,7 +30,11 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 import java.util.List;
 
 /**
- * Mixin to translate advancement widget text (title and description).
+ * Mixin to translate advancement widget text (title and description)
+ *
+ * 翻译进度节点的标题和描述（鼠标悬停时显示）
+ * 使用批量翻译保持标题和描述的上下文关联
+ * 保留原文的样式（颜色、格式等）
  */
 @Mixin(AdvancementWidget.class)
 public abstract class AdvancementWidgetMixin {
@@ -55,6 +61,10 @@ public abstract class AdvancementWidgetMixin {
     @Unique
     private FormattedCharSequence simple_translate$translatedTitle;
 
+    /**
+     * Inject at the start of drawHover to trigger batch translation
+     * 在drawHover开始时触发批量翻译（标题+描述一起翻译）
+     */
     @Inject(method = "drawHover", at = @At("HEAD"))
     private void simple_translate$onDrawHoverStart(PoseStack poseStack, int x, int y, float fade, int width, int height, CallbackInfo ci) {
         if (!ModConfig.CONTENT_ADVANCEMENT_ENABLED.get()) {
@@ -65,26 +75,40 @@ public abstract class AdvancementWidgetMixin {
         if (display != null) {
             Component title = display.getTitle();
             Component description = display.getDescription();
+
+            // Get advancement ID for caching
             String advancementId = simple_translate$advancementKey(title, description);
+
+            // Trigger batch translation with context (title + description together)
             AdvancementTranslationHelper.ensureTranslation(advancementId, title, description);
         }
     }
 
+    /**
+     * Redirect description list access to use translated description lines
+     */
     @Redirect(
             method = "drawHover",
             at = @At(value = "FIELD", target = "Lnet/minecraft/client/gui/screens/advancements/AdvancementWidget;description:Ljava/util/List;"),
-            require = 1
+            require = 0
     )
     private List<FormattedCharSequence> simple_translate$redirectDescription(AdvancementWidget instance) {
+        MixinRuntimeProbe.matched("AdvancementWidgetMixin#description");
         return simple_translate$getDescriptionLinesForRender();
     }
 
+    /**
+     * Redirect title field access because vanilla precomputes the title as a
+     * FormattedCharSequence in the constructor. drawString(Component) redirects
+     * never see that original title component.
+     */
     @Redirect(
             method = "drawHover",
             at = @At(value = "FIELD", target = "Lnet/minecraft/client/gui/screens/advancements/AdvancementWidget;title:Lnet/minecraft/util/FormattedCharSequence;"),
-            require = 1
+            require = 0
     )
     private FormattedCharSequence simple_translate$redirectTitle(AdvancementWidget instance) {
+        MixinRuntimeProbe.matched("AdvancementWidgetMixin#title");
         return simple_translate$getTitleForRender();
     }
 
@@ -101,7 +125,7 @@ public abstract class AdvancementWidgetMixin {
             return this.description;
         }
 
-        Component original = this.display.getDescription();
+        Component original = ComponentRenderSafety.sanitize(this.display.getDescription());
         if (original == null) {
             return this.description;
         }
@@ -134,7 +158,18 @@ public abstract class AdvancementWidgetMixin {
 
         int maxWidth = Math.max(1, this.width - 3 - 5);
         List<FormattedText> lines = this.findOptimalLines(translatedComponent, maxWidth);
-        List<FormattedCharSequence> visual = lines != null ? Language.getInstance().getVisualOrder(lines) : this.description;
+        List<FormattedCharSequence> visual;
+        if (lines == null) {
+            visual = this.description;
+        } else {
+            visual = new java.util.ArrayList<>(Language.getInstance().getVisualOrder(lines));
+            while (visual.size() < this.description.size()) {
+                visual.add(FormattedCharSequence.EMPTY);
+            }
+            if (visual.size() > this.description.size()) {
+                visual = new java.util.ArrayList<>(visual.subList(0, this.description.size()));
+            }
+        }
 
         this.simple_translate$descriptionCacheKey = cacheKey;
         this.simple_translate$translatedDescription = visual;
@@ -154,7 +189,7 @@ public abstract class AdvancementWidgetMixin {
             return this.title;
         }
 
-        Component original = this.display.getTitle();
+        Component original = ComponentRenderSafety.sanitize(this.display.getTitle());
         if (original == null) {
             return this.title;
         }
@@ -195,8 +230,9 @@ public abstract class AdvancementWidgetMixin {
         if (this.advancement != null && this.advancement.getId() != null) {
             return "advancement:" + this.advancement.getId();
         }
-        String titleText = title == null ? "" : title.getString();
-        String descriptionText = description == null ? "" : description.getString();
+        String titleText = ComponentRenderSafety.sanitize(title).getString();
+        String descriptionText = ComponentRenderSafety.sanitize(description).getString();
         return "advancement:document:" + titleText.hashCode() + ":" + descriptionText.hashCode();
     }
 }
+

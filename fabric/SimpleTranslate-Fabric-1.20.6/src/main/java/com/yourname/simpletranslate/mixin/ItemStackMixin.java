@@ -3,8 +3,8 @@ package com.yourname.simpletranslate.mixin;
 import com.yourname.simpletranslate.config.ModConfig;
 import com.yourname.simpletranslate.keybind.HoldOriginalFeature;
 import com.yourname.simpletranslate.keybind.HoldOriginalState;
-import com.yourname.simpletranslate.util.DirectFormattedTranslationPipeline;
-import com.yourname.simpletranslate.util.TooltipTranslationHelper;
+import com.yourname.simpletranslate.core.ComponentListTranslationResult;
+import com.yourname.simpletranslate.feature.tooltip.TooltipTranslationHelper;
 import net.minecraft.network.chat.Component;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.Item;
@@ -26,8 +26,7 @@ import java.util.List;
 public class ItemStackMixin {
 
     @Inject(method = "getTooltipLines", at = @At("RETURN"), cancellable = true)
-    private void onGetTooltipLines(Item.TooltipContext context, Player player, TooltipFlag flag,
-                                   CallbackInfoReturnable<List<Component>> cir) {
+    private void onGetTooltipLines(Item.TooltipContext context, Player player, TooltipFlag flag, CallbackInfoReturnable<List<Component>> cir) {
         if (!ModConfig.TOOLTIP_ITEM_ENABLED.get()) {
             return;
         }
@@ -52,7 +51,7 @@ public class ItemStackMixin {
          * the one tooltip they actually want. The render mixins queue missing
          * translations; this mixin only returns already-cached results.
         */
-        DirectFormattedTranslationPipeline.ComponentListResult cached =
+            ComponentListTranslationResult cached =
                 TooltipTranslationHelper.getCachedComponentsBatch(original);
         List<Component> translated = cached.translated ? cached.components : original;
 

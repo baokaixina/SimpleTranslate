@@ -4,9 +4,9 @@ import com.yourname.simpletranslate.SimpleTranslateMod;
 import com.yourname.simpletranslate.config.ModConfig;
 import com.yourname.simpletranslate.keybind.HoldOriginalFeature;
 import com.yourname.simpletranslate.keybind.HoldOriginalState;
-import com.yourname.simpletranslate.util.DirectFormattedTranslationPipeline;
-import com.yourname.simpletranslate.util.DirectSurfaceTranslator;
-import com.yourname.simpletranslate.util.TooltipTranslationHelper;
+import com.yourname.simpletranslate.core.ComponentTranslationResult;
+import com.yourname.simpletranslate.core.DirectSurfaceTranslator;
+import com.yourname.simpletranslate.feature.tooltip.TooltipTranslationHelper;
 import net.minecraft.client.Minecraft;
 import net.minecraft.network.chat.Component;
 import net.minecraft.world.entity.Display;
@@ -39,7 +39,7 @@ public class TextDisplayMixin {
             return;
         }
 
-        DirectFormattedTranslationPipeline.ComponentResult direct =
+            ComponentTranslationResult direct =
                 DirectSurfaceTranslator.translateComponent(
                         original, "text_display.component.direct", "text-display");
         if (!direct.handled || !direct.translated) {

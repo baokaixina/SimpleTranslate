@@ -1,13 +1,14 @@
 package com.yourname.simpletranslate.mixin;
 
-import com.yourname.simpletranslate.chat.ChatComponentAccess;
-import com.yourname.simpletranslate.chat.ChatTranslationController;
+import com.yourname.simpletranslate.feature.chat.ChatComponentAccess;
+import com.yourname.simpletranslate.feature.chat.ChatTranslationController;
 import com.yourname.simpletranslate.keybind.HoldOriginalAware;
 import com.yourname.simpletranslate.keybind.HoldOriginalFeature;
-import com.yourname.simpletranslate.util.BlacklistRefreshAware;
-import com.yourname.simpletranslate.util.ChatButtonClickHandler;
-import com.yourname.simpletranslate.util.HudHistoryChatBridge;
-import com.yourname.simpletranslate.util.HudTranslationHistory;
+import com.yourname.simpletranslate.core.BlacklistRefreshAware;
+import com.yourname.simpletranslate.core.SafeTranslate;
+import com.yourname.simpletranslate.feature.chat.ChatButtonClickHandler;
+import com.yourname.simpletranslate.feature.chat.HudHistoryChatBridge;
+import com.yourname.simpletranslate.feature.hud.HudTranslationHistory;
 import net.minecraft.client.GuiMessage;
 import net.minecraft.client.GuiMessageTag;
 import net.minecraft.client.gui.components.ChatComponent;
@@ -63,7 +64,7 @@ public abstract class ChatComponentMixin
 
     @Inject(method = "addMessage(Lnet/minecraft/network/chat/Component;Lnet/minecraft/network/chat/MessageSignature;Lnet/minecraft/client/GuiMessageTag;)V", at = @At("TAIL"))
     private void onAddMessage(Component message, MessageSignature signature, GuiMessageTag tag, CallbackInfo ci) {
-        simple_translate$controller().onAddMessage(message);
+        SafeTranslate.guard(() -> simple_translate$controller().onAddMessage(message), "chat.onAddMessage");
     }
 
     @Override

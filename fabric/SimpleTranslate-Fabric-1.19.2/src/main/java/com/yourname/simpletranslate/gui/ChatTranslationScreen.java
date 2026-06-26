@@ -1,9 +1,8 @@
 package com.yourname.simpletranslate.gui;
 
-import com.yourname.simpletranslate.chat.ChatTranslationController;
+import com.yourname.simpletranslate.feature.chat.ChatTranslationController;
 import com.yourname.simpletranslate.config.ModConfig;
 import net.minecraft.client.gui.components.CycleButton;
-import net.minecraft.client.gui.components.EditBox;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.Component;
 
@@ -17,16 +16,14 @@ public class ChatTranslationScreen extends ScrollableSettingsScreen {
     private CycleButton<ModConfig.TranslationMode> modeButton;
     private CycleButton<Boolean> contextEnabledToggle;
     private CycleButton<Integer> contextCountButton;
-    private EditBox batchIntervalInput;
-    private EditBox collectWindowInput;
+    private CycleButton<ModConfig.TooltipTriggerMode> hoverTriggerModeButton;
 
     private boolean chatEnabled;
     private ModConfig.TranslationMode currentMode;
     private boolean hoverEnabled;
+    private ModConfig.TooltipTriggerMode hoverTriggerMode;
     private boolean contextEnabled;
     private int contextMessageCount;
-    private int batchIntervalMs;
-    private int collectWindowMs;
 
     public ChatTranslationScreen(Screen parent) {
         super(Component.translatable("screen.simple_translate.chat_translation"), parent);
@@ -36,13 +33,12 @@ public class ChatTranslationScreen extends ScrollableSettingsScreen {
         this.chatEnabled = ModConfig.CHAT_ENABLED.get();
         this.currentMode = ModConfig.CHAT_MODE.get();
         this.hoverEnabled = ModConfig.TOOLTIP_CHAT_HOVER_ENABLED.get();
+        this.hoverTriggerMode = ModConfig.TOOLTIP_CHAT_HOVER_TRIGGER_MODE.get();
         this.contextEnabled = ModConfig.CHAT_CONTEXT_ENABLED.get();
         if (this.currentMode != ModConfig.TranslationMode.AUTO) {
             this.contextEnabled = false;
         }
         this.contextMessageCount = ModConfig.CHAT_CONTEXT_MESSAGE_COUNT.get();
-        this.batchIntervalMs = ModConfig.CHAT_CONTEXT_BATCH_INTERVAL_MS.get();
-        this.collectWindowMs = ModConfig.CHAT_CONTEXT_COLLECT_WINDOW_MS.get();
     }
 
     @Override
@@ -100,34 +96,28 @@ public class ChatTranslationScreen extends ScrollableSettingsScreen {
         withTooltip(this.contextCountButton, "screen.simple_translate.chat.context_count.tooltip");
         addEntry(this.contextCountButton);
 
-        addSectionHeader(text("screen.simple_translate.chat.section.timing"));
-
-        this.batchIntervalInput = new EditBox(this.font, 0, 0, contentWidth, 20,
-                Component.translatable("screen.simple_translate.chat.context_batch_interval"));
-        this.batchIntervalInput.setMaxLength(5);
-        this.batchIntervalInput.setFilter(value -> value == null || value.isEmpty() || value.matches("\\d{0,5}"));
-        this.batchIntervalInput.setValue(Integer.toString(this.batchIntervalMs));
-        UiCompat.setHint(this.batchIntervalInput, Component.translatable("screen.simple_translate.chat.context_time_hint"));
-        withTooltip(this.batchIntervalInput, "screen.simple_translate.chat.context_batch_interval.tooltip");
-        addEntry(this.batchIntervalInput);
-
-        this.collectWindowInput = new EditBox(this.font, 0, 0, contentWidth, 20,
-                Component.translatable("screen.simple_translate.chat.context_collect_window"));
-        this.collectWindowInput.setMaxLength(5);
-        this.collectWindowInput.setFilter(value -> value == null || value.isEmpty() || value.matches("\\d{0,5}"));
-        this.collectWindowInput.setValue(Integer.toString(this.collectWindowMs));
-        UiCompat.setHint(this.collectWindowInput, Component.translatable("screen.simple_translate.chat.context_time_hint"));
-        withTooltip(this.collectWindowInput, "screen.simple_translate.chat.context_collect_window.tooltip");
-        addEntry(this.collectWindowInput);
-
         addSectionHeader(text("screen.simple_translate.chat.section.hover"));
 
         CycleButton<Boolean> hoverEnabledToggle = CycleButton.onOffBuilder(hoverEnabled)
                 .create(0, 0, contentWidth, 20,
                         Component.translatable("screen.simple_translate.chat.hover_enabled"),
-                        (button, value) -> hoverEnabled = value);
+                        (button, value) -> {
+                            hoverEnabled = value;
+                            updateButtonStates();
+                        });
         withTooltip(hoverEnabledToggle, "screen.simple_translate.chat.hover_enabled.tooltip");
         addEntry(hoverEnabledToggle);
+
+        this.hoverTriggerModeButton = CycleButton.<ModConfig.TooltipTriggerMode>builder(
+                        mode -> Component.translatable(
+                                "screen.simple_translate.tooltip_trigger_mode." + mode.name().toLowerCase()))
+                .withValues(ModConfig.TooltipTriggerMode.values())
+                .withInitialValue(this.hoverTriggerMode)
+                .create(0, 0, contentWidth, 20,
+                        Component.translatable("screen.simple_translate.chat.hover_trigger_mode"),
+                        (button, value) -> this.hoverTriggerMode = value);
+        withTooltip(this.hoverTriggerModeButton, "screen.simple_translate.chat.hover_trigger_mode.tooltip");
+        addEntry(this.hoverTriggerModeButton);
 
         updateButtonStates();
     }
@@ -155,14 +145,8 @@ public class ChatTranslationScreen extends ScrollableSettingsScreen {
         if (this.contextCountButton != null) {
             this.contextCountButton.active = this.contextCountButton.visible && chatEnabled && autoMode && contextEnabled;
         }
-        boolean timingActive = chatEnabled && autoMode && contextEnabled;
-        if (this.batchIntervalInput != null) {
-            this.batchIntervalInput.active = this.batchIntervalInput.visible && timingActive;
-            this.batchIntervalInput.setEditable(timingActive);
-        }
-        if (this.collectWindowInput != null) {
-            this.collectWindowInput.active = this.collectWindowInput.visible && timingActive;
-            this.collectWindowInput.setEditable(timingActive);
+        if (this.hoverTriggerModeButton != null) {
+            this.hoverTriggerModeButton.active = this.hoverTriggerModeButton.visible && this.hoverEnabled;
         }
     }
 
@@ -175,9 +159,8 @@ public class ChatTranslationScreen extends ScrollableSettingsScreen {
         ModConfig.CHAT_MODE.set(currentMode);
         ModConfig.CHAT_CONTEXT_ENABLED.set(savedContextEnabled);
         ModConfig.CHAT_CONTEXT_MESSAGE_COUNT.set(contextMessageCount);
-        ModConfig.CHAT_CONTEXT_BATCH_INTERVAL_MS.set(parseMillis(batchIntervalInput, batchIntervalMs));
-        ModConfig.CHAT_CONTEXT_COLLECT_WINDOW_MS.set(parseMillis(collectWindowInput, collectWindowMs));
         ModConfig.TOOLTIP_CHAT_HOVER_ENABLED.set(hoverEnabled);
+        ModConfig.TOOLTIP_CHAT_HOVER_TRIGGER_MODE.set(this.hoverTriggerMode);
         if (previousMode != currentMode || previousContextEnabled != savedContextEnabled) {
             ChatTranslationController.onChatModeChanged();
         }
@@ -186,15 +169,6 @@ public class ChatTranslationScreen extends ScrollableSettingsScreen {
     private static String text(String key) {
         return Component.translatable(key).getString();
     }
-
-    private static int parseMillis(EditBox input, int fallback) {
-        if (input == null || input.getValue() == null || input.getValue().isBlank()) {
-            return fallback;
-        }
-        try {
-            return Integer.parseInt(input.getValue().trim());
-        } catch (NumberFormatException ignored) {
-            return fallback;
-        }
-    }
 }
+
+

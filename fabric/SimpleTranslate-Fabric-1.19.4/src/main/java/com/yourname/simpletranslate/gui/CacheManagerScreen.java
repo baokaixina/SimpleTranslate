@@ -4,7 +4,7 @@ import com.mojang.blaze3d.vertex.PoseStack;
 
 import com.yourname.simpletranslate.SimpleTranslateMod;
 import com.yourname.simpletranslate.cache.TranslationCache;
-import com.yourname.simpletranslate.network.SharedCacheClient;
+import com.yourname.simpletranslate.cache.SharedCacheClient;
 import net.fabricmc.loader.api.FabricLoader;
 import net.minecraft.client.Minecraft;
 import com.yourname.simpletranslate.compat.GuiGraphics;
@@ -62,9 +62,9 @@ public class CacheManagerScreen extends BaseSimpleTranslateScreen {
         this.cacheList = new CacheList(this.minecraft, this.width, listWidth, LIST_TOP, this.height - 60);
         this.addRenderableWidget(this.cacheList);
 
-        int shareWidth = Math.max(86, Math.min(180, listWidth / 2 - 4));
+        int shareWidth = Math.max(110, Math.min(190, listWidth / 3));
         int searchWidth = Math.max(86, listWidth - shareWidth - 8);
-        this.serverShareButton = UiCompat.buttonBuilder(
+        this.serverShareButton = Button.builder(
                 serverShareLabel(),
                 button -> toggleServerShare())
                 .bounds(rowLeft, 28, shareWidth, 20)
@@ -79,7 +79,7 @@ public class CacheManagerScreen extends BaseSimpleTranslateScreen {
                 20,
                 Component.translatable("screen.simple_translate.cache.search"));
         this.searchInput.setMaxLength(120);
-        UiCompat.setHint(this.searchInput, Component.translatable("screen.simple_translate.cache.search_hint"));
+        this.searchInput.setHint(Component.translatable("screen.simple_translate.cache.search_hint"));
         this.searchInput.setResponder(ignored -> applySearchFilter());
         withTooltip(this.searchInput, "screen.simple_translate.cache.search.tooltip");
         this.addRenderableWidget(this.searchInput);
@@ -95,7 +95,7 @@ public class CacheManagerScreen extends BaseSimpleTranslateScreen {
         int totalWidth = buttonWidth * 4 + spacing * 3;
         int startX = centerX - totalWidth / 2;
 
-        this.editButton = UiCompat.buttonBuilder(
+        this.editButton = Button.builder(
                 Component.translatable("screen.simple_translate.cache.edit"),
                 button -> editSelectedEntry())
                 .bounds(startX, buttonY, buttonWidth, 20)
@@ -103,7 +103,7 @@ public class CacheManagerScreen extends BaseSimpleTranslateScreen {
         withTooltip(this.editButton, "screen.simple_translate.cache.edit.tooltip");
         this.addRenderableWidget(this.editButton);
 
-        this.exportButton = UiCompat.buttonBuilder(
+        this.exportButton = Button.builder(
                 Component.translatable("screen.simple_translate.export"),
                 button -> exportCache())
                 .bounds(startX + buttonWidth + spacing, buttonY, buttonWidth, 20)
@@ -111,7 +111,7 @@ public class CacheManagerScreen extends BaseSimpleTranslateScreen {
         withTooltip(this.exportButton, "screen.simple_translate.cache.export.tooltip");
         this.addRenderableWidget(this.exportButton);
 
-        this.importButton = UiCompat.buttonBuilder(
+        this.importButton = Button.builder(
                 Component.translatable("screen.simple_translate.import"),
                 button -> importCache())
                 .bounds(startX + (buttonWidth + spacing) * 2, buttonY, buttonWidth, 20)
@@ -119,7 +119,7 @@ public class CacheManagerScreen extends BaseSimpleTranslateScreen {
         withTooltip(this.importButton, "screen.simple_translate.cache.import.tooltip");
         this.addRenderableWidget(this.importButton);
 
-        Button backButton = UiCompat.buttonBuilder(
+        Button backButton = Button.builder(
                 Component.translatable("screen.simple_translate.back"),
                 button -> this.onClose())
                 .bounds(startX + (buttonWidth + spacing) * 3, buttonY, buttonWidth, 20)
@@ -302,13 +302,7 @@ public class CacheManagerScreen extends BaseSimpleTranslateScreen {
         if (selectedFile != null && !selectedFile.isBlank()) {
             return Path.of(selectedFile);
         }
-        String selectedFolder = TinyFileDialogs.tinyfd_selectFolderDialog(
-                Component.translatable("screen.simple_translate.cache.import.folder_dialog").getString(),
-                configDir().toString());
-        if (selectedFolder == null || selectedFolder.isBlank()) {
-            return null;
-        }
-        return Path.of(selectedFolder);
+        return null;
     }
 
     private TranslationCache.CacheShareMetadata currentCacheShareMetadata() {
@@ -361,7 +355,8 @@ public class CacheManagerScreen extends BaseSimpleTranslateScreen {
     }
 
     @Override
-    public void render(GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
+    public void render(PoseStack poseStack, int mouseX, int mouseY, float partialTick) {
+        GuiGraphics graphics = new GuiGraphics(poseStack);
         ScreenBackgrounds.renderPlain(graphics, this.width, this.height);
 
         // Draw title
@@ -415,13 +410,13 @@ public class CacheManagerScreen extends BaseSimpleTranslateScreen {
         }
 
         drawBottomActionMask(graphics);
-        super.render(graphics, mouseX, mouseY, partialTick);
+        super.render(poseStack, mouseX, mouseY, partialTick);
     }
 
     private void drawBottomActionMask(GuiGraphics graphics) {
         int top = this.height - 60;
-        int left = Math.max(0, this.width / 2 - 230);
-        int right = Math.min(this.width, this.width / 2 + 230);
+        int left = Math.max(0, this.width / 2 - 150);
+        int right = Math.min(this.width, this.width / 2 + 150);
         graphics.fill(left, top, right, this.height - 2, 0xAA101010);
         graphics.fill(left, top, right, top + 1, 0x55FFFFFF);
     }
@@ -466,12 +461,11 @@ public class CacheManagerScreen extends BaseSimpleTranslateScreen {
         public CacheList(Minecraft minecraft, int screenWidth, int rowWidth, int top, int bottom) {
             super(minecraft, screenWidth, Math.max(1, bottom - top), top, bottom, ROW_HEIGHT);
             this.rowWidth = rowWidth;
-            this.setLeftPos((screenWidth - rowWidth) / 2);
         }
 
         @Override
         protected int getScrollbarPosition() {
-            return this.width / 2 + rowWidth / 2 + 4;
+            return this.getRowRight() + 4;
         }
 
         @Override
@@ -479,6 +473,7 @@ public class CacheManagerScreen extends BaseSimpleTranslateScreen {
             return rowWidth - 12;
         }
     }
+
     /**
      * Entry for a single cached translation
      */
@@ -543,13 +538,8 @@ public class CacheManagerScreen extends BaseSimpleTranslateScreen {
 
         @Override
         public Component getNarration() {
-            return Component.literal(lane + " " + key + " 翻译为 " + translation);
+            return Component.translatable("screen.simple_translate.cache.entry_narration", lane, key, translation);
         }
     }
 }
-
-
-
-
-
 

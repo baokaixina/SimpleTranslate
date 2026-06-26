@@ -189,7 +189,7 @@ public class BlacklistManagerScreen extends BaseSimpleTranslateScreen {
     public void render(GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
         ScreenBackgrounds.renderPlain(graphics, this.width, this.height);
 
-        graphics.drawCenteredString(this.font, this.title, this.width / 2, 15, 0xFFFFFF);
+        graphics.drawCenteredString(this.font, this.title, this.width / 2, 15, 0xFFFFFFFF);
 
         TranslationBlacklist blacklist = SimpleTranslateMod.getTranslationBlacklist();
         int count = blacklist != null ? blacklist.size() : 0;
@@ -197,7 +197,7 @@ public class BlacklistManagerScreen extends BaseSimpleTranslateScreen {
                 Component.translatable("screen.simple_translate.blacklist.count", count),
                 10,
                 30,
-                0xAAAAAA);
+                0xFFAAAAAA);
 
         drawBottomActionMask(graphics);
         super.render(graphics, mouseX, mouseY, partialTick);
@@ -248,7 +248,7 @@ public class BlacklistManagerScreen extends BaseSimpleTranslateScreen {
         public void render(GuiGraphics graphics, int index, int top, int left, int width, int height,
                 int mouseX, int mouseY, boolean isMouseOver, float partialTick) {
             String displayEntry = entry.length() > 45 ? entry.substring(0, 42) + "..." : entry;
-            graphics.drawString(BlacklistManagerScreen.this.font, displayEntry, left + 5, top + 5, 0xFFFFFF);
+            graphics.drawString(BlacklistManagerScreen.this.font, displayEntry, left + 5, top + 5, 0xFFFFFFFF);
         }
 
         @Override

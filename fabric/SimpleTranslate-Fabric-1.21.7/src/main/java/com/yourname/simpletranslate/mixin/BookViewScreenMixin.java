@@ -1,22 +1,27 @@
 package com.yourname.simpletranslate.mixin;
 
 import com.yourname.simpletranslate.config.ModConfig;
+import com.yourname.simpletranslate.feature.book.BookFeature;
 import com.yourname.simpletranslate.keybind.HoldOriginalFeature;
 import com.yourname.simpletranslate.keybind.HoldOriginalState;
-import com.yourname.simpletranslate.util.BookBookmarkControl;
-import com.yourname.simpletranslate.util.BookTranslationHelper;
-import com.yourname.simpletranslate.util.BookTranslationHelper.PageData;
+import com.yourname.simpletranslate.keybind.ModKeyBindings;
+import com.yourname.simpletranslate.feature.book.BookBookmarkControl;
+import com.yourname.simpletranslate.feature.book.BookTranslationHelper;
+import com.yourname.simpletranslate.feature.book.BookTranslationHelper.PageData;
+import com.yourname.simpletranslate.feature.tooltip.TooltipTranslationTriggerState;
+import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.gui.screens.inventory.BookViewScreen;
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.chat.FormattedText;
-import net.minecraft.util.FormattedCharSequence;
+import org.lwjgl.glfw.GLFW;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.Unique;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
+import org.spongepowered.asm.mixin.injection.Redirect;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
@@ -32,89 +37,120 @@ public abstract class BookViewScreenMixin extends Screen {
     @Shadow
     private int cachedPage;
 
-    @Shadow
-    private int currentPage;
-
-    @Shadow
-    private List<FormattedCharSequence> cachedPageComponents;
-
-    @Shadow
-    private Component pageMsg;
-
-    @Shadow
-    private Component getPageNumberMessage() {
-        throw new AssertionError();
-    }
+    @Unique
+    private BookFeature simple_translate$bookFeature = new BookFeature();
 
     @Unique
-    private boolean simple_translate$translationActive = false;
+    private BookViewScreen.BookAccess simple_translate$originalBookAccess;
 
     @Unique
-    private String simple_translate$bookKey;
-
-    @Unique
-    private List<Boolean> simple_translate$pageNeedsTranslation = new ArrayList<>();
-
-    @Unique
-    private boolean simple_translate$lastTranslating;
-
-    @Unique
-    private boolean simple_translate$lastHasTranslation;
+    private boolean simple_translate$bookmarkMouseDown;
 
     protected BookViewScreenMixin(Component title) {
         super(title);
     }
 
+    @Inject(method = "keyPressed", at = @At("HEAD"), cancellable = true, require = 0)
+    private void simple_translate$armHoveredTooltipTranslation(int keyCode, int scanCode, int modifiers,
+                                                               CallbackInfoReturnable<Boolean> cir) {
+        if (ModKeyBindings.matchesTranslateHoveredTooltipKey(keyCode, scanCode)
+                && TooltipTranslationTriggerState.hasEnabledShortcutMode()) {
+            TooltipTranslationTriggerState.armShortcutRequest();
+            cir.setReturnValue(true);
+        }
+    }
+
     @Inject(method = "setBookAccess", at = @At("TAIL"))
     private void simple_translate$onSetBookAccess(BookViewScreen.BookAccess access, CallbackInfo ci) {
-        simple_translate$translationActive = false;
-        simple_translate$bookKey = null;
-        simple_translate$pageNeedsTranslation.clear();
-        simple_translate$lastTranslating = false;
-        simple_translate$lastHasTranslation = false;
+        simple_translate$bookFeature.reset();
         this.cachedPage = -1;
     }
 
     @Inject(method = "render", at = @At("HEAD"))
     private void simple_translate$onRenderHead(GuiGraphics graphics, int mouseX, int mouseY, float partialTick, CallbackInfo ci) {
-        if (!simple_translate$translationActive || simple_translate$bookKey == null) {
-            return;
-        }
-
-        boolean translating = BookTranslationHelper.isTranslating(simple_translate$bookKey);
-        boolean hasTranslation = BookTranslationHelper.getTranslatedPages(simple_translate$bookKey) != null;
-
-        if (translating != simple_translate$lastTranslating || hasTranslation != simple_translate$lastHasTranslation) {
+        if (simple_translate$bookFeature.stateChanged()) {
             this.cachedPage = -1;
-            simple_translate$lastTranslating = translating;
-            simple_translate$lastHasTranslation = hasTranslation;
         }
-
-        simple_translate$applyTranslatedPageCache();
+        simple_translate$swapTranslatedBookAccess();
     }
 
     @Inject(method = "render", at = @At("TAIL"))
     private void simple_translate$onRenderTail(GuiGraphics graphics, int mouseX, int mouseY, float partialTick, CallbackInfo ci) {
         simple_translate$renderBookmark(graphics, mouseX, mouseY);
+        simple_translate$handleBookmarkMouse(mouseX, mouseY);
+        simple_translate$restoreBookAccessAfterRender();
     }
 
-    @Inject(method = "mouseClicked", at = @At("HEAD"), cancellable = true)
-    private void simple_translate$onMouseClicked(double mouseX, double mouseY, int button,
-            CallbackInfoReturnable<Boolean> cir) {
-        if (button != 0 || !simple_translate$isBookmarkVisible()) {
-            return;
+    @Redirect(method = "visitText",
+            at = @At(value = "INVOKE",
+                    target = "Lnet/minecraft/client/gui/screens/inventory/BookViewScreen$BookAccess;getPage(I)Lnet/minecraft/network/chat/Component;"),
+            require = 0)
+    private Component simple_translate$redirectPageText(BookViewScreen.BookAccess access, int pageIndex) {
+        Component original = access.getPage(pageIndex);
+        if (!ModConfig.GLOBAL_ENABLED.get()
+                || !ModConfig.CONTENT_BOOK_ENABLED.get()
+                || !simple_translate$bookFeature.active()) {
+            return original;
+        }
+        if (HoldOriginalState.isHolding(HoldOriginalFeature.BOOK)) {
+            return original;
         }
 
-        if (simple_translate$isMouseOverBookmark(mouseX, mouseY)) {
-            simple_translate$onTranslateBookmarkPressed();
-            cir.setReturnValue(true);
-            cir.cancel();
+        List<Component> translatedPages = simple_translate$bookFeature.translatedPages();
+        if (translatedPages != null && pageIndex >= 0 && pageIndex < translatedPages.size()) {
+            return translatedPages.get(pageIndex);
         }
+
+        if (simple_translate$bookFeature.translating()
+                && simple_translate$bookFeature.pageNeedsTranslation(pageIndex)) {
+            return BookTranslationHelper.buildTranslatingComponent(original);
+        }
+
+        return original;
+    }
+
+    @Unique
+    private void simple_translate$swapTranslatedBookAccess() {
+        if (simple_translate$originalBookAccess != null
+                || this.bookAccess == null
+                || !ModConfig.GLOBAL_ENABLED.get()
+                || !ModConfig.CONTENT_BOOK_ENABLED.get()
+                || !simple_translate$bookFeature.active()
+                || HoldOriginalState.isHolding(HoldOriginalFeature.BOOK)) {
+            return;
+        }
+        List<Component> pages = new ArrayList<>();
+        List<Component> translatedPages = simple_translate$bookFeature.translatedPages();
+        int pageCount = this.bookAccess.getPageCount();
+        for (int i = 0; i < pageCount; i++) {
+            Component original = this.bookAccess.getPage(i);
+            if (translatedPages != null && i >= 0 && i < translatedPages.size()) {
+                pages.add(translatedPages.get(i));
+            } else if (simple_translate$bookFeature.translating()
+                    && simple_translate$bookFeature.pageNeedsTranslation(i)) {
+                pages.add(BookTranslationHelper.buildTranslatingComponent(original));
+            } else {
+                pages.add(original);
+            }
+        }
+        simple_translate$originalBookAccess = this.bookAccess;
+        this.bookAccess = new BookViewScreen.BookAccess(pages);
+        this.cachedPage = -1;
+    }
+
+    @Unique
+    private void simple_translate$restoreBookAccessAfterRender() {
+        if (simple_translate$originalBookAccess == null) {
+            return;
+        }
+        this.bookAccess = simple_translate$originalBookAccess;
+        simple_translate$originalBookAccess = null;
+        this.cachedPage = -1;
     }
 
     @Unique
     private void simple_translate$onTranslateBookmarkPressed() {
-        if (simple_translate$translationActive) {
+        if (simple_translate$bookFeature.active()) {
             simple_translate$restoreOriginal();
         } else {
             simple_translate$startTranslation();
@@ -123,7 +159,7 @@ public abstract class BookViewScreenMixin extends Screen {
 
     @Unique
     private void simple_translate$startTranslation() {
-        if (!ModConfig.CONTENT_BOOK_ENABLED.get() || this.bookAccess == null) {
+        if (!ModConfig.GLOBAL_ENABLED.get() || !ModConfig.CONTENT_BOOK_ENABLED.get() || this.bookAccess == null) {
             return;
         }
 
@@ -134,93 +170,26 @@ public abstract class BookViewScreenMixin extends Screen {
 
         List<FormattedText> pages = new ArrayList<>();
         for (int i = 0; i < pageCount; i++) {
-            pages.add(this.bookAccess.getPage(i));
+            pages.add(this.bookAccess.pages().get(i));
         }
 
         List<PageData> pageData = BookTranslationHelper.buildPageDataFromFormatted(pages);
-        List<String> pageTexts = new ArrayList<>();
-        List<Boolean> needs = new ArrayList<>();
-        boolean hasEnglish = false;
-
-        for (PageData page : pageData) {
-            pageTexts.add(page.plainText);
-            needs.add(page.needsTranslation);
-            if (page.needsTranslation) {
-                hasEnglish = true;
-            }
-        }
-
-        if (!hasEnglish) {
+        if (!simple_translate$bookFeature.start(pageData)) {
             simple_translate$restoreOriginal();
             return;
         }
-
-        simple_translate$bookKey = BookTranslationHelper.buildBookKey(pageTexts);
-        simple_translate$pageNeedsTranslation = needs;
-        simple_translate$translationActive = true;
-        simple_translate$lastTranslating = false;
-        simple_translate$lastHasTranslation = false;
-
-        BookTranslationHelper.requestTranslation(simple_translate$bookKey, pageData);
         this.cachedPage = -1;
     }
 
     @Unique
-    private boolean simple_translate$pageNeedsTranslation(int pageIndex) {
-        return pageIndex >= 0
-                && pageIndex < simple_translate$pageNeedsTranslation.size()
-                && simple_translate$pageNeedsTranslation.get(pageIndex);
-    }
-
-    @Unique
-    private void simple_translate$applyTranslatedPageCache() {
-        if (this.bookAccess == null) {
-            return;
-        }
-
-        FormattedText pageText = simple_translate$getRenderablePageText(this.currentPage);
-        this.cachedPageComponents = this.font.split(pageText, 114);
-        this.pageMsg = this.getPageNumberMessage();
-        this.cachedPage = this.currentPage;
-    }
-
-    @Unique
-    private FormattedText simple_translate$getRenderablePageText(int pageIndex) {
-        FormattedText original = this.bookAccess.getPage(pageIndex);
-        if (!simple_translate$translationActive || !ModConfig.CONTENT_BOOK_ENABLED.get() || simple_translate$bookKey == null) {
-            return original;
-        }
-        if (HoldOriginalState.isHolding(HoldOriginalFeature.BOOK)) {
-            return original;
-        }
-
-        List<Component> translatedPages = BookTranslationHelper.getTranslatedPages(simple_translate$bookKey);
-        if (translatedPages != null && pageIndex >= 0 && pageIndex < translatedPages.size()) {
-            return translatedPages.get(pageIndex);
-        }
-
-        if (BookTranslationHelper.isTranslating(simple_translate$bookKey)
-                && simple_translate$pageNeedsTranslation(pageIndex)) {
-            Component originalComponent = (original instanceof Component) ? (Component) original : null;
-            return BookTranslationHelper.buildTranslatingComponent(originalComponent);
-        }
-
-        return original;
-    }
-
-    @Unique
     private void simple_translate$restoreOriginal() {
-        simple_translate$translationActive = false;
-        simple_translate$bookKey = null;
-        simple_translate$pageNeedsTranslation.clear();
-        simple_translate$lastTranslating = false;
-        simple_translate$lastHasTranslation = false;
+        simple_translate$bookFeature.reset();
         this.cachedPage = -1;
     }
 
     @Unique
     private boolean simple_translate$isBookmarkVisible() {
-        return ModConfig.CONTENT_BOOK_ENABLED.get();
+        return ModConfig.GLOBAL_ENABLED.get() && ModConfig.CONTENT_BOOK_ENABLED.get();
     }
 
     @Unique
@@ -229,16 +198,24 @@ public abstract class BookViewScreenMixin extends Screen {
             return;
         }
 
-        boolean translating = simple_translate$translationActive
-                && simple_translate$bookKey != null
-                && BookTranslationHelper.isTranslating(simple_translate$bookKey);
-
         BookBookmarkControl.render(graphics, this.font, this.width, mouseX, mouseY,
-                simple_translate$translationActive, translating);
+                simple_translate$bookFeature.active(), simple_translate$bookFeature.translating());
     }
 
     @Unique
     private boolean simple_translate$isMouseOverBookmark(double mouseX, double mouseY) {
         return BookBookmarkControl.isMouseOver(this.width, mouseX, mouseY);
+    }
+
+    @Unique
+    private void simple_translate$handleBookmarkMouse(double mouseX, double mouseY) {
+        long window = Minecraft.getInstance().getWindow().getWindow();
+        boolean down = GLFW.glfwGetMouseButton(window, GLFW.GLFW_MOUSE_BUTTON_LEFT) == GLFW.GLFW_PRESS;
+        if (down && !simple_translate$bookmarkMouseDown
+                && simple_translate$isBookmarkVisible()
+                && simple_translate$isMouseOverBookmark(mouseX, mouseY)) {
+            simple_translate$onTranslateBookmarkPressed();
+        }
+        simple_translate$bookmarkMouseDown = down;
     }
 }

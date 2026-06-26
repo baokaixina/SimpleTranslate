@@ -2,7 +2,7 @@ package com.yourname.simpletranslate.gui;
 
 import com.yourname.simpletranslate.SimpleTranslateMod;
 import com.yourname.simpletranslate.cache.TranslationCache;
-import com.yourname.simpletranslate.network.SharedCacheClient;
+import com.yourname.simpletranslate.cache.SharedCacheClient;
 import net.fabricmc.loader.api.FabricLoader;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
@@ -300,13 +300,7 @@ public class CacheManagerScreen extends BaseSimpleTranslateScreen {
         if (selectedFile != null && !selectedFile.isBlank()) {
             return Path.of(selectedFile);
         }
-        String selectedFolder = TinyFileDialogs.tinyfd_selectFolderDialog(
-                Component.translatable("screen.simple_translate.cache.import.folder_dialog").getString(),
-                configDir().toString());
-        if (selectedFolder == null || selectedFolder.isBlank()) {
-            return null;
-        }
-        return Path.of(selectedFolder);
+        return null;
     }
 
     private TranslationCache.CacheShareMetadata currentCacheShareMetadata() {
@@ -540,7 +534,7 @@ public class CacheManagerScreen extends BaseSimpleTranslateScreen {
 
         @Override
         public Component getNarration() {
-            return Component.literal(lane + " " + key + " 翻译为 " + translation);
+            return Component.translatable("screen.simple_translate.cache.entry_narration", lane, key, translation);
         }
     }
 }

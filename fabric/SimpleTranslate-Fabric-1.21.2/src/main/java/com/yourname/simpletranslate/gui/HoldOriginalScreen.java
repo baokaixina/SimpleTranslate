@@ -63,7 +63,10 @@ public class HoldOriginalScreen extends BaseSimpleTranslateScreen {
         CycleButton<Boolean> masterToggle = CycleButton.onOffBuilder(masterEnabled)
                 .create(centerX - rowWidth / 2, startY, rowWidth, rowHeight,
                         Component.translatable("screen.simple_translate.hold_original.master_enabled"),
-                        (button, value) -> masterEnabled = value);
+                        (button, value) -> {
+                            masterEnabled = value;
+                            applySettings();
+                        });
         withTooltip(masterToggle, "screen.simple_translate.hold_original.master_enabled.tooltip");
         addScrollableWidget(masterToggle, startY);
 
@@ -110,24 +113,15 @@ public class HoldOriginalScreen extends BaseSimpleTranslateScreen {
 
         contentHeight = startY + 20;
 
-        int halfWidth = (rowWidth - 10) / 2;
         int bottomY = Math.max(2, this.height - 28);
 
-        Button saveButton = Button.builder(
-                Component.translatable("screen.simple_translate.save"),
-                btn -> saveAndClose())
-                .bounds(centerX - rowWidth / 2, bottomY, halfWidth, rowHeight)
-                .build();
-        withTooltip(saveButton, "screen.simple_translate.save.tooltip");
-        this.addRenderableWidget(saveButton);
-
-        Button cancelButton = Button.builder(
-                Component.translatable("screen.simple_translate.cancel"),
+        Button backButton = Button.builder(
+                Component.translatable("screen.simple_translate.back"),
                 btn -> this.onClose())
-                .bounds(centerX + 5, bottomY, halfWidth, rowHeight)
+                .bounds(centerX - rowWidth / 2, bottomY, rowWidth, rowHeight)
                 .build();
-        withTooltip(cancelButton, "screen.simple_translate.cancel.tooltip");
-        this.addRenderableWidget(cancelButton);
+        withTooltip(backButton, "screen.simple_translate.back.tooltip");
+        this.addRenderableWidget(backButton);
 
         repositionWidgets();
     }
@@ -147,7 +141,7 @@ public class HoldOriginalScreen extends BaseSimpleTranslateScreen {
             widget.setY(newY);
             boolean visible = newY >= viewportTop - 10 && newY < clipBottom;
             widget.visible = visible;
-            widget.active = visible;
+            widget.active = visible && !(widget instanceof LabelWidget);
         }
     }
 
@@ -174,6 +168,7 @@ public class HoldOriginalScreen extends BaseSimpleTranslateScreen {
         if (recordingFeature == feature) {
             recordingFeature = null;
         }
+        applySettings();
     }
 
     private void cancelRecording() {
@@ -197,6 +192,7 @@ public class HoldOriginalScreen extends BaseSimpleTranslateScreen {
             btn.setMessage(getKeyDisplayName(keyCode));
         }
         recordingFeature = null;
+        applySettings();
     }
 
     private Component getKeyDisplayName(int keyCode) {
@@ -260,20 +256,6 @@ public class HoldOriginalScreen extends BaseSimpleTranslateScreen {
         ScreenBackgrounds.renderPlain(graphics, this.width, this.height);
         graphics.drawCenteredString(this.font, this.title, this.width / 2, 12, 0xFFFFFF);
 
-        int clipBottom = this.height - viewportBottom - 35;
-        graphics.enableScissor(0, viewportTop, this.width, clipBottom);
-
-        int labelX = this.width / 2 - 130;
-        for (int i = 0; i < scrollableWidgets.size(); i++) {
-            AbstractWidget w = scrollableWidgets.get(i);
-            if (w instanceof LabelWidget labelWidget && w.visible) {
-                int textY = w.getY() + (w.getHeight() - this.font.lineHeight) / 2;
-                graphics.drawString(this.font, labelWidget.label, w.getX(), textY, 0xCCCCCC);
-            }
-        }
-
-        graphics.disableScissor();
-
         if (getMaxScroll() > 0) {
             drawScrollBar(graphics);
         }
@@ -315,13 +297,12 @@ public class HoldOriginalScreen extends BaseSimpleTranslateScreen {
         }
     }
 
-    private void saveAndClose() {
+    private void applySettings() {
         ModConfig.HOLD_ORIGINAL_ENABLED.set(masterEnabled);
         for (HoldOriginalFeature feature : HoldOriginalFeature.values()) {
             feature.getKeyConfig().set(pendingKeys.get(feature));
         }
         ModConfig.save();
-        this.onClose();
     }
 
     @Override
@@ -345,7 +326,8 @@ public class HoldOriginalScreen extends BaseSimpleTranslateScreen {
 
         @Override
         protected void renderWidget(GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
-            // Rendering handled by parent screen (so it respects scissor/scroll)
+            int textY = getY() + (getHeight() - Minecraft.getInstance().font.lineHeight) / 2;
+            graphics.drawString(Minecraft.getInstance().font, this.label, getX(), textY, 0xCCCCCC);
         }
 
         @Override

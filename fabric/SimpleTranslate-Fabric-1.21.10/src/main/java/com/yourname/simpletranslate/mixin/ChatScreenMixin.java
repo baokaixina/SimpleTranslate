@@ -1,6 +1,6 @@
 package com.yourname.simpletranslate.mixin;
 
-import com.yourname.simpletranslate.util.ChatButtonClickHandler;
+import com.yourname.simpletranslate.feature.chat.ChatButtonClickHandler;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.components.ChatComponent;
 import net.minecraft.client.gui.screens.ChatScreen;
@@ -20,11 +20,15 @@ public class ChatScreenMixin {
     private static final String SIMPLE_TRANSLATE_CLICK_PREFIX = "simple_translate:";
 
     @Inject(method = "mouseClicked", at = @At("HEAD"), cancellable = true)
-    private void simple_translate$onMouseClicked(MouseButtonEvent event, boolean doubleClick,
-                                                 CallbackInfoReturnable<Boolean> cir) {
+    private void simple_translate$onMouseClicked(
+            MouseButtonEvent event,
+            boolean doubleClick,
+            CallbackInfoReturnable<Boolean> cir) {
         if (event.button() != 0) {
             return;
         }
+        double mouseX = event.x();
+        double mouseY = event.y();
 
         Minecraft minecraft = Minecraft.getInstance();
         if (minecraft == null || minecraft.gui == null) {
@@ -32,7 +36,7 @@ public class ChatScreenMixin {
         }
 
         ChatComponent chatComponent = minecraft.gui.getChat();
-        Style style = chatComponent.getClickedComponentStyleAt(event.x(), event.y());
+        Style style = chatComponent.getClickedComponentStyleAt(mouseX, mouseY);
         if (style == null || style.getClickEvent() == null) {
             return;
         }
