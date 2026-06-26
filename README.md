@@ -1,5 +1,7 @@
 # SimpleTranslate 2.0
 
+**Language:** English | [简体中文](README.zh-CN.md)
+
 SimpleTranslate is a client-side Minecraft translation mod for players who play foreign-language maps, RPG servers, adventure content, quest books, item lore, signs, and UI prompts.
 
 **SimpleTranslate 2.0 can translate between all languages supported by your configured translation model/API.**  
