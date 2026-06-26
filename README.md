@@ -7,7 +7,7 @@ It is not limited to English -> Chinese. You can use it for English, Chinese, Ja
 
 > Current public 2.0 download: **Fabric builds only**.
 
-[Download SimpleTranslate 2.0](https://github.com/baokaixin/SimpleTranslate/releases/tag/v2.0)
+[Download SimpleTranslate 2.0](https://github.com/baokaixina/SimpleTranslate/releases/tag/v2.0)
 
 ## What Makes 2.0 Different
 
@@ -35,9 +35,9 @@ Translate server messages, RPG menu text, narrator messages, quest prompts, and 
 
 Chat hover text is handled by a dedicated hover translation path, so hidden hover text is not translated accidentally as a side effect of translating visible chat.
 
-![Chat before](https://github.com/baokaixin/SimpleTranslate/releases/download/v2.0/demo-chat-before.png)
+![Chat before](https://github.com/baokaixina/SimpleTranslate/releases/download/v2.0/demo-chat-before.png)
 
-![Chat after](https://github.com/baokaixin/SimpleTranslate/releases/download/v2.0/demo-chat-after.png)
+![Chat after](https://github.com/baokaixina/SimpleTranslate/releases/download/v2.0/demo-chat-after.png)
 
 ### Item Tooltip Translation
 
@@ -49,25 +49,25 @@ Useful for RPG servers, custom items, adventure maps, and modpacks with long ite
 
 Translate single signs or groups of signs. This is useful for adventure maps, story walls, server rule boards, puzzle hints, and map instructions.
 
-![Sign before](https://github.com/baokaixin/SimpleTranslate/releases/download/v2.0/demo-sign-before.png)
+![Sign before](https://github.com/baokaixina/SimpleTranslate/releases/download/v2.0/demo-sign-before.png)
 
-![Sign after](https://github.com/baokaixin/SimpleTranslate/releases/download/v2.0/demo-sign-after.png)
+![Sign after](https://github.com/baokaixina/SimpleTranslate/releases/download/v2.0/demo-sign-after.png)
 
 ### Book Translation
 
 Translate written books and book pages while keeping the reading order clear.
 
-![Book before](https://github.com/baokaixin/SimpleTranslate/releases/download/v2.0/demo-book-before.png)
+![Book before](https://github.com/baokaixina/SimpleTranslate/releases/download/v2.0/demo-book-before.png)
 
-![Book after](https://github.com/baokaixin/SimpleTranslate/releases/download/v2.0/demo-book-after.png)
+![Book after](https://github.com/baokaixina/SimpleTranslate/releases/download/v2.0/demo-book-after.png)
 
 ### Advancement Translation
 
 Translate advancement names and descriptions.
 
-![Advancement before](https://github.com/baokaixin/SimpleTranslate/releases/download/v2.0/demo-advancement-before.png)
+![Advancement before](https://github.com/baokaixina/SimpleTranslate/releases/download/v2.0/demo-advancement-before.png)
 
-![Advancement after](https://github.com/baokaixin/SimpleTranslate/releases/download/v2.0/demo-advancement-after.png)
+![Advancement after](https://github.com/baokaixina/SimpleTranslate/releases/download/v2.0/demo-advancement-after.png)
 
 ### More Supported Game Text
 
@@ -121,7 +121,7 @@ SimpleTranslate 2.0 currently provides Fabric jars for:
 - 1.21, 1.21.1, 1.21.2, 1.21.3, 1.21.4, 1.21.5, 1.21.6, 1.21.7, 1.21.8, 1.21.9, 1.21.10, 1.21.11
 - 26.1, 26.1.1, 26.1.2, 26.2
 
-Download the matching jar from the [2.0 release page](https://github.com/baokaixin/SimpleTranslate/releases/tag/v2.0).
+Download the matching jar from the [2.0 release page](https://github.com/baokaixina/SimpleTranslate/releases/tag/v2.0).
 
 ## Requirements
 
@@ -140,6 +140,7 @@ Download the matching jar from the [2.0 release page](https://github.com/baokaix
 
 ## Links
 
-- [GitHub Releases](https://github.com/baokaixin/SimpleTranslate/releases)
+- [GitHub Releases](https://github.com/baokaixina/SimpleTranslate/releases)
 - [MC百科 Page](https://www.mcmod.cn/class/23154.html)
+
 
