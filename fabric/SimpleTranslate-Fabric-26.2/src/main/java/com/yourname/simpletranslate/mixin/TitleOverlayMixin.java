@@ -1,0 +1,82 @@
+package com.yourname.simpletranslate.mixin;
+
+import com.yourname.simpletranslate.feature.hud.HudFeature;
+import com.yourname.simpletranslate.keybind.HoldOriginalAware;
+import com.yourname.simpletranslate.keybind.HoldOriginalFeature;
+import com.yourname.simpletranslate.core.BlacklistRefreshAware;
+import com.yourname.simpletranslate.core.SafeTranslate;
+import net.minecraft.client.DeltaTracker;
+import net.minecraft.client.gui.GuiGraphicsExtractor;
+import net.minecraft.client.gui.Hud;
+import net.minecraft.network.chat.Component;
+import org.jetbrains.annotations.Nullable;
+import org.spongepowered.asm.mixin.Mixin;
+import org.spongepowered.asm.mixin.Shadow;
+import org.spongepowered.asm.mixin.Unique;
+import org.spongepowered.asm.mixin.injection.At;
+import org.spongepowered.asm.mixin.injection.Inject;
+import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
+
+/**
+ * Thin shell that delegates all title/subtitle/actionbar translation state and
+ * logic to {@link HudFeature}. Only shadows the vanilla HUD fields and swaps
+ * them from the feature's render results each frame.
+ */
+@Mixin(Hud.class)
+public abstract class TitleOverlayMixin implements HoldOriginalAware, BlacklistRefreshAware {
+
+    @Shadow
+    @Nullable
+    private Component title;
+
+    @Shadow
+    @Nullable
+    private Component subtitle;
+
+    @Shadow
+    @Nullable
+    private Component overlayMessageString;
+
+    @Unique
+    private final HudFeature simple_translate$hud = new HudFeature();
+
+    @Inject(method = "setTitle", at = @At("TAIL"))
+    private void simple_translate$onSetTitle(Component title, CallbackInfo ci) {
+        SafeTranslate.guard(() -> simple_translate$hud.onSetTitle(title), "title.onSetTitle");
+    }
+
+    @Inject(method = "setSubtitle", at = @At("TAIL"))
+    private void simple_translate$onSetSubtitle(Component subtitle, CallbackInfo ci) {
+        SafeTranslate.guard(() -> simple_translate$hud.onSetSubtitle(subtitle), "title.onSetSubtitle");
+    }
+
+    @Inject(method = "setOverlayMessage", at = @At("TAIL"))
+    private void simple_translate$onSetOverlayMessage(Component component, boolean animateColor, CallbackInfo ci) {
+        SafeTranslate.guard(() -> simple_translate$hud.onSetOverlayMessage(component), "title.onSetOverlayMessage");
+    }
+
+    @Inject(method = "extractRenderState", at = @At("HEAD"))
+    private void simple_translate$onRender(GuiGraphicsExtractor graphics, DeltaTracker tickCounter, CallbackInfo ci) {
+        SafeTranslate.guard(() -> {
+            simple_translate$hud.onRender();
+            this.title = simple_translate$hud.renderTitle();
+            this.subtitle = simple_translate$hud.renderSubtitle();
+            this.overlayMessageString = simple_translate$hud.renderOverlay();
+        }, "title.onRender");
+    }
+
+    @Inject(method = "clearTitles", at = @At("TAIL"))
+    private void simple_translate$onClear(CallbackInfo ci) {
+        simple_translate$hud.onClear();
+    }
+
+    @Override
+    public void simple_translate$onHoldOriginalChanged(HoldOriginalFeature feature, boolean holding) {
+        simple_translate$hud.onHoldOriginalChanged(feature, holding);
+    }
+
+    @Override
+    public boolean simple_translate$refreshBlacklistedTranslations() {
+        return simple_translate$hud.refreshBlacklistedTranslations();
+    }
+}

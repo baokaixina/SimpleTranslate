@@ -1,0 +1,109 @@
+package com.yourname.simpletranslate.keybind;
+
+import com.mojang.blaze3d.platform.InputConstants;
+import com.yourname.simpletranslate.compat.ClientGuiCompat;
+import com.yourname.simpletranslate.config.ModConfig;
+import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.gui.Gui;
+import net.minecraft.client.gui.components.ChatComponent;
+
+import java.util.EnumMap;
+import java.util.EnumSet;
+import java.util.Set;
+
+public final class HoldOriginalState {
+    private static final EnumMap<HoldOriginalFeature, Boolean> current = new EnumMap<>(HoldOriginalFeature.class);
+    private static final EnumMap<HoldOriginalFeature, Boolean> previous = new EnumMap<>(HoldOriginalFeature.class);
+    private static final Set<HoldOriginalFeature> STATE_SWAP_FEATURES = EnumSet.of(
+            HoldOriginalFeature.CHAT,
+            HoldOriginalFeature.TOOLTIP_ITEM,
+            HoldOriginalFeature.TOOLTIP_HOVER,
+            HoldOriginalFeature.TITLE,
+            HoldOriginalFeature.ACTIONBAR);
+    private static boolean registered;
+
+    static {
+        for (HoldOriginalFeature f : HoldOriginalFeature.values()) {
+            current.put(f, Boolean.FALSE);
+            previous.put(f, Boolean.FALSE);
+        }
+    }
+
+    private HoldOriginalState() {}
+
+    public static void register() {
+        if (registered) {
+            return;
+        }
+        registered = true;
+        ClientTickEvents.END_CLIENT_TICK.register(HoldOriginalState::tick);
+    }
+
+    public static boolean isHolding(HoldOriginalFeature feature) {
+        if (!ModConfig.HOLD_ORIGINAL_ENABLED.get()) {
+            return false;
+        }
+        Boolean v = current.get(feature);
+        return v != null && v;
+    }
+
+    private static void tick(Minecraft mc) {
+        boolean enabled = ModConfig.HOLD_ORIGINAL_ENABLED.get();
+        com.mojang.blaze3d.platform.Window window = mc.getWindow();
+
+        for (HoldOriginalFeature feature : HoldOriginalFeature.values()) {
+            boolean pressed = false;
+            if (enabled && window != null) {
+                int keyCode = ModConfig.getHoldOriginalKey(feature).get();
+                if (keyCode > InputConstants.UNKNOWN.getValue()) {
+                    try {
+                        pressed = InputConstants.isKeyDown(window, keyCode);
+                    } catch (Exception ignored) {
+                        pressed = false;
+                    }
+                }
+            }
+            current.put(feature, pressed);
+        }
+
+        for (HoldOriginalFeature feature : STATE_SWAP_FEATURES) {
+            boolean now = current.getOrDefault(feature, Boolean.FALSE);
+            boolean was = previous.getOrDefault(feature, Boolean.FALSE);
+            if (now != was) {
+                dispatchEdge(mc, feature, now);
+            }
+        }
+
+        previous.putAll(current);
+    }
+
+    private static void dispatchEdge(Minecraft mc, HoldOriginalFeature feature, boolean holding) {
+        try {
+            Gui gui = mc.gui;
+            if (gui == null) {
+                return;
+            }
+            switch (feature) {
+                case CHAT -> {
+                    ChatComponent chat = ClientGuiCompat.chat(mc);
+                    if (chat instanceof HoldOriginalAware aware) {
+                        aware.simple_translate$onHoldOriginalChanged(feature, holding);
+                    }
+                }
+                case TITLE, ACTIONBAR -> {
+                    if (gui.hud instanceof HoldOriginalAware aware) {
+                        aware.simple_translate$onHoldOriginalChanged(feature, holding);
+                    }
+                }
+                case TOOLTIP_ITEM, TOOLTIP_HOVER -> {
+                    // Holding original is a view-only override. Tooltip render/cache
+                    // state must survive so releasing the key can immediately show
+                    // the cached translation again.
+                }
+                default -> {}
+            }
+        } catch (Throwable ignored) {
+        }
+    }
+}

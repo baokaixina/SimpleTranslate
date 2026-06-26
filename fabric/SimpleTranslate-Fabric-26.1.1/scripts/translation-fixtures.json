@@ -1,0 +1,15 @@
+{
+  "version": "component-json-fixtures-v1",
+  "description": "Offline fixtures for the universal Minecraft Component JSON translation pipeline.",
+  "fixtures": [
+    { "surface": "chat.context.batch.direct", "name": "ordered chat block" },
+    { "surface": "tooltip.item_context.direct", "name": "item tooltip component array" },
+    { "surface": "hover.context.direct", "name": "chat hover component array" },
+    { "surface": "book.page.direct", "name": "book page-line slots" },
+    { "surface": "sign.manual.group.by_id.direct", "name": "two four-line signs" },
+    { "surface": "advancement.document.direct", "name": "advancement title and description" },
+    { "surface": "scoreboard.component.direct", "name": "scoreboard component" },
+    { "surface": "bossbar.component.direct", "name": "boss bar component" },
+    { "surface": "hud.title_group.component.direct", "name": "title and subtitle pair" }
+  ]
+}

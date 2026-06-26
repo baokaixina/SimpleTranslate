@@ -1,0 +1,30 @@
+{
+    "required": true,
+    "minVersion": "0.8.5",
+    "package": "com.yourname.simpletranslate.mixin",
+    "plugin": "com.yourname.simpletranslate.mixin.SimpleTranslateMixinPlugin",
+    "compatibilityLevel": "JAVA_21",
+    "refmap": "simple_translate.refmap.json",
+    "client": [
+        "ChatComponentMixin",
+        "ChatScreenMixin",
+        "AbstractContainerScreenMixin",
+        "BookViewScreenMixin",
+        "BookEditScreenMixin",
+        "ItemStackMixin",
+        "SignRendererMixin",
+        "SignTextMixin",
+        "HoverTooltipMixin",
+        "ScoreboardMixin",
+        "BossHealthOverlayMixin",
+        "TitleOverlayMixin",
+        "AdvancementToastMixin",
+        "AdvancementWidgetMixin",
+        "EntityRendererMixin",
+        "TextDisplayMixin"
+    ],
+    "injectors": {
+        "defaultRequire": 1
+    }
+}
+
