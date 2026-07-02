@@ -10,6 +10,7 @@ import net.minecraft.client.gui.components.ObjectSelectionList;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.Component;
 
+import java.util.ArrayList;
 import java.util.List;
 
 public class BlacklistManagerScreen extends BaseSimpleTranslateScreen {
@@ -107,16 +108,18 @@ public class BlacklistManagerScreen extends BaseSimpleTranslateScreen {
     }
 
     private void refreshBlacklistList() {
-        this.blacklistList.children().clear();
         TranslationBlacklist blacklist = SimpleTranslateMod.getTranslationBlacklist();
         if (blacklist == null) {
+            this.blacklistList.setEntries(List.of());
             return;
         }
 
         List<String> entries = blacklist.getAllEntries();
+        List<BlacklistEntry> rows = new ArrayList<>();
         for (String entry : entries) {
-            this.blacklistList.children().add(new BlacklistEntry(entry));
+            rows.add(new BlacklistEntry(entry));
         }
+        this.blacklistList.setEntries(rows);
     }
 
     private void addEntry() {
@@ -224,6 +227,14 @@ public class BlacklistManagerScreen extends BaseSimpleTranslateScreen {
     private class BlacklistList extends ObjectSelectionList<BlacklistEntry> {
         public BlacklistList(Minecraft minecraft, int width, int height, int top, int bottom) {
             super(minecraft, width, Math.max(1, bottom - top), top, 20);
+        }
+
+
+        void setEntries(List<BlacklistEntry> entries) {
+            this.clearEntries();
+            for (BlacklistEntry entry : entries) {
+                this.addEntry(entry);
+            }
         }
 
         @Override

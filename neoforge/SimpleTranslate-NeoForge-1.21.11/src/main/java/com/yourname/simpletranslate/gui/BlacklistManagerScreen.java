@@ -11,6 +11,7 @@ import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.input.MouseButtonEvent;
 import net.minecraft.network.chat.Component;
 
+import java.util.ArrayList;
 import java.util.List;
 
 public class BlacklistManagerScreen extends BaseSimpleTranslateScreen {
@@ -108,16 +109,18 @@ public class BlacklistManagerScreen extends BaseSimpleTranslateScreen {
     }
 
     private void refreshBlacklistList() {
-        this.blacklistList.children().clear();
         TranslationBlacklist blacklist = SimpleTranslateMod.getTranslationBlacklist();
         if (blacklist == null) {
+            this.blacklistList.setEntries(List.of());
             return;
         }
 
         List<String> entries = blacklist.getAllEntries();
+        List<BlacklistEntry> rows = new ArrayList<>();
         for (String entry : entries) {
-            this.blacklistList.children().add(new BlacklistEntry(entry));
+            rows.add(new BlacklistEntry(entry));
         }
+        this.blacklistList.setEntries(rows);
     }
 
     private void addEntry() {
@@ -190,7 +193,7 @@ public class BlacklistManagerScreen extends BaseSimpleTranslateScreen {
     public void render(GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
         ScreenBackgrounds.renderPlain(graphics, this.width, this.height);
 
-        graphics.drawCenteredString(this.font, this.title, this.width / 2, 15, 0xFFFFFF);
+        graphics.drawCenteredString(this.font, this.title, this.width / 2, 15, 0xFFFFFFFF);
 
         TranslationBlacklist blacklist = SimpleTranslateMod.getTranslationBlacklist();
         int count = blacklist != null ? blacklist.size() : 0;
@@ -198,7 +201,7 @@ public class BlacklistManagerScreen extends BaseSimpleTranslateScreen {
                 Component.translatable("screen.simple_translate.blacklist.count", count),
                 10,
                 30,
-                0xAAAAAA);
+                0xFFAAAAAA);
 
         drawBottomActionMask(graphics);
         super.render(graphics, mouseX, mouseY, partialTick);
@@ -224,7 +227,15 @@ public class BlacklistManagerScreen extends BaseSimpleTranslateScreen {
 
     private class BlacklistList extends ObjectSelectionList<BlacklistEntry> {
         public BlacklistList(Minecraft minecraft, int width, int height, int top, int bottom) {
-            super(minecraft, width, height, top, bottom);
+            super(minecraft, width, Math.max(1, bottom - top), top, 20);
+        }
+
+
+        void setEntries(List<BlacklistEntry> entries) {
+            this.clearEntries();
+            for (BlacklistEntry entry : entries) {
+                this.addEntry(entry);
+            }
         }
 
         @Override
@@ -246,9 +257,12 @@ public class BlacklistManagerScreen extends BaseSimpleTranslateScreen {
         }
 
         @Override
-        public void renderContent(GuiGraphics graphics, int mouseX, int mouseY, boolean isMouseOver, float partialTick) {
+        public void renderContent(GuiGraphics graphics, int mouseX, int mouseY,
+                boolean isMouseOver, float partialTick) {
+            int left = this.getContentX();
+            int top = this.getContentY();
             String displayEntry = entry.length() > 45 ? entry.substring(0, 42) + "..." : entry;
-            graphics.drawString(BlacklistManagerScreen.this.font, displayEntry, this.getX() + 5, this.getY() + 5, 0xFFFFFF);
+            graphics.drawString(BlacklistManagerScreen.this.font, displayEntry, left + 5, top + 5, 0xFFFFFFFF);
         }
 
         @Override

@@ -119,14 +119,15 @@ public class TermManagerScreen extends BaseSimpleTranslateScreen {
     }
 
     private void refreshTermList() {
-        this.termList.children().clear();
         TermDictionary dict = SimpleTranslateMod.getTermDictionary();
+        List<TermEntry> rows = new ArrayList<>();
         if (dict != null) {
             Map<String, String> terms = dict.getAllTerms();
             for (Map.Entry<String, String> entry : terms.entrySet()) {
-                this.termList.children().add(new TermEntry(entry.getKey(), entry.getValue()));
+                rows.add(new TermEntry(entry.getKey(), entry.getValue()));
             }
         }
+        this.termList.setEntries(rows);
     }
 
     private void addTerm() {
@@ -227,6 +228,14 @@ public class TermManagerScreen extends BaseSimpleTranslateScreen {
     private class TermList extends ObjectSelectionList<TermEntry> {
         public TermList(Minecraft minecraft, int width, int height, int top, int bottom) {
             super(minecraft, width, Math.max(1, bottom - top), top, 20);
+        }
+
+
+        void setEntries(List<TermEntry> entries) {
+            this.clearEntries();
+            for (TermEntry entry : entries) {
+                this.addEntry(entry);
+            }
         }
 
         @Override

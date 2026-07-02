@@ -151,15 +151,16 @@ public class CacheManagerScreen extends BaseSimpleTranslateScreen {
         String query = this.searchInput == null ? "" : normalizeSearchText(this.searchInput.getValue());
         String selectedKey = this.cacheList.getSelected() == null ? null : this.cacheList.getSelected().key;
         CacheEntry nextSelection = null;
-        this.cacheList.children().clear();
+        List<CacheEntry> rows = new ArrayList<>();
         for (CacheEntry entry : allEntries) {
             if (entry.matches(query)) {
-                this.cacheList.children().add(entry);
+                rows.add(entry);
                 if (selectedKey != null && selectedKey.equals(entry.key)) {
                     nextSelection = entry;
                 }
             }
         }
+        this.cacheList.setEntries(rows);
         this.cacheList.setSelected(nextSelection);
     }
 
@@ -458,6 +459,14 @@ public class CacheManagerScreen extends BaseSimpleTranslateScreen {
         public CacheList(Minecraft minecraft, int screenWidth, int rowWidth, int top, int bottom) {
             super(minecraft, screenWidth, Math.max(1, bottom - top), top, bottom, ROW_HEIGHT);
             this.rowWidth = rowWidth;
+        }
+
+
+        void setEntries(List<CacheEntry> entries) {
+            this.clearEntries();
+            for (CacheEntry entry : entries) {
+                this.addEntry(entry);
+            }
         }
 
         @Override

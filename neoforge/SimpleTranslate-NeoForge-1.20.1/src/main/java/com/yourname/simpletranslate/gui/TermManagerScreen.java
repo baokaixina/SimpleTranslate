@@ -56,8 +56,8 @@ public class TermManagerScreen extends BaseSimpleTranslateScreen {
                 inputY,
                 inputWidth,
                 20,
-                Component.literal("术语"));
-        this.newTermInput.setHint(Component.literal("输入原文术语..."));
+                Component.translatable("screen.simple_translate.terms.term"));
+        this.newTermInput.setHint(Component.translatable("screen.simple_translate.terms.term.hint"));
         withTooltip(this.newTermInput, "screen.simple_translate.terms.term.tooltip");
         this.addRenderableWidget(this.newTermInput);
 
@@ -67,8 +67,8 @@ public class TermManagerScreen extends BaseSimpleTranslateScreen {
                 inputY,
                 inputWidth,
                 20,
-                Component.literal("译文"));
-        this.newTranslationInput.setHint(Component.literal("输入术语译文..."));
+                Component.translatable("screen.simple_translate.cache.edit.translation"));
+        this.newTranslationInput.setHint(Component.translatable("screen.simple_translate.terms.translation.hint"));
         withTooltip(this.newTranslationInput, "screen.simple_translate.terms.translation.tooltip");
         this.addRenderableWidget(this.newTranslationInput);
 
@@ -81,7 +81,7 @@ public class TermManagerScreen extends BaseSimpleTranslateScreen {
         this.addRenderableWidget(this.addButton);
 
         this.deleteButton = Button.builder(
-                Component.literal("删"),
+                Component.translatable("screen.simple_translate.terms.delete_short"),
                 button -> deleteSelectedTerm())
                 .bounds(centerX + 100, inputY, 20, 20)
                 .build();
@@ -118,14 +118,15 @@ public class TermManagerScreen extends BaseSimpleTranslateScreen {
     }
 
     private void refreshTermList() {
-        this.termList.children().clear();
         TermDictionary dict = SimpleTranslateMod.getTermDictionary();
+        List<TermEntry> rows = new ArrayList<>();
         if (dict != null) {
             Map<String, String> terms = dict.getAllTerms();
             for (Map.Entry<String, String> entry : terms.entrySet()) {
-                this.termList.children().add(new TermEntry(entry.getKey(), entry.getValue()));
+                rows.add(new TermEntry(entry.getKey(), entry.getValue()));
             }
         }
+        this.termList.setEntries(rows);
     }
 
     private void addTerm() {
@@ -159,7 +160,7 @@ public class TermManagerScreen extends BaseSimpleTranslateScreen {
         TermDictionary dict = SimpleTranslateMod.getTermDictionary();
         if (dict != null) {
             try {
-            java.nio.file.Path exportPath = SimpleTranslateMod.getConfigDir().resolve("terms_export.json");
+                java.nio.file.Path exportPath = SimpleTranslateMod.getConfigDir().resolve("terms_export.json");
                 dict.exportToFile(exportPath);
                 SimpleTranslateMod.getLogger().info("Terms exported to {}", exportPath);
             } catch (Exception e) {
@@ -173,7 +174,7 @@ public class TermManagerScreen extends BaseSimpleTranslateScreen {
         TermDictionary dict = SimpleTranslateMod.getTermDictionary();
         if (dict != null) {
             try {
-            java.nio.file.Path importPath = SimpleTranslateMod.getConfigDir().resolve("terms_import.json");
+                java.nio.file.Path importPath = SimpleTranslateMod.getConfigDir().resolve("terms_import.json");
                 dict.importFromFile(importPath, true);
                 refreshTermList();
                 SimpleTranslateMod.getLogger().info("Terms imported from {}", importPath);
@@ -191,8 +192,8 @@ public class TermManagerScreen extends BaseSimpleTranslateScreen {
         graphics.drawCenteredString(this.font, this.title, this.width / 2, 15, 0xFFFFFF);
 
         // Draw column headers
-        graphics.drawString(this.font, "术语", this.width / 2 - 150, 30, 0xAAAAAA);
-        graphics.drawString(this.font, "译文", this.width / 2 + 20, 30, 0xAAAAAA);
+        graphics.drawString(this.font, Component.translatable("screen.simple_translate.terms.term"), this.width / 2 - 150, 30, 0xAAAAAA);
+        graphics.drawString(this.font, Component.translatable("screen.simple_translate.cache.edit.translation"), this.width / 2 + 20, 30, 0xAAAAAA);
 
         drawBottomActionMask(graphics);
         super.render(graphics, mouseX, mouseY, partialTick);
@@ -222,6 +223,14 @@ public class TermManagerScreen extends BaseSimpleTranslateScreen {
     private class TermList extends ObjectSelectionList<TermEntry> {
         public TermList(Minecraft minecraft, int width, int height, int top, int bottom) {
             super(minecraft, width, height, top, bottom, 20);
+        }
+
+
+        void setEntries(List<TermEntry> entries) {
+            this.clearEntries();
+            for (TermEntry entry : entries) {
+                this.addEntry(entry);
+            }
         }
 
         @Override
@@ -261,7 +270,9 @@ public class TermManagerScreen extends BaseSimpleTranslateScreen {
             graphics.drawString(TermManagerScreen.this.font, "->", centerX, top + 5, 0x888888);
 
             // Draw translation
-            String displayTranslation = translation.isEmpty() ? "(待翻译)" : translation;
+            String displayTranslation = translation.isEmpty()
+                    ? Component.translatable("screen.simple_translate.terms.empty_translation").getString()
+                    : translation;
             int translationColor = translation.isEmpty() ? 0xFF8888 : 0xFFFFFF;
             graphics.drawString(TermManagerScreen.this.font,
                     displayTranslation.length() > 20 ? displayTranslation.substring(0, 17) + "..." : displayTranslation,
@@ -276,7 +287,7 @@ public class TermManagerScreen extends BaseSimpleTranslateScreen {
 
         @Override
         public Component getNarration() {
-            return Component.literal(term + " 翻译为 " + translation);
+            return Component.translatable("screen.simple_translate.terms.narration", term, translation);
         }
     }
 }

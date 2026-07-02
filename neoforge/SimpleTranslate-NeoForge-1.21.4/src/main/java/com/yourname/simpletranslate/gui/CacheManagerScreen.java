@@ -2,7 +2,7 @@ package com.yourname.simpletranslate.gui;
 
 import com.yourname.simpletranslate.SimpleTranslateMod;
 import com.yourname.simpletranslate.cache.TranslationCache;
-import com.yourname.simpletranslate.network.SharedCacheClient;
+import com.yourname.simpletranslate.cache.SharedCacheClient;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.Button;
@@ -150,15 +150,16 @@ public class CacheManagerScreen extends BaseSimpleTranslateScreen {
         String query = this.searchInput == null ? "" : normalizeSearchText(this.searchInput.getValue());
         String selectedKey = this.cacheList.getSelected() == null ? null : this.cacheList.getSelected().key;
         CacheEntry nextSelection = null;
-        this.cacheList.children().clear();
+        List<CacheEntry> rows = new ArrayList<>();
         for (CacheEntry entry : allEntries) {
             if (entry.matches(query)) {
-                this.cacheList.children().add(entry);
+                rows.add(entry);
                 if (selectedKey != null && selectedKey.equals(entry.key)) {
                     nextSelection = entry;
                 }
             }
         }
+        this.cacheList.setEntries(rows);
         this.cacheList.setSelected(nextSelection);
     }
 
@@ -299,13 +300,7 @@ public class CacheManagerScreen extends BaseSimpleTranslateScreen {
         if (selectedFile != null && !selectedFile.isBlank()) {
             return Path.of(selectedFile);
         }
-        String selectedFolder = TinyFileDialogs.tinyfd_selectFolderDialog(
-                Component.translatable("screen.simple_translate.cache.import.folder_dialog").getString(),
-                configDir().toString());
-        if (selectedFolder == null || selectedFolder.isBlank()) {
-            return null;
-        }
-        return Path.of(selectedFolder);
+        return null;
     }
 
     private TranslationCache.CacheShareMetadata currentCacheShareMetadata() {
@@ -461,8 +456,16 @@ public class CacheManagerScreen extends BaseSimpleTranslateScreen {
         private final int rowWidth;
 
         public CacheList(Minecraft minecraft, int screenWidth, int rowWidth, int top, int bottom) {
-            super(minecraft, screenWidth, Math.max(1, bottom - top), top, ROW_HEIGHT);
+            super(minecraft, screenWidth, Math.max(1, bottom - top), top, bottom);
             this.rowWidth = rowWidth;
+        }
+
+
+        void setEntries(List<CacheEntry> entries) {
+            this.clearEntries();
+            for (CacheEntry entry : entries) {
+                this.addEntry(entry);
+            }
         }
 
         @Override
@@ -539,8 +542,9 @@ public class CacheManagerScreen extends BaseSimpleTranslateScreen {
 
         @Override
         public Component getNarration() {
-            return Component.literal(lane + " " + key + " 翻译为 " + translation);
+            return Component.translatable("screen.simple_translate.cache.entry_narration", lane, key, translation);
         }
     }
 }
+
 

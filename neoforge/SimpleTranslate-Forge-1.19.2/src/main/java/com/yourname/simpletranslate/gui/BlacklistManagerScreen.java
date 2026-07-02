@@ -1,6 +1,7 @@
 package com.yourname.simpletranslate.gui;
 
 import com.mojang.blaze3d.vertex.PoseStack;
+
 import com.yourname.simpletranslate.SimpleTranslateMod;
 import com.yourname.simpletranslate.cache.TranslationBlacklist;
 import net.minecraft.client.Minecraft;
@@ -11,6 +12,7 @@ import net.minecraft.client.gui.components.ObjectSelectionList;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.Component;
 
+import java.util.ArrayList;
 import java.util.List;
 
 public class BlacklistManagerScreen extends BaseSimpleTranslateScreen {
@@ -48,11 +50,10 @@ public class BlacklistManagerScreen extends BaseSimpleTranslateScreen {
                 20,
                 Component.translatable("screen.simple_translate.blacklist.entry"));
         this.newEntryInput.setMaxLength(256);
-        UiCompat.setHint(this.newEntryInput, Component.translatable("screen.simple_translate.blacklist.entry_hint"));
         withTooltip(this.newEntryInput, "screen.simple_translate.blacklist.entry.tooltip");
         this.addRenderableWidget(this.newEntryInput);
 
-        this.addButton = UiCompat.buttonBuilder(
+        this.addButton = ButtonCompat.builder(
                 Component.literal("+"),
                 button -> addEntry())
                 .bounds(centerX + inputWidth / 2 + 5, inputY, 20, 20)
@@ -60,7 +61,7 @@ public class BlacklistManagerScreen extends BaseSimpleTranslateScreen {
         withTooltip(this.addButton, "screen.simple_translate.blacklist.add.tooltip");
         this.addRenderableWidget(this.addButton);
 
-        this.deleteButton = UiCompat.buttonBuilder(
+        this.deleteButton = ButtonCompat.builder(
                 Component.translatable("screen.simple_translate.delete"),
                 button -> deleteSelectedEntry())
                 .bounds(centerX + inputWidth / 2 + 30, inputY, 50, 20)
@@ -74,7 +75,7 @@ public class BlacklistManagerScreen extends BaseSimpleTranslateScreen {
         int totalWidth = buttonWidth * 4 + spacing * 3;
         int startX = centerX - totalWidth / 2;
 
-        this.clearButton = UiCompat.buttonBuilder(
+        this.clearButton = ButtonCompat.builder(
                 Component.translatable("screen.simple_translate.clear"),
                 button -> clearBlacklist())
                 .bounds(startX, buttonY, buttonWidth, 20)
@@ -82,7 +83,7 @@ public class BlacklistManagerScreen extends BaseSimpleTranslateScreen {
         withTooltip(this.clearButton, "screen.simple_translate.blacklist.clear.tooltip");
         this.addRenderableWidget(this.clearButton);
 
-        this.exportButton = UiCompat.buttonBuilder(
+        this.exportButton = ButtonCompat.builder(
                 Component.translatable("screen.simple_translate.export"),
                 button -> exportBlacklist())
                 .bounds(startX + buttonWidth + spacing, buttonY, buttonWidth, 20)
@@ -90,7 +91,7 @@ public class BlacklistManagerScreen extends BaseSimpleTranslateScreen {
         withTooltip(this.exportButton, "screen.simple_translate.blacklist.export.tooltip");
         this.addRenderableWidget(this.exportButton);
 
-        this.importButton = UiCompat.buttonBuilder(
+        this.importButton = ButtonCompat.builder(
                 Component.translatable("screen.simple_translate.import"),
                 button -> importBlacklist())
                 .bounds(startX + (buttonWidth + spacing) * 2, buttonY, buttonWidth, 20)
@@ -98,7 +99,7 @@ public class BlacklistManagerScreen extends BaseSimpleTranslateScreen {
         withTooltip(this.importButton, "screen.simple_translate.blacklist.import.tooltip");
         this.addRenderableWidget(this.importButton);
 
-        Button backButton = UiCompat.buttonBuilder(
+        Button backButton = ButtonCompat.builder(
                 Component.translatable("screen.simple_translate.back"),
                 button -> this.onClose())
                 .bounds(startX + (buttonWidth + spacing) * 3, buttonY, buttonWidth, 20)
@@ -108,16 +109,18 @@ public class BlacklistManagerScreen extends BaseSimpleTranslateScreen {
     }
 
     private void refreshBlacklistList() {
-        this.blacklistList.children().clear();
         TranslationBlacklist blacklist = SimpleTranslateMod.getTranslationBlacklist();
         if (blacklist == null) {
+            this.blacklistList.setEntries(List.of());
             return;
         }
 
         List<String> entries = blacklist.getAllEntries();
+        List<BlacklistEntry> rows = new ArrayList<>();
         for (String entry : entries) {
-            this.blacklistList.children().add(new BlacklistEntry(entry));
+            rows.add(new BlacklistEntry(entry));
         }
+        this.blacklistList.setEntries(rows);
     }
 
     private void addEntry() {
@@ -187,7 +190,8 @@ public class BlacklistManagerScreen extends BaseSimpleTranslateScreen {
     }
 
     @Override
-    public void render(GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
+    public void render(PoseStack poseStack, int mouseX, int mouseY, float partialTick) {
+        GuiGraphics graphics = new GuiGraphics(poseStack);
         ScreenBackgrounds.renderPlain(graphics, this.width, this.height);
 
         graphics.drawCenteredString(this.font, this.title, this.width / 2, 15, 0xFFFFFF);
@@ -201,7 +205,7 @@ public class BlacklistManagerScreen extends BaseSimpleTranslateScreen {
                 0xAAAAAA);
 
         drawBottomActionMask(graphics);
-        super.render(graphics, mouseX, mouseY, partialTick);
+        super.render(poseStack, mouseX, mouseY, partialTick);
     }
 
     private void drawBottomActionMask(GuiGraphics graphics) {
@@ -225,6 +229,14 @@ public class BlacklistManagerScreen extends BaseSimpleTranslateScreen {
     private class BlacklistList extends ObjectSelectionList<BlacklistEntry> {
         public BlacklistList(Minecraft minecraft, int width, int height, int top, int bottom) {
             super(minecraft, width, height, top, bottom, 20);
+        }
+
+
+        void setEntries(List<BlacklistEntry> entries) {
+            this.clearEntries();
+            for (BlacklistEntry entry : entries) {
+                this.addEntry(entry);
+            }
         }
 
         @Override
