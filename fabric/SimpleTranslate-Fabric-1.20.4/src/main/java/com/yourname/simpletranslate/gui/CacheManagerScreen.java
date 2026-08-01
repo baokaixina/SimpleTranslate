@@ -3,10 +3,12 @@ package com.yourname.simpletranslate.gui;
 import com.yourname.simpletranslate.SimpleTranslateMod;
 import com.yourname.simpletranslate.cache.TranslationCache;
 import com.yourname.simpletranslate.cache.SharedCacheClient;
+import com.yourname.simpletranslate.config.ModConfig;
 import net.fabricmc.loader.api.FabricLoader;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.Button;
+import net.minecraft.client.gui.components.CycleButton;
 import net.minecraft.client.gui.components.EditBox;
 import net.minecraft.client.gui.components.ObjectSelectionList;
 import net.minecraft.client.gui.screens.Screen;
@@ -28,8 +30,8 @@ public class CacheManagerScreen extends BaseSimpleTranslateScreen {
     private static final int MAX_LIST_WIDTH = 520;
     private static final int MIN_LIST_WIDTH = 180;
     private static final int SEARCH_WIDTH = 220;
-    private static final int ROW_HEIGHT = 24;
-    private static final int LIST_TOP = 104;
+    private static final int ROW_HEIGHT = 18;
+    private static final int LIST_TOP = 122;
     private static final DateTimeFormatter SHARE_FILE_TIME = DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss");
 
     private final Screen parent;
@@ -41,7 +43,7 @@ public class CacheManagerScreen extends BaseSimpleTranslateScreen {
     private Button editButton;
     private Button serverShareButton;
     private Component statusMessage = Component.empty();
-    private int statusColor = 0xAAAAAA;
+    private int statusColor = 0xFFAAAAAA;
 
     public CacheManagerScreen(Screen parent) {
         super(Component.translatable("screen.simple_translate.cache_manager"));
@@ -81,6 +83,14 @@ public class CacheManagerScreen extends BaseSimpleTranslateScreen {
         this.searchInput.setResponder(ignored -> applySearchFilter());
         withTooltip(this.searchInput, "screen.simple_translate.cache.search.tooltip");
         this.addRenderableWidget(this.searchInput);
+
+        CycleButton<Boolean> cacheEnabledButton = CycleButton.onOffBuilder(
+                        ModConfig.CACHE_ENABLED.get())
+                .create(rowLeft, 88, 150, 20,
+                        Component.translatable("screen.simple_translate.cache.enabled"),
+                        (button, value) -> ModConfig.CACHE_ENABLED.set(value));
+        withTooltip(cacheEnabledButton, "screen.simple_translate.cache.enabled.tooltip");
+        this.addRenderableWidget(cacheEnabledButton);
 
         // Load cached translations
         refreshCacheList();
@@ -171,9 +181,9 @@ public class CacheManagerScreen extends BaseSimpleTranslateScreen {
     private void refreshImportSourceStatus() {
         List<Path> sources = TranslationCache.discoverImportSources(configDir());
         if (sources.isEmpty()) {
-            setStatus(Component.translatable("screen.simple_translate.cache.import.choose_folder"), 0xAAAAAA);
+            setStatus(Component.translatable("screen.simple_translate.cache.import.choose_folder"), 0xFFAAAAAA);
         } else {
-            setStatus(Component.translatable("screen.simple_translate.cache.import.available", sources.size()), 0x88CCFF);
+            setStatus(Component.translatable("screen.simple_translate.cache.import.available", sources.size()), 0xFF88CCFF);
         }
     }
 
@@ -212,7 +222,7 @@ public class CacheManagerScreen extends BaseSimpleTranslateScreen {
         }
         setStatus(Component.translatable(enabled
                 ? "screen.simple_translate.cache.server_share.enabled"
-                : "screen.simple_translate.cache.server_share.disabled"), enabled ? 0x88FF88 : 0xAAAAAA);
+                : "screen.simple_translate.cache.server_share.disabled"), enabled ? 0xFF88FF88 : 0xFFAAAAAA);
     }
 
     private void editSelectedEntry() {
@@ -240,7 +250,7 @@ public class CacheManagerScreen extends BaseSimpleTranslateScreen {
                         metadata,
                         null);
                 setStatus(Component.translatable("screen.simple_translate.cache.export.done",
-                        result.entries(), result.lanes(), fileName), 0x88FF88);
+                        result.entries(), result.lanes(), fileName), 0xFF88FF88);
             } catch (Exception e) {
                 SimpleTranslateMod.getLogger().error("Failed to export cache", e);
                 setStatus(Component.translatable("screen.simple_translate.cache.export.failed"), 0xFF7777);
@@ -254,7 +264,7 @@ public class CacheManagerScreen extends BaseSimpleTranslateScreen {
             try {
                 Path selectedSource = chooseImportSource();
                 if (selectedSource == null) {
-                    setStatus(Component.translatable("screen.simple_translate.cache.import.cancelled"), 0xAAAAAA);
+                    setStatus(Component.translatable("screen.simple_translate.cache.import.cancelled"), 0xFFAAAAAA);
                     return;
                 }
                 TranslationCache.CacheImportResult result = cache.importFromShareSources(
@@ -283,7 +293,7 @@ public class CacheManagerScreen extends BaseSimpleTranslateScreen {
                         result.skippedInvalid(),
                         result.skippedWorldMismatch(),
                         result.failedFiles()),
-                        result.failedFiles() > 0 ? 0xFFCC66 : 0x88FF88);
+                        result.failedFiles() > 0 ? 0xFFCC66 : 0xFF88FF88);
             } catch (Exception e) {
                 SimpleTranslateMod.getLogger().error("Failed to import cache", e);
                 setStatus(Component.translatable("screen.simple_translate.cache.import.failed"), 0xFF7777);
@@ -358,7 +368,7 @@ public class CacheManagerScreen extends BaseSimpleTranslateScreen {
         ScreenBackgrounds.renderPlain(graphics, this.width, this.height);
 
         // Draw title
-        graphics.drawCenteredString(this.font, this.title, this.width / 2, 15, 0xFFFFFF);
+        graphics.drawCenteredString(this.font, this.title, this.width / 2, 15, 0xFFFFFFFF);
 
         // Draw stats
         TranslationCache cache = SimpleTranslateMod.getTranslationCache();
@@ -369,7 +379,7 @@ public class CacheManagerScreen extends BaseSimpleTranslateScreen {
         graphics.drawString(this.font, Component.translatable("screen.simple_translate.cache.stats",
                 count,
                 this.cacheList == null ? 0 : this.cacheList.children().size(),
-                categoryCount), rowLeft, 54, 0xAAAAAA);
+                categoryCount), rowLeft, 54, 0xFFAAAAAA);
         Component shareStatus = serverShareStatus();
         int statusY = 66;
         if (!shareStatus.getString().isBlank()) {
@@ -386,11 +396,11 @@ public class CacheManagerScreen extends BaseSimpleTranslateScreen {
 
         // Draw column headers
         graphics.drawString(this.font, Component.translatable("screen.simple_translate.cache.header.lane"),
-                rowLeft + 8, LIST_TOP - 10, 0xAAAAAA);
+                rowLeft + 8, LIST_TOP - 10, 0xFFAAAAAA);
         graphics.drawString(this.font, Component.translatable("screen.simple_translate.cache.header.key"),
-                rowLeft + 82, LIST_TOP - 10, 0xAAAAAA);
+                rowLeft + 82, LIST_TOP - 10, 0xFFAAAAAA);
         graphics.drawString(this.font, Component.translatable("screen.simple_translate.cache.header.translation"),
-                rowLeft + 250, LIST_TOP - 10, 0xAAAAAA);
+                rowLeft + 250, LIST_TOP - 10, 0xFFAAAAAA);
         graphics.fill(rowLeft, LIST_TOP - 2, rowRight, LIST_TOP - 1, 0x44FFFFFF);
 
         if (this.cacheList != null && this.cacheList.children().isEmpty()) {
@@ -456,8 +466,8 @@ public class CacheManagerScreen extends BaseSimpleTranslateScreen {
     private class CacheList extends ObjectSelectionList<CacheEntry> {
         private final int rowWidth;
 
-        public CacheList(Minecraft minecraft, int screenWidth, int rowWidth, int top, int bottom) {
-            super(minecraft, screenWidth, Math.max(1, bottom - top), top, bottom);
+        public CacheList(Minecraft minecraft, int screenWidth, int rowWidth, int top, int bottomY) {
+            super(minecraft, screenWidth, Math.max(1, bottomY - top), top, ROW_HEIGHT);
             this.rowWidth = rowWidth;
         }
 
@@ -509,11 +519,11 @@ public class CacheManagerScreen extends BaseSimpleTranslateScreen {
             int translationWidth = Math.max(80, width - laneWidth - keyWidth - 28);
 
             String displayLane = CacheManagerScreen.this.fitText(lane, laneWidth);
-            graphics.drawString(CacheManagerScreen.this.font, displayLane, left + 5, top + 5, 0x88CCFF);
+            graphics.drawString(CacheManagerScreen.this.font, displayLane, left + 5, top + 3, 0xFF88CCFF);
 
             String displayKey = surface + ":" + key.substring(Math.max(0, key.length() - 12));
             displayKey = CacheManagerScreen.this.fitText(displayKey, keyWidth);
-            graphics.drawString(CacheManagerScreen.this.font, displayKey, left + 78, top + 5, 0xFFFFFF);
+            graphics.drawString(CacheManagerScreen.this.font, displayKey, left + 78, top + 3, 0xFFFFFFFF);
 
             String displayTranslation = translation.isBlank() ? sourceText : translation;
             if (editedByPlayer) {
@@ -521,7 +531,7 @@ public class CacheManagerScreen extends BaseSimpleTranslateScreen {
                         + " " + displayTranslation;
             }
             displayTranslation = CacheManagerScreen.this.fitText(displayTranslation, translationWidth);
-            graphics.drawString(CacheManagerScreen.this.font, displayTranslation, left + 240, top + 5, 0x88FF88);
+            graphics.drawString(CacheManagerScreen.this.font, displayTranslation, left + 240, top + 3, 0xFF88FF88);
         }
 
         private boolean matches(String normalizedQuery) {

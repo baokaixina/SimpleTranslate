@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "id": "simple_translate",
+  "version": "${version}",
+  "name": "Simple Translate",
+  "description": "AI-powered translation for Minecraft 1.12.2 Legacy Fabric chat and rendered text.",
+  "authors": ["baokaixing"],
+  "license": "MIT",
+  "environment": "client",
+  "entrypoints": {
+    "client": ["com.yourname.simpletranslate.SimpleTranslateFabric1122"]
+  },
+  "mixins": ["simple_translate.mixins.json"],
+  "depends": {
+    "fabricloader": ">=0.16.0",
+    "minecraft": "1.12.2"
+  }
+}

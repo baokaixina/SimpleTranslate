@@ -2,6 +2,7 @@ package com.yourname.simpletranslate.feature.sign;
 import com.yourname.simpletranslate.transport.TranslationLane;
 import com.yourname.simpletranslate.transport.TranslationLanes;
 import com.yourname.simpletranslate.feature.tooltip.TooltipTranslationHelper;
+import com.yourname.simpletranslate.core.ActiveFontManager;
 import com.yourname.simpletranslate.core.SafeTranslate;
 import com.yourname.simpletranslate.core.DirectSurfaceTranslator;
 
@@ -59,6 +60,14 @@ public final class SignTranslationHelper {
                     return size() > MAX_SIGN_CACHE_SIZE;
                 }
             });
+    private static final Map<String, TranslationResult> LAST_STABLE_RESULTS =
+            new java.util.LinkedHashMap<>(8, 0.75f, true) {
+                @Override
+                protected boolean removeEldestEntry(Map.Entry<String, TranslationResult> eldest) {
+                    return size() > 4;
+                }
+            };
+
     private static final Map<String, Component[]> SHARED_SIGN_COMPONENT_CACHE =
             Collections.synchronizedMap(new LinkedHashMap<>(256, 0.75f, true) {
                 private static final long serialVersionUID = 1L;
@@ -107,15 +116,17 @@ public final class SignTranslationHelper {
         if (signText == null) {
             return;
         }
-        String[] copy = translatedLines == null ? null : Arrays.copyOf(translatedLines, translatedLines.length);
-        Component[] componentCopy = copyComponents(translatedComponents);
         SignTextIdentityData existing = SIGN_TEXT_DATA.get(signText);
+        long fontRevision = ActiveFontManager.resourceRevision();
         if (existing != null
                 && existing.isTranslating == isTranslating
                 && existing.maxTextLineWidth == maxTextLineWidth
-                && Arrays.equals(existing.translatedComponents, componentCopy)) {
+                && existing.fontRevision == fontRevision
+                && Arrays.equals(existing.translatedComponents, translatedComponents)) {
             return;
         }
+        String[] copy = translatedLines == null ? null : Arrays.copyOf(translatedLines, translatedLines.length);
+        Component[] componentCopy = copyComponents(translatedComponents);
         SignLayoutEngine.Layout layout = null;
         if (!isTranslating && componentCopy != null && componentCopy.length == 4) {
             Minecraft minecraft = Minecraft.getInstance();
@@ -125,11 +136,12 @@ public final class SignTranslationHelper {
         }
         SIGN_TEXT_DATA.put(signText,
                 new SignTextIdentityData(pos, front, copy, componentCopy, isTranslating,
-                        maxTextLineWidth, layout));
+                        maxTextLineWidth, fontRevision, layout));
     }
 
     public static SignTextIdentityData getSignTextData(SignText signText) {
-        return signText == null ? null : SIGN_TEXT_DATA.get(signText);
+        return signText == null || !ModConfig.GLOBAL_ENABLED.get()
+                ? null : SIGN_TEXT_DATA.get(signText);
     }
 
     public static String[] getTranslatedLines(SignBlockEntity sign, boolean front, Level level) {
@@ -253,11 +265,13 @@ public final class SignTranslationHelper {
     public static void clearAllCache() {
         clearTransientState();
         SHARED_SIGN_COMPONENT_CACHE.clear();
+        LAST_STABLE_RESULTS.clear();
     }
 
     private static void clearTransientState() {
         SIGN_TEXT_DATA.clear();
         SIGN_COMPONENT_CACHE.clear();
+        LAST_STABLE_RESULTS.clear();
         PENDING_SIGN_KEYS.clear();
         PENDING_BATCH_KEYS.clear();
     }
@@ -269,7 +283,7 @@ public final class SignTranslationHelper {
     public static TranslationResult getTranslatedLinesWithState(SignBlockEntity sign, boolean front, Level level,
                                                                boolean allowAutoRequest) {
         return SafeTranslate.guard(() -> {
-            if (sign == null || level == null) {
+            if (!ModConfig.GLOBAL_ENABLED.get() || sign == null || level == null) {
                 return new TranslationResult(null, false);
             }
 
@@ -282,7 +296,14 @@ public final class SignTranslationHelper {
             Component[] byComponents = SIGN_COMPONENT_CACHE.get(signStateKey);
             if (byComponents != null) {
                 if (isStablePersistentSignCache(originalLines, byComponents)) {
-                    return new TranslationResult(componentStrings(byComponents), copyComponents(byComponents), false);
+                    TranslationResult memoized = LAST_STABLE_RESULTS.get(signStateKey);
+                    if (memoized != null) {
+                        return memoized;
+                    }
+                    TranslationResult result = new TranslationResult(
+                            componentStrings(byComponents), copyComponents(byComponents), false);
+                    LAST_STABLE_RESULTS.put(signStateKey, result);
+                    return result;
                 }
                 SIGN_COMPONENT_CACHE.remove(signStateKey);
             }
@@ -1275,7 +1296,7 @@ public final class SignTranslationHelper {
             if (context == null) {
                 continue;
             }
-            lane.fail(throttleKey(surface, context.signStateKey), FAILURE_RETRY_MS);
+            lane.recordFailure(throttleKey(surface, context.signStateKey), FAILURE_RETRY_MS);
         }
     }
 
@@ -1459,16 +1480,19 @@ public final class SignTranslationHelper {
         public final FormattedCharSequence[] renderLines;
         public final float renderScale;
         public final boolean reflowed;
+        public final long fontRevision;
         public final long timestamp;
 
         public SignTextIdentityData(BlockPos pos, boolean front, String[] translatedLines, Component[] translatedComponents,
-                                    boolean isTranslating, int maxTextLineWidth, SignLayoutEngine.Layout layout) {
+                                    boolean isTranslating, int maxTextLineWidth, long fontRevision,
+                                    SignLayoutEngine.Layout layout) {
             this.pos = pos;
             this.front = front;
             this.translatedLines = translatedLines;
             this.translatedComponents = translatedComponents;
             this.isTranslating = isTranslating;
             this.maxTextLineWidth = maxTextLineWidth;
+            this.fontRevision = fontRevision;
             this.renderLines = layout == null ? null : layout.renderLines();
             this.renderScale = layout == null ? 1.0F : layout.scale();
             this.reflowed = layout != null && layout.reflowed();

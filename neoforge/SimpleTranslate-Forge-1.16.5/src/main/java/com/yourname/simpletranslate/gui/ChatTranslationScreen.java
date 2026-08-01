@@ -1,0 +1,257 @@
+package com.yourname.simpletranslate.gui;
+
+import com.yourname.simpletranslate.SimpleTranslateMod;
+import com.yourname.simpletranslate.feature.chat.ChatTranslationController;
+import com.yourname.simpletranslate.config.ModConfig;
+import com.yourname.simpletranslate.core.TranslationTextDetector;
+import com.yourname.simpletranslate.vanillacompat.CycleButton;
+import net.minecraft.client.gui.widget.TextFieldWidget;
+import net.minecraft.client.gui.screen.Screen;
+import net.minecraft.util.text.ITextComponent;
+
+import java.util.List;
+import java.util.stream.IntStream;
+
+/**
+ * Settings screen for chat translation.
+ */
+public class ChatTranslationScreen extends ScrollableSettingsScreen {
+    private static final String CUSTOM = "custom";
+    private static final List<String> SERVER_LANGUAGE_PRESETS = List.of(
+            "en", "zh_cn", "ja", "ko", "es", "fr", "de", "ru", CUSTOM);
+
+    private CycleButton<ModConfig.TranslationMode> modeButton;
+    private CycleButton<Boolean> contextEnabledToggle;
+    private CycleButton<Integer> contextCountButton;
+    private CycleButton<ModConfig.TooltipTriggerMode> hoverTriggerModeButton;
+    private TextFieldWidget outgoingServerLanguageCustomInput;
+
+    private boolean chatEnabled;
+    private ModConfig.TranslationMode currentMode;
+    private boolean hoverEnabled;
+    private ModConfig.TooltipTriggerMode hoverTriggerMode;
+    private boolean contextEnabled;
+    private int contextMessageCount;
+    private boolean outgoingEnabled;
+    private String outgoingServerLanguagePreset;
+    private String outgoingServerLanguageCustom;
+
+    public ChatTranslationScreen(Screen parent) {
+        super(com.yourname.simpletranslate.core.LegacyComponentFactory.translatable("screen.simple_translate.chat_translation"), parent);
+        this.contentWidth = 240;
+        this.entrySpacing = 26;
+
+        this.chatEnabled = ModConfig.CHAT_ENABLED.get();
+        this.currentMode = ModConfig.CHAT_MODE.get();
+        this.hoverEnabled = ModConfig.TOOLTIP_CHAT_HOVER_ENABLED.get();
+        this.hoverTriggerMode = ModConfig.TOOLTIP_CHAT_HOVER_TRIGGER_MODE.get();
+        this.contextEnabled = ModConfig.CHAT_CONTEXT_ENABLED.get();
+        if (this.currentMode != ModConfig.TranslationMode.AUTO) {
+            this.contextEnabled = false;
+        }
+        this.contextMessageCount = ModConfig.CHAT_CONTEXT_MESSAGE_COUNT.get();
+        String outgoingServerLanguage = TranslationTextDetector.canonicalLanguageCode(
+                ModConfig.CHAT_OUTGOING_SERVER_LANGUAGE.get());
+        this.outgoingEnabled = ModConfig.CHAT_OUTGOING_ENABLED.get();
+        this.outgoingServerLanguagePreset = SERVER_LANGUAGE_PRESETS.contains(outgoingServerLanguage)
+                ? outgoingServerLanguage
+                : CUSTOM;
+        this.outgoingServerLanguageCustom = CUSTOM.equals(this.outgoingServerLanguagePreset)
+                ? outgoingServerLanguage
+                : "";
+    }
+
+    @Override
+    protected void buildContent() {
+        addSectionHeader(text("screen.simple_translate.chat.section.messages"));
+
+        CycleButton<Boolean> enabledToggle = CycleButton.onOffBuilder(chatEnabled)
+                .create(0, 0, contentWidth, 20,
+                        com.yourname.simpletranslate.core.LegacyComponentFactory.translatable("screen.simple_translate.chat.enabled"),
+                        (button, value) -> {
+                            chatEnabled = value;
+                            updateButtonStates();
+                        });
+        withTooltip(enabledToggle, "screen.simple_translate.chat.enabled.tooltip");
+        addEntry(enabledToggle);
+
+        this.modeButton = CycleButton.<ModConfig.TranslationMode>builder(mode -> com.yourname.simpletranslate.core.LegacyComponentFactory.translatable("screen.simple_translate.mode." + mode.name().toLowerCase())).withInitialValue(currentMode)
+                .withValues(ModConfig.TranslationMode.values())
+                .create(0, 0, contentWidth, 20,
+                        com.yourname.simpletranslate.core.LegacyComponentFactory.translatable("screen.simple_translate.chat.mode"),
+                        (button, value) -> {
+                            currentMode = value;
+                            if (currentMode != ModConfig.TranslationMode.AUTO) {
+                                contextEnabled = false;
+                                if (contextEnabledToggle != null) {
+                                    contextEnabledToggle.setValue(false);
+                                }
+                            }
+                            updateButtonStates();
+                        });
+        withTooltip(this.modeButton, "screen.simple_translate.chat.mode.tooltip");
+        addEntry(this.modeButton);
+
+        addSectionHeader(text("screen.simple_translate.chat.section.context"));
+
+        this.contextEnabledToggle = CycleButton.onOffBuilder(contextEnabled)
+                .create(0, 0, contentWidth, 20,
+                        com.yourname.simpletranslate.core.LegacyComponentFactory.translatable("screen.simple_translate.chat.context_enabled"),
+                        (button, value) -> {
+                            contextEnabled = value;
+                            updateButtonStates();
+                        });
+        withTooltip(this.contextEnabledToggle, "screen.simple_translate.chat.context_enabled.tooltip");
+        addEntry(this.contextEnabledToggle);
+
+        this.contextCountButton = CycleButton.<Integer>builder(value -> com.yourname.simpletranslate.core.LegacyComponentFactory.translatable("screen.simple_translate.chat.context_count.value", value)).withInitialValue(contextMessageCount)
+                .withValues(IntStream.rangeClosed(0, 20).boxed().toList())
+                .create(0, 0, contentWidth, 20,
+                        com.yourname.simpletranslate.core.LegacyComponentFactory.translatable("screen.simple_translate.chat.context_count"),
+                        (button, value) -> contextMessageCount = value);
+        withTooltip(this.contextCountButton, "screen.simple_translate.chat.context_count.tooltip");
+        addEntry(this.contextCountButton);
+
+        addSectionHeader(text("screen.simple_translate.chat.section.outgoing"));
+
+        CycleButton<Boolean> outgoingEnabledToggle = CycleButton.onOffBuilder(outgoingEnabled)
+                .create(0, 0, contentWidth, 20,
+                        com.yourname.simpletranslate.core.LegacyComponentFactory.translatable("screen.simple_translate.chat.outgoing_enabled"),
+                        (button, value) -> {
+                            outgoingEnabled = value;
+                            updateButtonStates();
+                        });
+        withTooltip(outgoingEnabledToggle, "screen.simple_translate.chat.outgoing_enabled.tooltip");
+        addEntry(outgoingEnabledToggle);
+
+        CycleButton<String> outgoingServerLanguageButton = CycleButton.<String>builder(this::languageLabel).withInitialValue(this.outgoingServerLanguagePreset)
+                .withValues(SERVER_LANGUAGE_PRESETS)
+                .create(0, 0, contentWidth, 20,
+                        com.yourname.simpletranslate.core.LegacyComponentFactory.translatable("screen.simple_translate.chat.outgoing_server_language"),
+                        (button, value) -> {
+                            this.outgoingServerLanguagePreset = value;
+                            refreshOutgoingLanguageInput();
+                        });
+        withTooltip(outgoingServerLanguageButton,
+                "screen.simple_translate.chat.outgoing_server_language.tooltip");
+        addEntry(outgoingServerLanguageButton);
+
+        this.outgoingServerLanguageCustomInput = new TextFieldWidget(this.font, 0, 0, contentWidth, 20,
+                com.yourname.simpletranslate.core.LegacyComponentFactory.translatable("screen.simple_translate.chat.outgoing_server_language_custom"));
+        this.outgoingServerLanguageCustomInput.setMaxLength(48);
+        this.outgoingServerLanguageCustomInput.setValue(this.outgoingServerLanguageCustom);
+        this.outgoingServerLanguageCustomInput.setSuggestion(
+                com.yourname.simpletranslate.core.LegacyComponentFactory.translatable("screen.simple_translate.language_settings.custom_hint").getString());
+        withTooltip(this.outgoingServerLanguageCustomInput,
+                "screen.simple_translate.chat.outgoing_server_language_custom.tooltip");
+        addEntry(this.outgoingServerLanguageCustomInput);
+
+        addSectionHeader(text("screen.simple_translate.chat.section.hover"));
+
+        CycleButton<Boolean> hoverEnabledToggle = CycleButton.onOffBuilder(hoverEnabled)
+                .create(0, 0, contentWidth, 20,
+                        com.yourname.simpletranslate.core.LegacyComponentFactory.translatable("screen.simple_translate.chat.hover_enabled"),
+                        (button, value) -> {
+                            hoverEnabled = value;
+                            updateButtonStates();
+                        });
+        withTooltip(hoverEnabledToggle, "screen.simple_translate.chat.hover_enabled.tooltip");
+        addEntry(hoverEnabledToggle);
+
+        this.hoverTriggerModeButton = CycleButton.<ModConfig.TooltipTriggerMode>builder(mode -> com.yourname.simpletranslate.core.LegacyComponentFactory.translatable(
+                                "screen.simple_translate.tooltip_trigger_mode." + mode.name().toLowerCase())).withInitialValue(this.hoverTriggerMode)
+                .withValues(ModConfig.TooltipTriggerMode.values())
+                .create(0, 0, contentWidth, 20,
+                        com.yourname.simpletranslate.core.LegacyComponentFactory.translatable("screen.simple_translate.chat.hover_trigger_mode"),
+                        (button, value) -> this.hoverTriggerMode = value);
+        withTooltip(this.hoverTriggerModeButton, "screen.simple_translate.chat.hover_trigger_mode.tooltip");
+        addEntry(this.hoverTriggerModeButton);
+
+        updateButtonStates();
+    }
+
+    @Override
+    protected void repositionEntries() {
+        super.repositionEntries();
+        refreshOutgoingLanguageInput();
+        updateButtonStates();
+    }
+
+    private void updateButtonStates() {
+        boolean autoMode = currentMode == ModConfig.TranslationMode.AUTO;
+        if (!autoMode) {
+            contextEnabled = false;
+            if (this.contextEnabledToggle != null) {
+                this.contextEnabledToggle.setValue(false);
+            }
+        }
+        if (this.modeButton != null) {
+            this.modeButton.active = this.modeButton.visible && chatEnabled;
+        }
+        if (this.contextEnabledToggle != null) {
+            this.contextEnabledToggle.active = this.contextEnabledToggle.visible && chatEnabled && autoMode;
+        }
+        if (this.contextCountButton != null) {
+            this.contextCountButton.active = this.contextCountButton.visible && chatEnabled && autoMode && contextEnabled;
+        }
+        if (this.hoverTriggerModeButton != null) {
+            this.hoverTriggerModeButton.active = this.hoverTriggerModeButton.visible && this.hoverEnabled;
+        }
+        refreshOutgoingLanguageInput();
+    }
+
+    private void refreshOutgoingLanguageInput() {
+        if (this.outgoingServerLanguageCustomInput != null) {
+            boolean custom = CUSTOM.equals(this.outgoingServerLanguagePreset);
+            this.outgoingServerLanguageCustomInput.visible = custom
+                    && isEntryVisible(this.outgoingServerLanguageCustomInput.y,
+                    this.outgoingServerLanguageCustomInput.getHeight());
+            this.outgoingServerLanguageCustomInput.active =
+                    this.outgoingServerLanguageCustomInput.visible && outgoingEnabled;
+        }
+    }
+
+    @Override
+    protected void saveSettings() {
+        ModConfig.TranslationMode previousMode = ModConfig.CHAT_MODE.get();
+        boolean previousContextEnabled = ModConfig.CHAT_CONTEXT_ENABLED.get();
+        String previousOutgoingServerLanguage = TranslationTextDetector.canonicalLanguageCode(
+                ModConfig.CHAT_OUTGOING_SERVER_LANGUAGE.get());
+        boolean savedContextEnabled = currentMode == ModConfig.TranslationMode.AUTO && contextEnabled;
+        ModConfig.CHAT_ENABLED.set(chatEnabled);
+        ModConfig.CHAT_MODE.set(currentMode);
+        ModConfig.CHAT_CONTEXT_ENABLED.set(savedContextEnabled);
+        ModConfig.CHAT_CONTEXT_MESSAGE_COUNT.set(contextMessageCount);
+        ModConfig.CHAT_OUTGOING_ENABLED.set(outgoingEnabled);
+        String newOutgoingServerLanguage = effectiveOutgoingServerLanguage();
+        ModConfig.CHAT_OUTGOING_SERVER_LANGUAGE.set(newOutgoingServerLanguage);
+        ModConfig.TOOLTIP_CHAT_HOVER_ENABLED.set(hoverEnabled);
+        ModConfig.TOOLTIP_CHAT_HOVER_TRIGGER_MODE.set(this.hoverTriggerMode);
+        if (previousMode != currentMode || previousContextEnabled != savedContextEnabled) {
+            ChatTranslationController.onChatModeChanged();
+        }
+        if (!previousOutgoingServerLanguage.equals(newOutgoingServerLanguage)) {
+            SimpleTranslateMod.onLanguageSettingsChanged();
+        }
+    }
+
+    private String effectiveOutgoingServerLanguage() {
+        String raw = CUSTOM.equals(this.outgoingServerLanguagePreset)
+                ? (this.outgoingServerLanguageCustomInput == null
+                ? "" : this.outgoingServerLanguageCustomInput.getValue())
+                : this.outgoingServerLanguagePreset;
+        String canonical = TranslationTextDetector.canonicalLanguageCode(raw);
+        if (canonical.isBlank() || "auto".equals(canonical)) {
+            return "en";
+        }
+        return canonical;
+    }
+
+    private ITextComponent languageLabel(String code) {
+        return com.yourname.simpletranslate.core.LegacyComponentFactory.translatable("screen.simple_translate.language_settings.lang." + code);
+    }
+
+    private static String text(String key) {
+        return com.yourname.simpletranslate.core.LegacyComponentFactory.translatable(key).getString();
+    }
+}

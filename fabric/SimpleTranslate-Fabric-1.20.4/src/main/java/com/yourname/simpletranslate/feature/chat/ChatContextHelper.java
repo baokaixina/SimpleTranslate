@@ -63,6 +63,11 @@ public final class ChatContextHelper {
         if (prefix == null || prefix.isBlank()) {
             return false;
         }
+        String wholePrefix = prefix.trim();
+        if (looksLikePlayerName(wholePrefix)) {
+            return true;
+        }
+
         int stop = prefix.length();
         for (int i = 0; i < prefix.length(); i++) {
             char c = prefix.charAt(i);
@@ -75,7 +80,7 @@ public final class ChatContextHelper {
         if (leading.isEmpty()) {
             return false;
         }
-        return isKnownPlayerName(leading) || looksLikePlayerName(leading);
+        return isKnownPlayerName(leading);
     }
 
     /** Username-shaped token; does not require the player to be online. */

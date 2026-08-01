@@ -1,160 +1,182 @@
-param(
-    [string]$ProjectDir = (Resolve-Path "$PSScriptRoot\..").Path
-)
-
+param([string]$ProjectDir = ".")
 $ErrorActionPreference = "Stop"
 
-function Assert-FileContains([string]$Path, [string]$Needle, [string]$Message) {
-    if (-not (Test-Path -LiteralPath $Path)) {
-        throw "$Message (missing file: $Path)"
-    }
-    $content = Get-Content -Raw -LiteralPath $Path
-    if (-not $content.Contains($Needle)) {
-        throw "$Message (missing: $Needle)"
-    }
+# BEGIN SimpleTranslate project JDK pin
+. (Join-Path $PSScriptRoot "resolve-java.ps1")
+Use-SimpleTranslateProjectJava -ProjectDir $ProjectDir -Purpose Gradle | Out-Null
+# END SimpleTranslate project JDK pin
+
+Set-Location $ProjectDir
+Write-Host "SimpleTranslate 1.20.2 logic checks (product sync from 1.20.1 donor)"
+
+function Assert-FileContains($Path, $Needle, $Message) {
+  if (-not (Test-Path $Path)) { throw "$Message (missing file $Path)" }
+  if (-not (Get-Content -Raw -LiteralPath $Path).Contains($Needle)) { throw "$Message (missing: $Needle)" }
+}
+function Assert-PathExists($Path, $Message) {
+  if (-not (Test-Path $Path)) { throw $Message }
+}
+function Assert-PathMissing($Path, $Message) {
+  if (Test-Path $Path) { throw $Message }
+}
+function Assert-FileNotContains($Path, $Needle, $Message) {
+  if ((Get-Content -Raw -LiteralPath $Path).Contains($Needle)) { throw "$Message (found: $Needle)" }
 }
 
-function Assert-FileNotContains([string]$Path, [string]$Needle, [string]$Message) {
-    if (-not (Test-Path -LiteralPath $Path)) {
-        return
-    }
-    $content = Get-Content -Raw -LiteralPath $Path
-    if ($content.Contains($Needle)) {
-        throw "$Message (unexpected: $Needle)"
-    }
-}
+$src = "src/main/java/com/yourname/simpletranslate"
+$res = "src/main/resources"
 
-function Assert-PathMissing([string]$Path, [string]$Message) {
-    if (Test-Path -LiteralPath $Path) {
-        throw "$Message (still exists: $Path)"
-    }
-}
+$javaCount = (Get-ChildItem $src -Recurse -Filter *.java).Count
+Write-Host "Java files: $javaCount"
+if ($javaCount -lt 150) { throw "expected >=150 java files after donor product sync, got $javaCount" }
 
-Push-Location $ProjectDir
-try {
-    & .\gradlew.bat compileJava --no-daemon
-    if ($LASTEXITCODE -ne 0) {
-        throw "compileJava failed with exit code $LASTEXITCODE"
-    }
+# Wynncraft feature set is gated to Minecraft >= 1.21.4 and must not ship here.
+Assert-PathMissing "$src/feature/wynn" "Wynn package must not ship on Minecraft 1.20.1"
+Assert-PathMissing "$src/feature/hud/ActionbarLayoutRenderer.java" "ActionbarLayoutRenderer is Wynn-era only"
+Assert-PathMissing "$src/mixin/FontPreparedTextBuilderMixin.java" "FontPreparedTextBuilderMixin is Wynn-era only"
+Assert-PathMissing "$src/mixin/compat/WynntilsOverlayManagerMixin.java" "Wynntils compat mixin must not ship on 1.20.1"
+Assert-FileNotContains "$res/simple_translate.mixins.json" "Wynntils" "Wynntils compat must not be registered"
+Assert-FileNotContains "$res/simple_translate.mixins.json" "FontPreparedTextBuilderMixin" "Wynn-era font mixin must not be registered"
+Assert-FileNotContains "$src/config/ModConfig.java" "WYNNCRAFT_PROFILE_MODE" "retired Wynn profile setting must be absent"
+Assert-FileNotContains "$src/config/ModConfig.java" "WynncraftProfileMode" "retired Wynn profile enum must be absent"
+Assert-FileNotContains "$src/config/ModConfig.java" "API_TEXT_CONTEXT_WYNN_DIALOGUE" "Wynn dialogue context switch must be absent"
+Assert-FileNotContains "$src/config/ModConfig.java" "HUD_WYNN_OVERLAY_ENABLED" "Wynn overlay switch must not ship on 1.20.1"
+Assert-FileNotContains "$src/config/ModConfig.java" "HUD_WYNN_DIALOGUE_PENDING_EFFECT_ENABLED" "Wynn pending feedback switch must be absent"
+Assert-FileContains "$src/config/ModConfig.java" 'root.remove("general.wynncraftProfileMode")' "retired Wynn profile key must be removed during config migration"
+Assert-FileContains "$src/config/ModConfig.java" 'root.remove("hud.wynnOverlayEnabled")' "retired Wynn overlay key must be removed during config migration"
+Assert-FileNotContains "$res/assets/simple_translate/lang/zh_cn.json" "wynncraft_profile_mode" "retired zh Wynn profile keys must be absent"
+Assert-FileNotContains "$res/assets/simple_translate/lang/en_us.json" "wynncraft_profile_mode" "retired en Wynn profile keys must be absent"
+Assert-FileNotContains "$res/assets/simple_translate/lang/zh_cn.json" "hud.wynn" "zh Wynn HUD keys must not ship on 1.20.1"
+Assert-FileNotContains "$res/assets/simple_translate/lang/en_us.json" "hud.wynn" "en Wynn HUD keys must not ship on 1.20.1"
+Assert-FileNotContains "$res/assets/simple_translate/lang/zh_cn.json" "server_adapters" "retired zh server adapter page"
+Assert-FileNotContains "$res/assets/simple_translate/lang/en_us.json" "server_adapters" "retired en server adapter page"
+Assert-PathMissing "$src/gui/ServerAdapterScreen.java" "retired server adapter screen must be deleted"
+Assert-PathMissing "$src/gui/WynncraftSettingsScreen.java" "retired Wynn server settings screen must be deleted"
+Assert-FileNotContains "$src/feature/hud/HudFeature.java" "Wynn" "HudFeature must carry no Wynn layer on 1.20.1"
+Assert-FileNotContains "$src/feature/hud/HudFeature.java" "ActionbarLayoutRenderer" "HudFeature must not reference the Wynn-era layout renderer"
+Assert-PathMissing "$src/feature/hud/anchor" "retired HUD anchor package must stay deleted"
+Assert-PathMissing "$src/gui/HudAnchorMappingScreen.java" "retired HUD anchor screen must stay deleted"
+Assert-PathMissing "$src/gui/HudAnchorPickScreen.java" "retired HUD anchor picker must stay deleted"
+Assert-FileNotContains "$src/mixin/TitleOverlayMixin.java" "HudAnchor" "title overlay must not reference retired HUD anchors"
+Assert-FileNotContains "$src/mixin/ScoreboardMixin.java" "HudAnchor" "scoreboard must not reference retired HUD anchors"
+Assert-FileNotContains "$src/mixin/BossHealthOverlayMixin.java" "HudAnchor" "bossbar must not reference retired HUD anchors"
+Assert-FileNotContains "$src/gui/HudTranslationScreen.java" "HudAnchor" "HUD settings must not reference retired HUD anchors"
+Assert-FileNotContains "$src/gui/HudTranslationScreen.java" "wynnOverlay" "HUD settings must not reference the Wynn overlay switch"
 
-    $src = Join-Path $ProjectDir "src/main/java/com/yourname/simpletranslate"
-    $core = Join-Path $src "core"
-    $config = Join-Path $src "config/ModConfig.java"
-    $direct = Join-Path $core "DirectSurfaceTranslator.java"
-    $jsonPipeline = Join-Path $core "JsonPassthroughPipeline.java"
-    $cacheKeys = Join-Path $core "TranslationCacheKeys.java"
-    $cache = Join-Path $src "cache/TranslationCache.java"
-    $cacheEditor = Join-Path $src "cache/ComponentJsonCacheEditor.java"
-    $cacheScreen = Join-Path $src "gui/CacheEditScreen.java"
-    $service = Join-Path $src "transport/DeepSeekTranslationService.java"
-    $jsonPrompt = Join-Path $src "transport/JsonPassthroughPrompts.java"
-    $sign = Join-Path $src "feature/sign/SignJsonDocument.java"
-    $signHelper = Join-Path $src "feature/sign/SignTranslationHelper.java"
-    $signLayout = Join-Path $src "feature/sign/SignLayoutEngine.java"
-    $signTextMixin = Join-Path $src "mixin/SignTextMixin.java"
-    $signRendererMixin = Join-Path $src "mixin/SignRendererMixin.java"
-    $translationResult = Join-Path $src "api/TranslationResult.java"
-    $chatAuto = Join-Path $src "feature/chat/ChatAutoTranslator.java"
-    $chatBatch = Join-Path $src "feature/chat/ChatContextBatchTranslator.java"
+Assert-FileContains "$src/feature/gui/GuiTranslationHelper.java" "shouldOpenScreenFrame" "idle GUI frames require an explicit ownership gate"
+Assert-FileContains "$src/feature/gui/GuiTranslationHelper.java" "activeFrame() == null" "GUI materialization must skip inactive frames"
+Assert-FileNotContains "$src/feature/gui/GuiTranslationHelper.java" "Wynn" "GUI helper must carry no Wynn overlay layer on 1.20.1"
+Assert-FileNotContains "$src/feature/gui/GuiTranslationHelper.java" "DialogScreen" "1.20.1 has no dialog screen API"
+Assert-FileNotContains "$src/feature/gui/GuiTranslationHelper.java" "hud.visible_frame.component.v1" "retired unstable HUD surface"
+Assert-FileContains "$src/feature/gui/GuiLayoutProgramRenderer.java" "IdentityHashMap<Component, IdentityDetection>" "layout detection must memoize stable Component identities"
+Assert-FileContains "$src/feature/hud/ScoreboardTranslationHelper.java" "matchesPrevious()" "unchanged scoreboard frames must short-circuit"
+Assert-FileContains "$src/feature/hud/ScoreboardTranslationHelper.java" "sameOrderedFrameKeys" "scoreboard reuse must preserve row order"
+Assert-FileContains "$src/mixin/EntityRendererMixin.java" "direct.translated" "entity memo retries every non-translated result"
+Assert-FileContains "$src/mixin/EntityRendererMixin.java" "WeakHashMap" "entity name memoization must not retain entities strongly"
+Assert-FileContains "$src/mixin/EntityRendererMixin.java" "getRuntimeRevision()" "entity name memoization must honor runtime invalidation"
+Assert-FileContains "$src/cache/CacheKey.java" 'PROTOCOL = "stx2"' "stx2 protocol"
+Assert-FileContains "$src/transport/TranslationPromptPolicy.java" "component_visual_projection_v7" "semantic revision"
+Assert-FileContains "$src/feature/gui/GuiTranslationHelper.java" "gui.component.visible_frame.v3" "GUI surface"
+Assert-FileContains "$src/feature/gui/GuiTranslationHelper.java" "hud.visible_frame.component.v2" "stable missing-only HUD surface"
+Assert-FileNotContains "$src/feature/gui/GuiTranslationHelper.java" "hud.wynn" "no Wynn overlay cache surface may ship on 1.20.1"
+Assert-FileContains "$src/feature/gui/GuiTranslationHelper.java" "merged.putIfAbsent(key, value)" "accepted frame translations must be first-wins"
+Assert-FileContains "$src/feature/gui/GuiTranslationHelper.java" "isFrameTranslationPending(frame.screenKey)" "whole-frame requests must coalesce per frame"
+Assert-FileContains "$src/feature/gui/GuiTranslationHelper.java" "isHudTelemetryComponent" "HUD telemetry must not churn translation context"
+Assert-FileContains "$src/feature/gui/GuiTranslationHelper.java" "requestCurrentHudTranslation" "HUD K request"
+Assert-FileContains "$src/feature/gui/GuiTranslationHelper.java" "Whole-frame Component translation rejected" "manual whole-frame failures need non-sensitive runtime diagnostics"
+Assert-FileNotContains "$src/core/JsonPassthroughPipeline.java" "boolean wholeGuiFrame =" "GUI and HUD recovery must retain original-Component partition fallback"
+Assert-FileNotContains "$src/core/JsonPassthroughPipeline.java" ".wynn." "pipeline must carry no Wynn recovery branches on 1.20.1"
+Assert-FileContains "$src/config/ModConfig.java" "CONTENT_HUD_FRAME_ACTIVE" "HUD K activation persistence required"
+Assert-FileContains "$src/SimpleTranslateMod.java" "migrateLegacyHudFrameActivation" "existing HUD K cache must migrate to persistent activation"
+Assert-FileContains "$src/cache/TranslationCache.java" "hasSurface(String surface)" "HUD activation migration must not copy the complete cache"
+Assert-FileContains "$src/feature/gui/GuiTranslationHelper.java" "sequence == null || !isActive() || CAPTURE_SUPPRESSION_DEPTH.get() > 0" "dedicated glyph sequences must bypass K without reconstruction"
+Assert-FileContains "$src/feature/gui/GuiTranslationHelper.java" "screen instanceof ChatScreen" "chat screens must remain permanently outside K ownership"
+Assert-FileContains "$src/feature/gui/GuiTranslationHelper.java" "screen instanceof BookViewScreen" "book reading screens must remain permanently outside K ownership"
+Assert-FileContains "$src/feature/gui/GuiTranslationHelper.java" "screen instanceof BookEditScreen" "book editing screens must remain permanently outside K ownership"
+Assert-FileContains "$src/feature/gui/GuiTranslationHelper.java" "screen instanceof AdvancementsScreen" "advancement screens must remain permanently outside K ownership"
+Assert-FileContains "$src/feature/gui/GuiTranslationHelper.java" "rebindItemTooltipSemanticTranslation" "item tooltip async results must rebind during a continuous hover"
+Assert-FileContains "$src/feature/gui/GuiTranslationHelper.java" "semantic=" "item tooltip frame identity must ignore animated visual values"
+Assert-FileContains "$src/feature/gui/GuiTranslationHelper.java" "beginHudFrame" "HUD frame begin"
+Assert-FileContains "$src/feature/gui/GuiTranslationHelper.java" "beginDetachedFrame" "shared detached K frame begin"
+Assert-FileContains "$src/feature/gui/GuiTranslationHelper.java" "endDetachedFrame" "shared detached K frame end"
+Assert-FileContains "$src/feature/gui/GuiTranslationHelper.java" "frame_context_kind=" "GUI frames must identify their semantic context kind"
+Assert-FileContains "$src/feature/gui/GuiTranslationHelper.java" "<visual-row>" "GUI context must distinguish visual wraps from sentence boundaries"
+Assert-FileContains "$src/feature/gui/GuiTranslationHelper.java" "gui.component.visible_frame.item_tooltip.v1" "item tooltips must have an isolated K-frame cache surface"
+Assert-FileContains "$src/feature/gui/GuiTranslationHelper.java" "gui.component.visible_frame.advancement.v1" "advancements must have an isolated K-frame cache surface"
+Assert-FileContains "$src/feature/gui/GuiTranslationHelper.java" "surfaceForFrame(frame)" "K-frame cache and request paths must select their product surface"
+Assert-FileContains "$src/transport/JsonPassthroughPrompts.java" "frame_context_kind=item_tooltip" "detached item frames must receive item-tooltip prompt policy"
+Assert-FileContains "$src/transport/JsonPassthroughPrompts.java" "in N games/matches" "quest objective scope must cross visual wraps"
+Assert-FileContains "$src/transport/JsonPassthroughPrompts.java" "COMMON / WEEKLY QUEST" "item-frame prompt must translate all-caps quest badges"
+Assert-FileContains "$src/transport/JsonPassthroughPrompts.java" "数量 + 剩余" "item-frame prompt must avoid unnatural retained-count order"
+Assert-FileNotContains "$src/transport/JsonPassthroughPrompts.java" "Wynncraft" "prompts must carry no Wynn branches on 1.20.1"
+Assert-FileContains "$src/core/JsonPassthroughPipeline.java" "semanticPromptSourceShape(item.originals())" "single Component requests must mask live numbers in prompt context"
+Assert-FileContains "$src/core/TextContextMemory.java" "maskPromptDynamicNumbers(callerContext)" "prompt metadata boundary must mask live numbers for every caller"
+Assert-FileContains "$src/core/ComponentJsonBatcher.java" "semanticPromptSourceShape(batchItem.item().originals())" "batched Component requests must mask live numbers in prompt context"
+Assert-FileContains "$src/core/TextContextMemory.java" "maskPromptDynamicNumbers(example.source())" "historical source examples must not leak live numbers back into prompts"
+Assert-FileContains "$src/core/TextContextMemory.java" "maskPromptDynamicNumbers(example.translation())" "historical translations must not reintroduce stale numbers into responses"
+Assert-FileNotContains "$src/transport/JsonPassthroughPrompts.java" "Survive at least 4m" "system prompt must not expose exact example values owned by the client"
+Assert-FileContains "$src/mixin/ScreenGuiTranslationMixin.java" "renderWithTooltip(" "1.20.1 GUI frame scope uses renderWithTooltip"
+Assert-FileContains "$src/mixin/HoverTooltipMixin.java" "beginItemTooltipFrame" "item tooltip must synchronously probe cached frame translations"
+Assert-FileContains "$src/feature/gui/GuiTranslationHelper.java" "hydrateItemTooltipFrameFromCache" "cached item tooltips must bypass hover dwell"
+Assert-FileContains "$src/mixin/HoverTooltipMixin.java" 'simple_translate$finalTextRows' "item tooltip cache hydration must use the exact accepted visual rows"
+Assert-FileContains "$src/mixin/HoverTooltipMixin.java" "renderTooltipInternal" "1.20.1 tooltips funnel through renderTooltipInternal"
+Assert-FileContains "$src/mixin/ClientTextTooltipAccessor.java" '@Accessor("text")' "exact accepted tooltip text must be available before first draw"
+Assert-FileContains "$res/simple_translate.mixins.json" "ClientTextTooltipAccessor" "tooltip text accessor must be enabled"
+Assert-FileNotContains "$src/mixin/HoverTooltipMixin.java" "isCurrentScreenTranslationRequested()" "K must never arm the independently controlled item-tooltip translator"
+Assert-FileContains "$src/mixin/AdvancementWidgetMixin.java" "beginDetachedFrame" "advancement widget must use its isolated Component frame"
+Assert-FileContains "$src/mixin/AdvancementToastMixin.java" "beginDetachedFrame" "advancement toast must use its isolated Component frame"
+Assert-FileContains "$src/mixin/AdvancementWidgetMixin.java" "captureSuppressed" "disabled advancement widgets must remain outside K ownership"
+Assert-FileContains "$src/mixin/AdvancementToastMixin.java" "captureSuppressed" "disabled advancement toasts must remain outside K ownership"
+Assert-FileContains "$src/mixin/TitleOverlayMixin.java" "layoutActionbarSource" "layout actionbar hooks"
+Assert-FileNotContains "$src/mixin/TitleOverlayMixin.java" "Wynn" "title overlay must carry no Wynn hooks on 1.20.1"
+Assert-FileContains "$src/mixin/TitleOverlayMixin.java" "endHudFrame" "HUD frame end"
+Assert-FileContains "$src/mixin/TitleOverlayMixin.java" 'at = @At("HEAD"), order = 900' "HUD frame must open before default-order late overlays"
+Assert-FileContains "$src/mixin/TitleOverlayMixin.java" 'at = @At("RETURN"), order = 1100' "HUD frame must close after default-order late overlays"
+Assert-FileContains "$src/mixin/TitleOverlayMixin.java" "renderDedicatedHudText" "inline title/actionbar draws must stay outside K ownership"
+Assert-FileContains "$src/mixin/TitleOverlayMixin.java" '"render(Lnet/minecraft/client/gui/GuiGraphics;F)V"' "1.20.1 HUD frame must hang on the exact Gui.render owner"
+Assert-FileContains "$src/mixin/TitleOverlayMixin.java" "finally" "dedicated HUD ownership scope must close after render failures"
+Assert-FileContains "$src/mixin/GuiGraphicsTranslationMixin.java" 'leaveDirectDrawIfTop("draw.component")' "cancelled layout replay must balance direct-draw scope"
+Assert-FileContains "$src/mixin/TextDisplayMixin.java" "ModConfig.GLOBAL_ENABLED.get()" "text displays must honor global translation immediately"
+Assert-FileNotContains "$src/mixin/TextDisplayMixin.java" "wynn" "text display must carry no Wynn label surface on 1.20.1"
+Assert-FileContains "$src/mixin/HoverTooltipMixin.java" "return ModConfig.GLOBAL_ENABLED.get()" "book hover must honor global translation before interception"
+Assert-FileContains "$src/feature/sign/SignTranslationHelper.java" "!ModConfig.GLOBAL_ENABLED.get()" "sign cache reads must honor global translation"
+Assert-FileContains "$src/keybind/ShortcutAction.java" "TOGGLE_GLOBAL_TRANSLATION" "bindable global translation action required"
+Assert-FileNotContains "$src/keybind/ShortcutAction.java" "boolean hold" "retired shortcut hold flag residue"
+Assert-FileContains "$src/config/ModConfig.java" "shortcuts.toggleGlobalTranslation" "global translation shortcut persistence required"
+Assert-FileNotContains "$src/config/ModConfig.java" "CHAT_CONTEXT_BATCH_INTERVAL_MS" "retired chat batch config residue"
+Assert-FileNotContains "$src/config/ModConfig.java" "CHAT_CONTEXT_COLLECT_WINDOW_MS" "retired chat collect-window config residue"
+Assert-FileNotContains "$src/config/ModConfig.java" "CACHE_SERVER_SHARE_ENABLED" "retired global shared-cache config residue"
+Assert-FileContains "$src/config/ModConfig.java" 'root.remove("cache.serverShareEnabled")' "retired shared-cache setting must be removed from persisted config"
+Assert-FileContains "$src/keybind/KeyChord.java" "return code >= 0;" "unbound checks must not initialize GLFW"
+Assert-FileContains "$src/keybind/ModKeyBindings.java" "!editingModSettings" "shortcut recording/settings screens must not dispatch live actions"
+Assert-FileContains "$src/keybind/ModKeyBindings.java" '"key.category.simple_translate.general"' "1.20.1 KeyMapping category is a plain translation-key string"
+Assert-FileContains "$res/assets/simple_translate/lang/zh_cn.json" "shortcuts.action.toggle_global_translation" "zh global shortcut label"
+Assert-FileContains "$res/assets/simple_translate/lang/en_us.json" "shortcuts.action.toggle_global_translation" "en global shortcut label"
+Assert-FileContains "$res/assets/simple_translate/lang/zh_cn.json" '"screen.simple_translate.gui_translation": "当前界面所有内容翻译"' "current-screen translation wording"
+Assert-FileContains "$src/cache/SharedCacheClient.java" "cache.save();" "shared-cache import must schedule persistence off the render tick"
+Assert-FileContains "$src/cache/SharedCachePayload.java" 'new ResourceLocation("simple_translate", "cache_sync/v1")' "1.20.1 shared cache uses a classic channel"
+Assert-FileNotContains "$src/cache/SharedCachePayload.java" "CustomPacketPayload" "1.20.1 has no CustomPacketPayload API"
+Assert-FileContains "$res/simple_translate.mixins.json" "GuiGraphicsTranslationMixin" "GUI draw mixin registered"
+Assert-FileContains "$res/simple_translate.mixins.json" "TitleOverlayMixin" "HUD mixin registered"
+Assert-FileNotContains "$res/simple_translate.mixins.json" "ItemStackMixin" "early item tooltip replacement mixin must be retired"
+Assert-PathMissing "$src/feature/advancement/AdvancementTranslationHelper.java" "dedicated advancement translation path must be retired"
+Assert-FileContains "$src/compat/IcebergTooltipGatherCompat.java" "RenderTooltipEvents" "Iceberg gather compat must use the official public event"
+Assert-FileContains "$src/compat/IcebergTooltipGatherCompat.java" "translateGatheredTooltipLines" "Iceberg gather compat must translate through the shared semantic projection pipeline"
+Assert-FileNotContains "$src/mixin/SimpleTranslateMixinPlugin.java" "AdvancementPlaques" "retired advancement plaque integration residue"
 
-    Assert-FileContains $direct "JsonPassthroughPipeline.translateComponents(" "single facade must use component JSON"
-    Assert-FileContains $direct "JsonPassthroughPipeline.translateComponentsAsync(" "async facade must use component JSON"
-    Assert-FileContains $direct "List.of(source)" "single components and raw text must be wrapped as JSON arrays"
-    Assert-FileNotContains $direct "DirectFormattedTranslationPipeline" "surface facade must not reference the old pipeline"
+Assert-FileContains "$src/feature/chat/ChatAutoTranslationFilter.java" "TranslationTextDetector.normalizeForDetection" "AUTO chat classification must normalize fullwidth Latin text"
+Assert-FileContains "$src/feature/chat/ChatContextHelper.java" "return isKnownPlayerName(leading);" "multi-word colon prefixes must require an actually online leading player"
+Assert-FileContains "$src/feature/chat/ChatAutoTranslationFilter.java" "Stats.from(body).wordCount > 0" "ambiguous colon prefixes must not strip every translatable word"
 
-    Assert-FileContains $jsonPipeline "array.size() != originals.size()" "JSON responses must keep top-level count"
-    Assert-FileContains $jsonPipeline "Component.Serializer.fromJson" "JSON responses must parse as Components"
-    Assert-FileNotContains $jsonPipeline "structureFingerprint" "JSON pipeline must remain intentionally unlocked"
-    Assert-FileContains $jsonPipeline "class JsonBatcher" "JSON micro-batching must be present"
-    Assert-FileContains $jsonPipeline "retrying {} item(s) individually" "invalid micro-batches must retry as JSON singles"
-    Assert-FileContains $jsonPipeline "Surface.directBatchCandidate" "only approved high-frequency surfaces are micro-batched"
-    Assert-FileContains $jsonPipeline "stripHoverEvents(element)" "ordinary JSON requests must strip hidden hover payloads"
-    Assert-FileContains $jsonPipeline "reattachOriginalHoverEvents(restored, originals)" "translated visible components must regain original hover events"
-    Assert-FileContains $jsonPipeline "canUseContextlessLegacyCache" "contextual JSON requests must not reuse contextless legacy cache"
-    Assert-FileContains $jsonPipeline "normalizeComponentJson" "extra-only model components must gain a compatible empty text root"
+$ocr = Get-ChildItem $src -Recurse -Filter *.java | Select-String -Pattern "\bOCR\b|ocrEnabled|OcrFeature" | Where-Object { $_.Line -notmatch '^\s*//' }
+if ($ocr) { throw "OCR residue: $($ocr[0].Path):$($ocr[0].LineNumber)" }
 
-    Assert-FileContains $cacheKeys 'COMPONENT_JSON_FORMAT = "component_json_v1"' "cache keys must identify component JSON"
-    Assert-FileContains $cacheKeys "legacyComponentJsonKey" "existing JSON cache keys must migrate lazily"
-    Assert-FileContains $cache "putComponentJson" "cache must persist source and translated JSON"
-    Assert-FileContains $cache "isSupportedComponentJsonKey" "legacy wire cache entries must stay inactive"
-    Assert-FileContains $cacheEditor 'object.get("text")' "cache editor must enumerate JSON text nodes"
-    Assert-FileContains $cacheEditor "replaceTextNodes" "cache editor must rewrite JSON text nodes"
-    Assert-FileContains $cacheScreen "decodeEditorText" "cache screen must validate text-node count"
-    Assert-FileNotContains $cacheScreen "StyledComponentSnapshot" "cache editor must not project guessed styles"
+$extractorHits = Get-ChildItem $src -Recurse -Filter *.java | Select-String -Pattern "GuiGraphicsExtractor" -SimpleMatch
+if ($extractorHits) { throw "GuiGraphicsExtractor residue remains: $($extractorHits[0])" }
 
-    Assert-FileContains $service 'new TranslationResult.Failed("component-json-required")' "transport must reject non-JSON translation payloads"
-    Assert-FileContains $service "JsonPassthroughPrompts.buildSystemPrompt" "transport must use the JSON prompt"
-    Assert-FileContains $jsonPrompt "Hidden hover events are" "JSON prompt docs must document local hover restoration"
-    Assert-FileNotContains $jsonPrompt '\"hoverEvent\", \"insertion\"' "model prompt must not ask ordinary requests to translate hoverEvent payloads"
-    Assert-FileContains $sign "restoreComponents" "sign groups must map translated JSON components positionally"
-    Assert-FileContains $signLayout "findFourRowWrapWidth" "sign translations must reflow into four render rows"
-    Assert-FileContains $signLayout "maxTextLineWidth / (float) widestLine" "overflowing sign text must scale to fit"
-    Assert-FileContains $signTextMixin "data.renderLines" "sign text mixin must use the precomputed layout"
-    Assert-FileContains $signRendererMixin "poseStack.scale(scale, scale, scale)" "sign renderer must apply scoped text scaling"
-    Assert-FileContains $signHelper "Arrays.equals(existing.translatedComponents, componentCopy)" "unchanged sign layouts must be reused"
-    Assert-FileContains $sign "fromCompactEntries" "manual sign panels must use one Component JSON entry per sign"
-    Assert-FileContains $signHelper "partitionManualPanels" "manual selections must translate once per physical panel"
-    Assert-FileContains $signHelper "Translate the panel as one continuous semantic document" "manual panel prompts must share one semantic context"
-    Assert-FileNotContains $signHelper "retryManualChunkAsSingles" "manual panels must not fall back to context-divergent single-sign requests"
-    Assert-FileNotContains $signHelper 'append(" selectionIndex=")' "ephemeral selection indexes must not affect prompt or cache context"
-    Assert-FileNotContains $signHelper "semantic-residual-or-empty" "sign JSON must not be rejected by semantic heuristics"
-    Assert-FileNotContains $signHelper "render-overflow" "sign JSON must not be rejected before render-time layout"
-    Assert-FileNotContains $signHelper "ManualCandidateOutcome" "strict manual candidate rejection flow must be removed"
-    Assert-FileNotContains $translationResult "Degraded" "translation result must not expose old degraded/plain fallback"
-    Assert-FileNotContains $chatAuto "fallbackBatchToDirect" "chat auto translator must not fall back to single-message old flow"
-    Assert-FileNotContains $chatAuto "isUsableAutoTranslation" "chat auto translator must not reject JSON output by semantic heuristics"
-    Assert-FileNotContains $chatBatch "markFailedOrFallbackLocked" "chat batch translator must consume failed JSON entries instead of fallback"
-    Assert-FileNotContains $chatBatch "PendingEntry" "old chat pending-entry batch queue must be removed"
-    Assert-FileNotContains $chatBatch "BatchSnapshot" "old chat batch snapshot scheduler must be removed"
-    Assert-FileNotContains $direct "translateTextAsync" "plain text wrapper must be removed from the JSON facade"
-    Assert-FileNotContains $direct "getCachedText" "plain text cache wrapper must be removed from the JSON facade"
+& "$env:JAVA_HOME\bin\java.exe" "-Dorg.gradle.appname=gradlew" `
+  -classpath "gradle/wrapper/gradle-wrapper.jar" `
+  org.gradle.wrapper.GradleWrapperMain compileJava --no-daemon
+if ($LASTEXITCODE -ne 0) { throw "compileJava failed" }
 
-    Assert-FileNotContains $config "JSON_PASSTHROUGH_CHAT" "chat JSON toggle must be removed"
-    Assert-FileNotContains $config "JSON_PASSTHROUGH_ITEM_TOOLTIP" "item JSON toggle must be removed"
-    Assert-FileNotContains $config "JSON_PASSTHROUGH_CHAT_HOVER" "hover JSON toggle must be removed"
-    Assert-FileNotContains $config "TRANSLATION_STYLE_PROMPT" "style prompt setting must be removed"
-
-    $removed = @(
-        "DirectFormattedTranslationPipeline.java",
-        "TranslationDocument.java",
-        "StyleRestorer.java",
-        "StyleRestore.java",
-        "RestoreOutcome.java",
-        "StyledComponentSnapshot.java",
-        "WireCodec.java",
-        "ChatBatchTextRepair.java",
-        "DocumentChecks.java",
-        "EditableText.java",
-        "NumberGuard.java",
-        "StyleSignatures.java",
-        "Placeholder.java"
-    )
-    foreach ($file in $removed) {
-        Assert-PathMissing (Join-Path $core $file) "old formatted-restore class must be deleted"
-    }
-    Assert-PathMissing (Join-Path $src "feature/sign/SignDirectDocument.java") "old sign document must be deleted"
-    Assert-PathMissing (Join-Path $src "transport/TranslationPrompts.java") "old numbered-wire prompt must be deleted"
-    Assert-PathMissing (Join-Path $src "feature/chat/ChatLogicalBlockDetector.java") "old logical chat block detector must be deleted"
-
-    $javaFiles = Get-ChildItem -LiteralPath (Join-Path $ProjectDir "src/main/java") -Recurse -File -Filter *.java
-    $oldReferences = $javaFiles | Select-String -Pattern "DirectFormattedTranslationPipeline|TranslationDocument|StyleRestorer|StyledComponentSnapshot|WireCodec|SignDirectDocument"
-    if ($oldReferences) {
-        throw "old translation architecture references remain: $($oldReferences[0].Path):$($oldReferences[0].LineNumber)"
-    }
-    if ($javaFiles.Count -ne 128) {
-        throw "unexpected Java file count after old pipeline removal: $($javaFiles.Count)"
-    }
-
-    $utf8 = [System.Text.Encoding]::UTF8
-    [System.IO.File]::ReadAllText(
-        (Join-Path $ProjectDir "src/main/resources/assets/simple_translate/lang/en_us.json"), $utf8
-    ) | ConvertFrom-Json | Out-Null
-    [System.IO.File]::ReadAllText(
-        (Join-Path $ProjectDir "src/main/resources/assets/simple_translate/lang/zh_cn.json"), $utf8
-    ) | ConvertFrom-Json | Out-Null
-
-    Write-Host "SimpleTranslate component JSON logic checks passed"
-}
-finally {
-    Pop-Location
-}
+Write-Host "1.20.2 logic checks PASSED"

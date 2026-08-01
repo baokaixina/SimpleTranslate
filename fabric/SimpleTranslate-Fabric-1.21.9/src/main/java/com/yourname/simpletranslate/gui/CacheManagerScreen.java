@@ -3,10 +3,12 @@ package com.yourname.simpletranslate.gui;
 import com.yourname.simpletranslate.SimpleTranslateMod;
 import com.yourname.simpletranslate.cache.TranslationCache;
 import com.yourname.simpletranslate.cache.SharedCacheClient;
+import com.yourname.simpletranslate.config.ModConfig;
 import net.fabricmc.loader.api.FabricLoader;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.Button;
+import net.minecraft.client.gui.components.CycleButton;
 import net.minecraft.client.gui.components.EditBox;
 import net.minecraft.client.gui.components.ObjectSelectionList;
 import net.minecraft.client.gui.screens.Screen;
@@ -29,8 +31,8 @@ public class CacheManagerScreen extends BaseSimpleTranslateScreen {
     private static final int MAX_LIST_WIDTH = 520;
     private static final int MIN_LIST_WIDTH = 180;
     private static final int SEARCH_WIDTH = 220;
-    private static final int ROW_HEIGHT = 24;
-    private static final int LIST_TOP = 104;
+    private static final int ROW_HEIGHT = 18;
+    private static final int LIST_TOP = 122;
     private static final DateTimeFormatter SHARE_FILE_TIME = DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss");
 
     private final Screen parent;
@@ -82,6 +84,14 @@ public class CacheManagerScreen extends BaseSimpleTranslateScreen {
         this.searchInput.setResponder(ignored -> applySearchFilter());
         withTooltip(this.searchInput, "screen.simple_translate.cache.search.tooltip");
         this.addRenderableWidget(this.searchInput);
+
+        CycleButton<Boolean> cacheEnabledButton = CycleButton.onOffBuilder(
+                        ModConfig.CACHE_ENABLED.get())
+                .create(rowLeft, 88, 150, 20,
+                        Component.translatable("screen.simple_translate.cache.enabled"),
+                        (button, value) -> ModConfig.CACHE_ENABLED.set(value));
+        withTooltip(cacheEnabledButton, "screen.simple_translate.cache.enabled.tooltip");
+        this.addRenderableWidget(cacheEnabledButton);
 
         // Load cached translations
         refreshCacheList();
@@ -457,8 +467,8 @@ public class CacheManagerScreen extends BaseSimpleTranslateScreen {
     private class CacheList extends ObjectSelectionList<CacheEntry> {
         private final int rowWidth;
 
-        public CacheList(Minecraft minecraft, int screenWidth, int rowWidth, int top, int bottom) {
-            super(minecraft, screenWidth, Math.max(1, bottom - top), top, bottom);
+        public CacheList(Minecraft minecraft, int screenWidth, int rowWidth, int top, int bottomY) {
+            super(minecraft, screenWidth, Math.max(1, bottomY - top), top, ROW_HEIGHT);
             this.rowWidth = rowWidth;
         }
 
@@ -513,11 +523,11 @@ public class CacheManagerScreen extends BaseSimpleTranslateScreen {
             int translationWidth = Math.max(80, width - laneWidth - keyWidth - 28);
 
             String displayLane = CacheManagerScreen.this.fitText(lane, laneWidth);
-            graphics.drawString(CacheManagerScreen.this.font, displayLane, left + 5, top + 5, 0xFF88CCFF);
+            graphics.drawString(CacheManagerScreen.this.font, displayLane, left + 5, top + 3, 0xFF88CCFF);
 
             String displayKey = surface + ":" + key.substring(Math.max(0, key.length() - 12));
             displayKey = CacheManagerScreen.this.fitText(displayKey, keyWidth);
-            graphics.drawString(CacheManagerScreen.this.font, displayKey, left + 78, top + 5, 0xFFFFFFFF);
+            graphics.drawString(CacheManagerScreen.this.font, displayKey, left + 78, top + 3, 0xFFFFFFFF);
 
             String displayTranslation = translation.isBlank() ? sourceText : translation;
             if (editedByPlayer) {
@@ -525,7 +535,7 @@ public class CacheManagerScreen extends BaseSimpleTranslateScreen {
                         + " " + displayTranslation;
             }
             displayTranslation = CacheManagerScreen.this.fitText(displayTranslation, translationWidth);
-            graphics.drawString(CacheManagerScreen.this.font, displayTranslation, left + 240, top + 5, 0xFF88FF88);
+            graphics.drawString(CacheManagerScreen.this.font, displayTranslation, left + 240, top + 3, 0xFF88FF88);
         }
 
         private boolean matches(String normalizedQuery) {

@@ -50,6 +50,21 @@ dependencies {
     minecraft "net.minecraftforge:forge:${project.minecraft_version}-${project.forge_version}"
     annotationProcessor "org.spongepowered:mixin:0.8.5:processor"
     compileOnly "org.jetbrains:annotations:24.1.0"
+    // MixinExtras ships with Fabric Loader but not with Forge. The
+    // mixinextras-forge artifact only carries the platform bootstrap plus a
+    // nested MixinExtras jar, so compile against mixinextras-common and embed
+    // the platform jar via JarJar for production clients.
+    implementation "io.github.llamalad7:mixinextras-common:0.4.1"
+    jarJar "io.github.llamalad7:mixinextras-forge:[0.4.1,0.5.0)"
+    // MixinExtras injectors (@WrapOperation etc.) need their own annotation
+    // processor on the AP path, otherwise the Mixin refmap omits their
+    // @At("INVOKE") targets and production SRG runtimes fail injection checks
+    // (observed: ScoreboardMixin#wrapSidebarTitle 0/1 on Forge 43.5.2).
+    annotationProcessor "io.github.llamalad7:mixinextras-common:0.4.1"
+}
+
+jarJar {
+    enable()
 }
 
 processResources {

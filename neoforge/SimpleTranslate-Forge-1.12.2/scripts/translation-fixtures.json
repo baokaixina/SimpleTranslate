@@ -1,0 +1,19 @@
+{
+  "version": "component-json-fixtures-v2-forge-1.12.2",
+  "description": "Applicable baseline Component JSON, hover isolation and legacy PUA layout fixtures.",
+  "fixtures": [
+    { "surface": "chat.context.batch.direct", "name": "ordered AUTO chat Component block" },
+    { "surface": "gui.component.visible_frame.v3", "name": "whole-frame GUI Component array" },
+    { "surface": "gui.component.visible_frame.v3", "name": "legacy PUA layout program with fixed source advances" },
+    { "surface": "hover.context.direct", "name": "visible chat text keeps hidden hover payload detached" },
+    { "surface": "book.page.direct", "name": "signed-book visible page Component" },
+    { "surface": "sign.manual.group.by_id.direct", "name": "manual four-line sign groups" },
+    { "surface": "tooltip.visible.item.component.v2", "name": "atomic item-tooltip line group" },
+    { "surface": "scoreboard.component.semantic_frame.v3", "name": "scoreboard semantic frame" },
+    { "surface": "bossbar.component.direct", "name": "boss bar Component" },
+    { "surface": "hud.title_group.component.direct", "name": "title and subtitle pair" },
+    { "surface": "hud.actionbar.component.direct", "name": "actionbar PUA protection" },
+    { "surface": "advancement.widget.title", "name": "advancement widget title" },
+    { "surface": "manager.raw", "name": "manager raw remains a top-level one-Component array" }
+  ]
+}

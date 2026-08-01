@@ -2,7 +2,7 @@ package com.yourname.simpletranslate.feature.book;
 
 import com.yourname.simpletranslate.config.ModConfig;
 import net.minecraft.client.gui.Font;
-import com.yourname.simpletranslate.compat.GuiGraphics;
+import com.yourname.simpletranslate.core.render.GuiGraphics;
 import net.minecraft.network.chat.Component;
 
 public final class BookBookmarkControl {

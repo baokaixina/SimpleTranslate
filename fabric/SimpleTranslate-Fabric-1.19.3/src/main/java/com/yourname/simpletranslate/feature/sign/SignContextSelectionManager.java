@@ -77,6 +77,7 @@ public final class SignContextSelectionManager {
             return;
         }
 
+        // Minecraft 1.19.4 signs are single-sided: the visible face is always the front.
         boolean front = true;
         String[] lines = SignTranslationHelper.readSignLinesForSelection(sign, front);
 

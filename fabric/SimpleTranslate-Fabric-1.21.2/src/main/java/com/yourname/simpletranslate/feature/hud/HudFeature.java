@@ -4,15 +4,21 @@ import com.yourname.simpletranslate.SimpleTranslateMod;
 import com.yourname.simpletranslate.config.ModConfig;
 import com.yourname.simpletranslate.keybind.HoldOriginalFeature;
 import com.yourname.simpletranslate.keybind.HoldOriginalState;
+import com.google.gson.JsonParser;
+import com.yourname.simpletranslate.core.ComponentJsonCompat;
 import com.yourname.simpletranslate.core.DirectSurfaceTranslator;
+import com.yourname.simpletranslate.core.JsonPassthroughPipeline;
 import com.yourname.simpletranslate.feature.hud.HudTranslationHistory;
 import com.yourname.simpletranslate.feature.tooltip.TooltipTranslationHelper;
 import net.minecraft.client.Minecraft;
+import net.minecraft.client.gui.Font;
+import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.network.chat.Component;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -34,14 +40,22 @@ public final class HudFeature {
     @Nullable private Component translatedSubtitle;
     @Nullable private Component translatedOverlay;
     @Nullable private Component translatedOverlayTemplate;
+    /** Translation template with runtime values replaced by stable local markers. */
+    @Nullable private HudTextSupport.ActionbarTemplate overlayTemplate;
     @Nullable private String titleImmediateSourceKey;
     @Nullable private String titleGroupKey;
     @Nullable private String titleCaptionSourceKey;
     @Nullable private String subtitleCaptionSourceKey;
     @Nullable private String titleHistoryKey;
     @Nullable private String subtitleHistoryKey;
+    /** Request/history key: raw Component JSON for the variable-masked template. */
     @Nullable private String overlayKey;
+    /** Layout key: raw Component JSON for the current, unmasked overlay. */
+    @Nullable private String overlayLayoutKey;
     @Nullable private String overlayHistoryKey;
+    private boolean overlayLayoutCritical;
+    /** False only when a live dynamic marker cannot be restored safely. */
+    private boolean overlayVariablesRestored = true;
     private long hudHistorySequence;
     private long seenRuntimeRevision = -1L;
     private boolean seenCaptionBatchMode;
@@ -82,16 +96,10 @@ public final class HudFeature {
         syncRuntimeRevision();
         syncCaptionMode();
         this.originalOverlay = component;
-        HudTextSupport.ActionbarTemplate template = HudTextSupport.actionbarTemplate(component);
-        String currentKey = overlayKey(template);
-        if (!currentKey.equals(this.overlayKey)) {
-            this.translatedOverlay = null;
-            this.translatedOverlayTemplate = null;
-            this.overlayKey = currentKey;
-            this.overlayHistoryKey = null;
-        }
-        if (captionBatchMode()) {
-            recordActionbarCaption(template, currentKey);
+        refreshActionbarMetadata();
+        if (captionBatchMode()
+                && this.overlayTemplate != null && this.overlayKey != null) {
+            recordActionbarCaption(this.overlayTemplate, this.overlayKey);
         }
     }
 
@@ -101,6 +109,9 @@ public final class HudFeature {
         this.originalOverlay = null;
         clearLocalTranslations();
         this.overlayKey = null;
+        this.overlayLayoutKey = null;
+        this.overlayTemplate = null;
+        this.overlayLayoutCritical = false;
         this.overlayHistoryKey = null;
         pendingTitleHistoryKeys().clear();
         pendingActionbarHistoryKeys().clear();
@@ -127,17 +138,46 @@ public final class HudFeature {
 
     @Nullable
     public Component renderTitle() {
-        return title;
+        return this.title;
     }
 
     @Nullable
     public Component renderSubtitle() {
-        return subtitle;
+        return this.subtitle;
     }
 
     @Nullable
     public Component renderOverlay() {
-        return overlayMessageString;
+        return this.overlayMessageString;
+    }
+
+    private static boolean sameComponent(Component first, Component second) {
+        return first == second || (first != null && first.equals(second));
+    }
+
+    /**
+     * Called from the two actionbar-only mixin wrappers. Identity matching is
+     * deliberate: unrelated HUD components that happen to compare equal must
+     * never enter the layout renderer.
+     */
+    @Nullable
+    public Component layoutActionbarSource(@Nullable Component rendered) {
+        return this.overlayLayoutCritical
+                && rendered != null
+                && rendered == this.translatedOverlay
+                ? this.originalOverlay
+                : null;
+    }
+
+    /**
+     * No layout plan renderer is available on this target. A false result
+     * tells the mixin to render the original component through vanilla
+     * instead.
+     */
+    public boolean renderLayoutActionbar(GuiGraphics graphics, Font font,
+                                         @Nullable Component rendered,
+                                         int x, int y, int width, int color) {
+        return false;
     }
 
     // The mixin assigns these directly from the render results.
@@ -202,7 +242,7 @@ public final class HudFeature {
         this.seenRuntimeRevision = revision;
         this.seenCaptionBatchMode = captionBatchMode();
         clearLocalTranslations();
-        this.overlayKey = overlayKey(this.originalOverlay);
+        refreshActionbarMetadata();
         this.overlayHistoryKey = null;
         pendingTitleHistoryKeys().clear();
         pendingActionbarHistoryKeys().clear();
@@ -215,7 +255,7 @@ public final class HudFeature {
         }
         this.seenCaptionBatchMode = batchMode;
         clearLocalTranslations();
-        this.overlayKey = overlayKey(this.originalOverlay);
+        refreshActionbarMetadata();
         this.overlayHistoryKey = null;
         pendingTitleHistoryKeys().clear();
         pendingActionbarHistoryKeys().clear();
@@ -231,6 +271,7 @@ public final class HudFeature {
         this.translatedSubtitle = null;
         this.translatedOverlay = null;
         this.translatedOverlayTemplate = null;
+        this.overlayVariablesRestored = true;
         this.titleImmediateSourceKey = null;
         this.titleGroupKey = null;
         this.titleCaptionSourceKey = null;
@@ -417,17 +458,15 @@ public final class HudFeature {
         Component original = this.originalOverlay;
         if (original == null) {
             this.overlayMessageString = null;
-            this.overlayKey = null;
+            clearActionbarMetadata();
             this.overlayHistoryKey = null;
             return;
         }
-        HudTextSupport.ActionbarTemplate actionbarTemplate = HudTextSupport.actionbarTemplate(original);
-        String currentKey = overlayKey(actionbarTemplate);
-        if (!currentKey.equals(this.overlayKey)) {
-            this.translatedOverlay = null;
-            this.translatedOverlayTemplate = null;
-            this.overlayKey = currentKey;
-            this.overlayHistoryKey = null;
+        HudTextSupport.ActionbarTemplate actionbarTemplate = currentOverlayTemplate();
+        String currentKey = this.overlayKey;
+        if (actionbarTemplate == null || currentKey == null) {
+            this.overlayMessageString = original;
+            return;
         }
         if (!ModConfig.HUD_ACTIONBAR_ENABLED.get() || HoldOriginalState.isHolding(HoldOriginalFeature.ACTIONBAR)) {
             this.overlayMessageString = original;
@@ -441,16 +480,13 @@ public final class HudFeature {
         if (this.overlayHistoryKey != null) {
             Component translatedTemplate = HudTranslationHistory.translatedRequestComponent(this.overlayHistoryKey);
             if (translatedTemplate != null) {
-                Component restored = HudTextSupport.restoreActionbarVariables(translatedTemplate, actionbarTemplate);
-                if (restored != null) {
+                if (!translatedTemplate.equals(this.translatedOverlayTemplate)) {
                     this.translatedOverlayTemplate = translatedTemplate;
-                    this.translatedOverlay = restored;
-                    this.overlayMessageString = restored;
-                    return;
+                    applyCurrentActionbarTranslation();
+                } else if (this.translatedOverlay == null) {
+                    applyCurrentActionbarTranslation();
                 }
-                this.translatedOverlayTemplate = translatedTemplate;
-                this.translatedOverlay = translatedTemplate;
-                this.overlayMessageString = translatedTemplate;
+                this.overlayMessageString = this.translatedOverlay == null ? original : this.translatedOverlay;
                 return;
             }
         }
@@ -480,34 +516,28 @@ public final class HudFeature {
         Component original = this.originalOverlay;
         if (original == null) {
             this.overlayMessageString = null;
-            this.overlayKey = null;
+            clearActionbarMetadata();
             this.overlayHistoryKey = null;
             return;
         }
-        HudTextSupport.ActionbarTemplate actionbarTemplate = HudTextSupport.actionbarTemplate(original);
-        String currentKey = overlayKey(actionbarTemplate);
-        if (!currentKey.equals(this.overlayKey)) {
-            this.translatedOverlay = null;
-            this.translatedOverlayTemplate = null;
-            this.overlayKey = currentKey;
-            this.overlayHistoryKey = null;
+        HudTextSupport.ActionbarTemplate actionbarTemplate = currentOverlayTemplate();
+        String currentKey = this.overlayKey;
+        if (actionbarTemplate == null || currentKey == null) {
+            this.overlayMessageString = original;
+            return;
         }
         if (!ModConfig.HUD_ACTIONBAR_ENABLED.get() || HoldOriginalState.isHolding(HoldOriginalFeature.ACTIONBAR)) {
             this.overlayMessageString = original;
             return;
         }
         if (this.translatedOverlayTemplate != null) {
-            Component restored = HudTextSupport.restoreActionbarVariables(this.translatedOverlayTemplate, actionbarTemplate);
-            if (restored != null) {
-                this.translatedOverlay = restored;
-                this.overlayMessageString = restored;
-                return;
+            if (this.translatedOverlay == null) {
+                applyCurrentActionbarTranslation();
             }
-            this.translatedOverlay = this.translatedOverlayTemplate;
-            this.overlayMessageString = this.translatedOverlayTemplate;
+            this.overlayMessageString = this.translatedOverlay == null ? original : this.translatedOverlay;
             return;
         }
-        if (this.translatedOverlay != null && actionbarTemplate.variables().isEmpty()) {
+        if (this.translatedOverlay != null) {
             this.overlayMessageString = this.translatedOverlay;
             return;
         }
@@ -515,12 +545,11 @@ public final class HudFeature {
             this.overlayMessageString = original;
             return;
         }
-        requestActionbarAsync(original, actionbarTemplate, currentKey);
+        requestActionbarAsync(actionbarTemplate, currentKey);
         this.overlayMessageString = original;
     }
 
-    private void requestActionbarAsync(Component original, HudTextSupport.ActionbarTemplate actionbarTemplate,
-                                       String currentKey) {
+    private void requestActionbarAsync(HudTextSupport.ActionbarTemplate actionbarTemplate, String currentKey) {
         Set<String> pendingActionbarKeys = pendingActionbarHistoryKeys();
         if (!pendingActionbarKeys.add(currentKey)) {
             return;
@@ -534,8 +563,6 @@ public final class HudFeature {
                         return;
                     }
                     Component translatedTemplate = direct.components.get(0);
-                    Component restored = HudTextSupport.restoreActionbarVariables(translatedTemplate, actionbarTemplate);
-                    Component finalOverlay = restored != null ? restored : translatedTemplate;
                     Minecraft minecraft = Minecraft.getInstance();
                     if (minecraft != null) {
                         minecraft.execute(() -> {
@@ -543,11 +570,110 @@ public final class HudFeature {
                                 return;
                             }
                             this.translatedOverlayTemplate = translatedTemplate;
-                            this.translatedOverlay = finalOverlay;
-                            this.overlayMessageString = finalOverlay;
+                            // Never use the request-time variables here. The
+                            // actionbar may have ticked while the request was
+                            // in flight, so reattach the current template.
+                            applyCurrentActionbarTranslation();
                         });
                     }
                 });
+    }
+
+    /**
+     * Updates the two deliberately separate actionbar identities. The template
+     * identity masks live numbers so a ticking HUD does not repeatedly request
+     * the same translation; the layout identity retains every original glyph,
+     * font, whitespace run, and live value so the rendered component is never
+     * reused across a different coordinate stream.
+     */
+    private void refreshActionbarMetadata() {
+        Component original = this.originalOverlay;
+        if (original == null) {
+            clearActionbarMetadata();
+            return;
+        }
+
+        HudTextSupport.ActionbarTemplate template = HudTextSupport.actionbarTemplate(original);
+        String requestKey = actionbarTemplateKey(template);
+        String layoutKey = actionbarLayoutKey(original);
+        boolean templateChanged = !Objects.equals(requestKey, this.overlayKey);
+        boolean layoutChanged = !Objects.equals(layoutKey, this.overlayLayoutKey);
+        boolean layoutCritical = isLayoutCriticalActionbar(original);
+        boolean layoutModeChanged = layoutCritical != this.overlayLayoutCritical;
+
+        this.overlayTemplate = template;
+        this.overlayKey = requestKey;
+        this.overlayLayoutKey = layoutKey;
+        this.overlayLayoutCritical = layoutCritical;
+
+        if (templateChanged) {
+            this.translatedOverlay = null;
+            this.translatedOverlayTemplate = null;
+            this.overlayVariablesRestored = true;
+            this.overlayHistoryKey = null;
+            return;
+        }
+
+        // Dynamic values, fonts, PUA anchors, and exact spaces all travel
+        // through the layout key. Existing translations stay reusable, but
+        // their rendered component must be rebuilt from this frame's source
+        // template.
+        if (layoutChanged || layoutModeChanged) {
+            if (this.translatedOverlayTemplate != null) {
+                applyCurrentActionbarTranslation();
+            }
+        }
+    }
+
+    @Nullable
+    private HudTextSupport.ActionbarTemplate currentOverlayTemplate() {
+        if (this.originalOverlay == null) {
+            return null;
+        }
+        if (this.overlayTemplate == null || this.overlayKey == null) {
+            refreshActionbarMetadata();
+        }
+        return this.overlayTemplate;
+    }
+
+    private void applyCurrentActionbarTranslation() {
+        HudTextSupport.ActionbarTemplate template = currentOverlayTemplate();
+        Component translatedTemplate = this.translatedOverlayTemplate;
+        if (template == null || translatedTemplate == null) {
+            this.translatedOverlay = null;
+            this.overlayVariablesRestored = false;
+            return;
+        }
+
+        Component restored = HudTextSupport.restoreActionbarVariables(translatedTemplate, template);
+        this.overlayVariablesRestored = template.variables().isEmpty() || restored != null;
+        this.translatedOverlay = restored != null ? restored : translatedTemplate;
+        this.overlayMessageString = this.translatedOverlay;
+    }
+
+    private void clearActionbarMetadata() {
+        clearGenericActionbarMetadata();
+    }
+
+    private void clearGenericActionbarMetadata() {
+        this.overlayTemplate = null;
+        this.overlayKey = null;
+        this.overlayLayoutKey = null;
+        this.overlayLayoutCritical = false;
+        this.overlayVariablesRestored = true;
+        this.translatedOverlay = null;
+        this.translatedOverlayTemplate = null;
+    }
+
+    private boolean isLayoutCriticalActionbar(Component component) {
+        try {
+            return JsonPassthroughPipeline.isLayoutCriticalHudTree(
+                    JsonParser.parseString(ComponentJsonCompat.toJson(component)));
+        } catch (Throwable ignored) {
+            // A serialization failure must leave a normal actionbar on the
+            // normal path; it must not turn into a partially custom render.
+            return false;
+        }
     }
 
     private boolean shouldTranslateHudComponent(@Nullable Component original, boolean skipTechnicalHudText) {
@@ -578,13 +704,25 @@ public final class HudFeature {
                 + HudTextSupport.componentStyleSignature(component);
     }
 
-    private String overlayKey(@Nullable Component original) {
-        return overlayKey(HudTextSupport.actionbarTemplate(original));
+    private String actionbarTemplateKey(HudTextSupport.ActionbarTemplate actionbarTemplate) {
+        Component component = actionbarTemplate == null ? Component.empty() : actionbarTemplate.component();
+        return componentJsonKey("actionbar.template", component);
     }
 
-    private String overlayKey(HudTextSupport.ActionbarTemplate actionbarTemplate) {
-        Component component = actionbarTemplate == null ? null : actionbarTemplate.component();
-        return componentSourceKey("actionbar", component);
+    private String actionbarLayoutKey(Component component) {
+        return componentJsonKey("actionbar.layout", component);
+    }
+
+    private String componentJsonKey(String kind, @Nullable Component component) {
+        Component safeComponent = component == null ? Component.empty() : component;
+        try {
+            return SimpleTranslateMod.getRuntimeRevision() + "\u0000" + kind + "\u0000"
+                    + ComponentJsonCompat.toJson(safeComponent);
+        } catch (Throwable ignored) {
+            // Keep the legacy signature only as a serialization-failure key.
+            // Normal actionbar identities always use unnormalized JSON.
+            return componentSourceKey(kind + ".fallback", safeComponent);
+        }
     }
 
     private boolean shouldHideTranslatedComponent(Component original, Component translated) {

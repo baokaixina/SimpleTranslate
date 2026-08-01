@@ -7,11 +7,13 @@ import com.yourname.simpletranslate.keybind.HoldOriginalState;
 import com.yourname.simpletranslate.feature.book.BookBookmarkControl;
 import com.yourname.simpletranslate.feature.book.BookTranslationHelper;
 import com.yourname.simpletranslate.feature.book.BookTranslationHelper.PageData;
+import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.font.TextFieldHelper;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.gui.screens.inventory.BookEditScreen;
 import net.minecraft.network.chat.Component;
+import org.lwjgl.glfw.GLFW;
 import org.spongepowered.asm.mixin.Final;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
@@ -20,10 +22,15 @@ import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.Redirect;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
-import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
 import java.util.List;
 
+/**
+ * Book editing translation on Minecraft 1.20. This version edits pages through
+ * a {@link TextFieldHelper} with a rebuilt display cache, so the translated page
+ * text is substituted inside {@code rebuildDisplayCache} and cursor/selection
+ * positions are clamped to the displayed length.
+ */
 @Mixin(BookEditScreen.class)
 public abstract class BookEditScreenMixin extends Screen {
 
@@ -46,6 +53,9 @@ public abstract class BookEditScreenMixin extends Screen {
     @Unique
     private BookFeature simple_translate$bookFeature = new BookFeature();
 
+    @Unique
+    private boolean simple_translate$bookmarkMouseDown;
+
     protected BookEditScreenMixin(Component title) {
         super(title);
     }
@@ -64,20 +74,7 @@ public abstract class BookEditScreenMixin extends Screen {
     @Inject(method = "render", at = @At("TAIL"))
     private void simple_translate$onRenderTail(GuiGraphics graphics, int mouseX, int mouseY, float partialTick, CallbackInfo ci) {
         simple_translate$renderBookmark(graphics, mouseX, mouseY);
-    }
-
-    @Inject(method = "mouseClicked", at = @At("HEAD"), cancellable = true)
-    private void simple_translate$onMouseClicked(double mouseX, double mouseY, int button,
-            CallbackInfoReturnable<Boolean> cir) {
-        if (button != 0 || !simple_translate$isBookmarkVisible()) {
-            return;
-        }
-
-        if (simple_translate$isMouseOverBookmark(mouseX, mouseY)) {
-            simple_translate$onTranslateBookmarkPressed();
-            cir.setReturnValue(true);
-            cir.cancel();
-        }
+        simple_translate$handleBookmarkMouse(mouseX, mouseY);
     }
 
     @Inject(method = "setCurrentPageText", at = @At("TAIL"))
@@ -93,7 +90,7 @@ public abstract class BookEditScreenMixin extends Screen {
     @Redirect(method = "rebuildDisplayCache",
             at = @At(value = "INVOKE",
                     target = "Lnet/minecraft/client/gui/screens/inventory/BookEditScreen;getCurrentPageText()Ljava/lang/String;"))
-    private String simple_translate$redirectCurrentPageText(BookEditScreen self) {
+    private String simple_translate$setDisplayPageText(BookEditScreen self) {
         return simple_translate$getDisplayPageText();
     }
 
@@ -208,5 +205,17 @@ public abstract class BookEditScreenMixin extends Screen {
     @Unique
     private boolean simple_translate$isMouseOverBookmark(double mouseX, double mouseY) {
         return BookBookmarkControl.isMouseOver(this.width, mouseX, mouseY);
+    }
+
+    @Unique
+    private void simple_translate$handleBookmarkMouse(double mouseX, double mouseY) {
+        long window = Minecraft.getInstance().getWindow().getWindow();
+        boolean down = GLFW.glfwGetMouseButton(window, GLFW.GLFW_MOUSE_BUTTON_LEFT) == GLFW.GLFW_PRESS;
+        if (down && !simple_translate$bookmarkMouseDown
+                && simple_translate$isBookmarkVisible()
+                && simple_translate$isMouseOverBookmark(mouseX, mouseY)) {
+            simple_translate$onTranslateBookmarkPressed();
+        }
+        simple_translate$bookmarkMouseDown = down;
     }
 }

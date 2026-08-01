@@ -126,8 +126,7 @@ public final class HudHistoryChatPresenter {
                 .withStyle(style -> style
                         .withColor(buttonColor)
                         .withHoverEvent(new HoverEvent(HoverEvent.Action.SHOW_TEXT, Component.literal(hoverText)))
-                        .withClickEvent(new ClickEvent(
-                                ClickEvent.Action.SUGGEST_COMMAND,
+                        .withClickEvent(new ClickEvent(ClickEvent.Action.SUGGEST_COMMAND,
                                 hudHistoryClickValue(entry.historyKey())))));
         return content;
     }

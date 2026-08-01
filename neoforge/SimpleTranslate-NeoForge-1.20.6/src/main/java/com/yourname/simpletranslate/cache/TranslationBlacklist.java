@@ -7,6 +7,7 @@ import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import com.yourname.simpletranslate.SimpleTranslateMod;
+import com.yourname.simpletranslate.core.AtomicFiles;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -16,15 +17,11 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.regex.Pattern;
 
 /**
  * Stores text snippets that should never be sent through translation.
  */
 public class TranslationBlacklist {
-    private static final Pattern INTERNAL_MARKER_PATTERN =
-            Pattern.compile("@{3}\\s*(?:SEG|TTS|CTX|S|S_END)\\s*[0-9A-Za-z_]*\\s*@{3}", Pattern.CASE_INSENSITIVE);
-
     private final Path blacklistFile;
     private final Map<String, String> entries;
     private final Gson gson;
@@ -77,7 +74,7 @@ public class TranslationBlacklist {
     public void save() {
         try {
             Files.createDirectories(blacklistFile.getParent());
-            Files.writeString(blacklistFile, gson.toJson(getAllEntries()));
+            AtomicFiles.writeString(blacklistFile, gson.toJson(getAllEntries()));
         } catch (IOException e) {
             SimpleTranslateMod.getLogger().error("Failed to save translation blacklist", e);
         }
@@ -204,7 +201,6 @@ public class TranslationBlacklist {
         }
 
         String withoutFormatting = stripMinecraftFormatting(text);
-        withoutFormatting = INTERNAL_MARKER_PATTERN.matcher(withoutFormatting).replaceAll("");
         return withoutFormatting.trim().toLowerCase(Locale.ROOT);
     }
 

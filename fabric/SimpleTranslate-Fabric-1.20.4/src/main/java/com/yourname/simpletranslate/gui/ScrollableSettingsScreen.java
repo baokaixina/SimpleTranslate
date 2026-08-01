@@ -79,11 +79,9 @@ public abstract class ScrollableSettingsScreen extends BaseSimpleTranslateScreen
         int centerX = this.width / 2;
         int buttonY = this.height - 25;
 
-        this.backButton = Button.builder(
+        this.backButton = new HoverHighlightButton(centerX - contentWidth / 2, buttonY, contentWidth, 20,
                 Component.translatable("screen.simple_translate.back"),
-                button -> this.onClose())
-                .bounds(centerX - contentWidth / 2, buttonY, contentWidth, 20)
-                .build();
+                button -> this.onClose());
         withTooltip(this.backButton, "screen.simple_translate.back.tooltip");
         this.addRenderableWidget(this.backButton);
     }
@@ -108,7 +106,12 @@ public abstract class ScrollableSettingsScreen extends BaseSimpleTranslateScreen
      * Add a separator/section header
      */
     protected void addSectionHeader(String text) {
-        entries.add(new SettingsEntry(null, "=== " + text + " ===", 0x888888));
+        entries.add(new SettingsEntry(null, "=== " + text + " ===", 0xFF888888));
+    }
+
+    /** Add centered explanatory text without presenting it as a clickable control. */
+    protected void addDescription(String text) {
+        entries.add(new SettingsEntry(null, text, 0xFFAAAAAA));
     }
 
     /**
@@ -154,7 +157,7 @@ public abstract class ScrollableSettingsScreen extends BaseSimpleTranslateScreen
         ScreenBackgrounds.renderPlain(graphics, this.width, this.height);
 
         // Draw title
-        graphics.drawCenteredString(this.font, this.title, this.width / 2, 15, 0xFFFFFF);
+        graphics.drawCenteredString(this.font, this.title, this.width / 2, 15, 0xFFFFFFFF);
 
         // Enable scissor to clip content area
         int contentBottom = getContentBottom();
@@ -232,17 +235,17 @@ public abstract class ScrollableSettingsScreen extends BaseSimpleTranslateScreen
     }
 
     @Override
-    public boolean mouseScrolled(double mouseX, double mouseY, double scrollX, double scrollY) {
+    public boolean mouseScrolled(double mouseX, double mouseY, double horizontalAmount, double verticalAmount) {
         if (isInBottomActionPanel(mouseX, mouseY)) {
-            return super.mouseScrolled(mouseX, mouseY, scrollX, scrollY);
+            return super.mouseScrolled(mouseX, mouseY, horizontalAmount, verticalAmount);
         }
         if (contentHeight > viewportHeight) {
-            scrollOffset -= scrollY * 20;
+            scrollOffset -= verticalAmount * 20;
             scrollOffset = Math.max(0, Math.min(scrollOffset, contentHeight - viewportHeight));
             repositionEntries();
             return true;
         }
-        return super.mouseScrolled(mouseX, mouseY, scrollX, scrollY);
+        return super.mouseScrolled(mouseX, mouseY, horizontalAmount, verticalAmount);
     }
 
     @Override

@@ -1,9 +1,9 @@
 package com.yourname.simpletranslate.mixin;
 
 import com.yourname.simpletranslate.config.ModConfig;
-import com.yourname.simpletranslate.feature.sign.SignTranslationHelper;
 import com.yourname.simpletranslate.keybind.HoldOriginalFeature;
 import com.yourname.simpletranslate.keybind.HoldOriginalState;
+import com.yourname.simpletranslate.feature.sign.SignTranslationHelper;
 import net.minecraft.network.chat.Component;
 import net.minecraft.util.FormattedCharSequence;
 import net.minecraft.world.level.block.entity.SignBlockEntity;
@@ -15,6 +15,11 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 import java.util.Arrays;
 import java.util.function.Function;
 
+/**
+ * Minecraft 1.19.4 has no SignText holder: the per-sign render lines live on
+ * SignBlockEntity#getRenderMessages itself, so the translated-line swap hooks
+ * the block entity directly.
+ */
 @Mixin(SignBlockEntity.class)
 public abstract class SignTextMixin {
 

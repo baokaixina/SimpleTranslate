@@ -1,12 +1,11 @@
 package com.yourname.simpletranslate.gui;
 
-import com.mojang.blaze3d.vertex.PoseStack;
-
 import com.yourname.simpletranslate.SimpleTranslateMod;
 import com.yourname.simpletranslate.cache.ComponentJsonCacheEditor;
 import com.yourname.simpletranslate.cache.TranslationCache;
 import net.minecraft.client.Minecraft;
-import com.yourname.simpletranslate.compat.GuiGraphics;
+import com.mojang.blaze3d.vertex.PoseStack;
+import com.yourname.simpletranslate.core.render.GuiGraphics;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.components.MultiLineEditBox;
 import net.minecraft.client.gui.screens.Screen;
@@ -58,13 +57,10 @@ public class CacheEditScreen extends BaseSimpleTranslateScreen {
         int inputY = INPUT_TOP;
         int inputHeight = Math.max(56, this.height - inputY - 58);
 
-        this.translationInput = new MultiLineEditBox(
-                this.font,
-                left,
-                inputY,
-                panelWidth,
-                inputHeight,
-                Component.translatable("screen.simple_translate.cache.edit.translation"),
+        // 1.20.1 MultiLineEditBox has no Builder; the constructor takes
+        // (font, x, y, width, height, placeholder, narration message).
+        this.translationInput = new MultiLineEditBox(this.font, left, inputY, panelWidth, inputHeight,
+                Component.empty(),
                 Component.translatable("screen.simple_translate.cache.edit.translation"));
         this.translationInput.setCharacterLimit(8000);
         this.translationInput.setValue(editorText());
@@ -140,9 +136,9 @@ public class CacheEditScreen extends BaseSimpleTranslateScreen {
 
     @Override
     public void render(PoseStack poseStack, int mouseX, int mouseY, float partialTick) {
-        GuiGraphics graphics = new GuiGraphics(poseStack);
+        GuiGraphics graphics = GuiGraphics.wrap(poseStack);
         ScreenBackgrounds.renderPlain(graphics, this.width, this.height);
-        graphics.drawCenteredString(this.font, this.title, this.width / 2, 15, 0xFFFFFF);
+        graphics.drawCenteredString(this.font, this.title, this.width / 2, 15, 0xFFFFFFFF);
 
         int panelWidth = panelWidth();
         int left = this.width / 2 - panelWidth / 2;
@@ -150,9 +146,9 @@ public class CacheEditScreen extends BaseSimpleTranslateScreen {
         drawTranslationPreview(graphics, left, PREVIEW_TOP, panelWidth, PREVIEW_HEIGHT);
 
         graphics.drawString(this.font, Component.translatable("screen.simple_translate.cache.edit.translation"),
-                left, INPUT_TOP - 13, 0xFFFFFF);
+                left, INPUT_TOP - 13, 0xFFFFFFFF);
         if (status != null && !status.getString().isBlank()) {
-            graphics.drawCenteredString(this.font, status, this.width / 2, this.height - 42, 0x88FF88);
+            graphics.drawCenteredString(this.font, status, this.width / 2, this.height - 42, 0xFF88FF88);
         }
 
         drawBottomActionMask(graphics);
@@ -161,7 +157,7 @@ public class CacheEditScreen extends BaseSimpleTranslateScreen {
 
     private void drawSourcePanel(GuiGraphics graphics, int left, int top, int width, int height) {
         graphics.drawString(this.font, Component.translatable("screen.simple_translate.cache.edit.source"),
-                left, top - 12, 0xFFFFFF);
+                left, top - 12, 0xFFFFFFFF);
         graphics.fill(left - 1, top - 1, left + width + 1, top + height + 1, 0xAA000000);
         graphics.fill(left, top, left + width, top + height, 0x66303030);
 
@@ -173,11 +169,11 @@ public class CacheEditScreen extends BaseSimpleTranslateScreen {
         int y = top + 5;
         int maxLines = Math.max(1, (height - 8) / this.font.lineHeight);
         for (int i = 0; i < Math.min(lines.size(), maxLines); i++) {
-            graphics.drawString(this.font, lines.get(i), left + 4, y, 0xDDDDDD);
+            graphics.drawString(this.font, lines.get(i), left + 4, y, 0xFFDDDDDD);
             y += this.font.lineHeight;
         }
         if (lines.size() > maxLines) {
-            graphics.drawString(this.font, "...", left + width - 16, top + height - this.font.lineHeight - 2, 0xAAAAAA);
+            graphics.drawString(this.font, "...", left + width - 16, top + height - this.font.lineHeight - 2, 0xFFAAAAAA);
         }
     }
 
@@ -193,7 +189,7 @@ public class CacheEditScreen extends BaseSimpleTranslateScreen {
     /** Renders the component JSON produced by replacing the editable text nodes. */
     private void drawTranslationPreview(GuiGraphics graphics, int left, int top, int width, int height) {
         graphics.drawString(this.font, Component.translatable("screen.simple_translate.cache.edit.preview"),
-                left, top - 12, 0xFFFFFF);
+                left, top - 12, 0xFFFFFFFF);
         graphics.fill(left - 1, top - 1, left + width + 1, top + height + 1, 0xAA000000);
         graphics.fill(left, top, left + width, top + height, 0x66202830);
 
@@ -222,7 +218,7 @@ public class CacheEditScreen extends BaseSimpleTranslateScreen {
         graphics.enableScissor(left + 1, top + 1, left + width - 6, top + height - 1);
         int end = Math.min(visualLines.size(), previewScrollLine + maxLines);
         for (int i = previewScrollLine; i < end; i++) {
-            graphics.drawString(this.font, visualLines.get(i), left + 4, y, 0xFFFFFF);
+            graphics.drawString(this.font, visualLines.get(i), left + 4, y, 0xFFFFFFFF);
             y += this.font.lineHeight;
         }
         graphics.disableScissor();

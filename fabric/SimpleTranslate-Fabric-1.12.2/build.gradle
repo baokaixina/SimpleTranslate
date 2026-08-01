@@ -1,0 +1,45 @@
+buildscript {
+    repositories {
+        maven { url = 'https://maven.fabricmc.net/' }
+        maven { url = 'https://repo.legacyfabric.net/legacyfabric/' }
+        mavenCentral()
+    }
+    dependencies {
+        classpath "net.fabricmc:fabric-loom:${loom_version}"
+        classpath "net.legacyfabric:legacy-looming:${loom_version}"
+    }
+}
+
+apply plugin: 'fabric-loom'
+apply plugin: 'legacy-looming'
+apply plugin: 'maven-publish'
+
+version = project.mod_version
+group = project.maven_group
+base.archivesName = "${project.archives_base_name}-${project.minecraft_version}-fabric"
+
+loom {
+    customMinecraftManifest.set("https://meta.legacyfabric.net/v2/manifest/${minecraft_version}")
+}
+
+dependencies {
+    minecraft "com.mojang:minecraft:${minecraft_version}"
+    mappings "net.legacyfabric:legacy-yarn:${minecraft_version}+build.${yarn_build}"
+    modImplementation "net.fabricmc:fabric-loader:${loader_version}"
+}
+
+processResources {
+    inputs.property 'version', project.version
+    filesMatching('fabric.mod.json') { expand version: project.version }
+}
+
+tasks.withType(JavaCompile).configureEach {
+    it.options.encoding = 'UTF-8'
+    if (JavaVersion.current().isJava9Compatible()) it.options.release = 8
+}
+
+java {
+    sourceCompatibility = JavaVersion.VERSION_1_8
+    targetCompatibility = JavaVersion.VERSION_1_8
+    withSourcesJar()
+}

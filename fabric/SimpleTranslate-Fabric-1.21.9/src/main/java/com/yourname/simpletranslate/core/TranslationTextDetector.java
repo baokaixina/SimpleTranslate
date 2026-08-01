@@ -34,6 +34,10 @@ public final class TranslationTextDetector {
     }
 
     public static boolean containsTranslatableText(String text, int minLetters) {
+        return containsTranslatableText(text, minLetters, ModConfig.TARGET_LANGUAGE.get());
+    }
+
+    public static boolean containsTranslatableText(String text, int minLetters, String targetLanguage) {
         if (text == null || text.isBlank()) {
             return false;
         }
@@ -46,7 +50,7 @@ public final class TranslationTextDetector {
         if (counts.totalLetters() == 0) {
             return false;
         }
-        String target = canonicalLanguageCode(ModConfig.TARGET_LANGUAGE.get());
+        String target = canonicalLanguageCode(targetLanguage);
         return !isAlreadyTargetOnly(counts, target);
     }
 
@@ -61,7 +65,11 @@ public final class TranslationTextDetector {
      * leftovers that should force a retry.</p>
      */
     public static boolean containsMeaningfulTranslatableText(String text) {
-        if (!containsTranslatableText(text)) {
+        return containsMeaningfulTranslatableText(text, ModConfig.TARGET_LANGUAGE.get());
+    }
+
+    public static boolean containsMeaningfulTranslatableText(String text, String targetLanguage) {
+        if (!containsTranslatableText(text, 1, targetLanguage)) {
             return false;
         }
         String normalized = stripMinecraftFormattingCodes(normalizeForDetection(text));
@@ -70,7 +78,7 @@ public final class TranslationTextDetector {
         }
 
         ScriptCounts counts = countScripts(normalized);
-        String target = canonicalLanguageCode(ModConfig.TARGET_LANGUAGE.get());
+        String target = canonicalLanguageCode(targetLanguage);
         if (hasForeignNonLatinScript(counts, target)) {
             return true;
         }
@@ -165,9 +173,13 @@ public final class TranslationTextDetector {
     }
 
     public static String languagePairKey() {
-        return canonicalLanguageCode(ModConfig.SOURCE_LANGUAGE.get())
+        return languagePairKey(ModConfig.SOURCE_LANGUAGE.get(), ModConfig.TARGET_LANGUAGE.get());
+    }
+
+    public static String languagePairKey(String sourceLanguage, String targetLanguage) {
+        return canonicalLanguageCode(sourceLanguage)
                 + "->"
-                + canonicalLanguageCode(ModConfig.TARGET_LANGUAGE.get());
+                + canonicalLanguageCode(targetLanguage);
     }
 
     public static String displayLanguageName(String code) {
@@ -184,6 +196,26 @@ public final class TranslationTextDetector {
             case "de" -> "German";
             case "ru" -> "Russian";
             default -> canonical;
+        };
+    }
+
+    public static boolean hasLanguageSignal(String text, String language) {
+        if (text == null || text.isBlank()) {
+            return false;
+        }
+        String normalized = normalizeForDetection(text);
+        normalized = stripMinecraftFormattingCodes(normalized);
+        if (normalized.isBlank()) {
+            return false;
+        }
+        ScriptCounts counts = countScripts(normalized);
+        return switch (canonicalLanguageCode(language)) {
+            case "zh_cn", "zh_tw" -> counts.han > 0;
+            case "ja" -> counts.kana > 0 || counts.han > 0;
+            case "ko" -> counts.hangul > 0;
+            case "ru" -> counts.cyrillic > 0;
+            case "en", "es", "fr", "de" -> counts.latin > 0;
+            default -> counts.totalLetters() > 0;
         };
     }
 

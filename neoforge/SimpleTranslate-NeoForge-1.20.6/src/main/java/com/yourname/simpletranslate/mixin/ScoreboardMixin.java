@@ -3,79 +3,113 @@ package com.yourname.simpletranslate.mixin;
 import com.yourname.simpletranslate.config.ModConfig;
 import com.yourname.simpletranslate.keybind.HoldOriginalFeature;
 import com.yourname.simpletranslate.keybind.HoldOriginalState;
-import com.yourname.simpletranslate.util.ScoreboardTranslationHelper;
+import com.yourname.simpletranslate.core.MixinRuntimeProbe;
+import com.yourname.simpletranslate.feature.hud.ScoreboardTranslationHelper;
+import com.llamalad7.mixinextras.injector.wrapoperation.Operation;
+import com.llamalad7.mixinextras.injector.wrapoperation.WrapOperation;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.Gui;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.network.chat.Component;
+import net.minecraft.network.chat.FormattedText;
 import net.minecraft.world.scores.Objective;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
-import org.spongepowered.asm.mixin.injection.Redirect;
+import org.spongepowered.asm.mixin.injection.Inject;
+import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 @Mixin(Gui.class)
 public class ScoreboardMixin {
 
-    @Redirect(
-            method = "displayScoreboardSidebar",
+    @Inject(
+            method = "displayScoreboardSidebar(Lnet/minecraft/client/gui/GuiGraphics;Lnet/minecraft/world/scores/Objective;)V",
+            at = @At("HEAD"),
+            require = 1
+    )
+    private void simple_translate$beginSidebarFrame(
+            GuiGraphics graphics, Objective objective, CallbackInfo ci) {
+        ScoreboardTranslationHelper.beginFrame();
+    }
+
+    @Inject(
+            method = "displayScoreboardSidebar(Lnet/minecraft/client/gui/GuiGraphics;Lnet/minecraft/world/scores/Objective;)V",
+            at = @At("RETURN"),
+            require = 1
+    )
+    private void simple_translate$endSidebarFrame(
+            GuiGraphics graphics, Objective objective, CallbackInfo ci) {
+        ScoreboardTranslationHelper.endFrame();
+    }
+
+    @WrapOperation(
+            method = "displayScoreboardSidebar(Lnet/minecraft/client/gui/GuiGraphics;Lnet/minecraft/world/scores/Objective;)V",
             at = @At(value = "INVOKE", target = "Lnet/minecraft/world/scores/Objective;getDisplayName()Lnet/minecraft/network/chat/Component;"),
             require = 1
     )
-    private Component simple_translate$redirectSidebarTitle(Objective objective) {
-        Component component = objective.getDisplayName();
-        if (!ModConfig.HUD_SCOREBOARD_ENABLED.get()) {
-            return component;
-        }
-        if (HoldOriginalState.isHolding(HoldOriginalFeature.SCOREBOARD)) {
-            return component;
-        }
-
-        return ScoreboardTranslationHelper.translateComponent(component);
+    private Component simple_translate$wrapSidebarTitle(Objective objective, Operation<Component> original) {
+        MixinRuntimeProbe.matched("ScoreboardMixin#objectiveDisplayName");
+        Component component = original.call(objective);
+        // Width/background calculations must always see the untouched source.
+        return component;
     }
 
-    @Redirect(
-            method = "displayScoreboardSidebar",
+    @WrapOperation(
+            method = "displayScoreboardSidebar(Lnet/minecraft/client/gui/GuiGraphics;Lnet/minecraft/world/scores/Objective;)V",
+            at = @At(
+                    value = "INVOKE",
+                    target = "Lnet/minecraft/client/gui/Font;width(Lnet/minecraft/network/chat/FormattedText;)I"
+            ),
+            require = 1
+    )
+    private int simple_translate$measureTranslatedSidebarText(
+            Font font, FormattedText text, Operation<Integer> original) {
+        if (text instanceof Component component
+                && ModConfig.HUD_SCOREBOARD_ENABLED.get()
+                && !HoldOriginalState.isHolding(HoldOriginalFeature.SCOREBOARD)) {
+            Component translated = ScoreboardTranslationHelper.translateKnownComponent(component);
+            return original.call(font, translated == null ? component : translated);
+        }
+        return original.call(font, text);
+    }
+
+    /**
+     * Minecraft 1.20.6 defers the sidebar text draws into the synthetic
+     * Runnable body of the sidebar entry lambda via {@code GuiGraphics.drawManaged},
+     * so the drawString wrap must target that synthetic method instead of
+     * displayScoreboardSidebar. NeoForge 1.20.6 runs Mojang-mapped at runtime,
+     * but its binpatches add extra lambda methods to {@code Gui} before
+     * displayScoreboardSidebar, so the vanilla lambda index is not stable
+     * (srg jar: {@code lambda$displayScoreboardSidebar$9}; runtime client after
+     * NeoForge transforms: {@code lambda$displayScoreboardSidebar$14}; both
+     * verified by javap, the runtime one from a mixin debug export of Gui).
+     * The method descriptor is unique in {@code Gui}, so match it with a name
+     * wildcard instead of a hard-coded lambda index. If NeoForge ever adds a
+     * second method with this descriptor, require=1 fails loudly at apply time.
+     */
+    @WrapOperation(
+            method = "*([Lnet/minecraft/client/gui/Gui$1DisplayEntry;Lnet/minecraft/client/gui/GuiGraphics;ILnet/minecraft/network/chat/Component;I)V",
             at = @At(
                     value = "INVOKE",
                     target = "Lnet/minecraft/client/gui/GuiGraphics;drawString(Lnet/minecraft/client/gui/Font;Lnet/minecraft/network/chat/Component;IIIZ)I"
             ),
-            require = 0
+            require = 1
     )
     private int simple_translate$redirectSidebarComponentText(
-            GuiGraphics guiGraphics,
+            GuiGraphics graphics,
             Font font,
             Component component,
             int x,
             int y,
             int color,
-            boolean shadow
+            boolean shadow,
+            Operation<Integer> original
     ) {
         if (!ModConfig.HUD_SCOREBOARD_ENABLED.get() || HoldOriginalState.isHolding(HoldOriginalFeature.SCOREBOARD)) {
-            return guiGraphics.drawString(font, component, x, y, color, shadow);
+            return original.call(graphics, font, component, x, y, color, shadow);
         }
-        return guiGraphics.drawString(font, ScoreboardTranslationHelper.translateComponent(component), x, y, color, shadow);
+        Component translated = ScoreboardTranslationHelper.translateFrameComponent(component);
+        Component rendered = translated == null ? component : translated;
+        return original.call(graphics, font, rendered, x, y, color, shadow);
     }
 
-    @Redirect(
-            method = "displayScoreboardSidebar",
-            at = @At(
-                    value = "INVOKE",
-                    target = "Lnet/minecraft/client/gui/GuiGraphics;drawString(Lnet/minecraft/client/gui/Font;Ljava/lang/String;IIIZ)I"
-            ),
-            require = 0
-    )
-    private int simple_translate$redirectSidebarStringText(
-            GuiGraphics guiGraphics,
-            Font font,
-            String text,
-            int x,
-            int y,
-            int color,
-            boolean shadow
-    ) {
-        if (!ModConfig.HUD_SCOREBOARD_ENABLED.get() || HoldOriginalState.isHolding(HoldOriginalFeature.SCOREBOARD)) {
-            return guiGraphics.drawString(font, text, x, y, color, shadow);
-        }
-        return guiGraphics.drawString(font, ScoreboardTranslationHelper.translateString(text), x, y, color, shadow);
-    }
 }

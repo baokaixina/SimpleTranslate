@@ -6,47 +6,99 @@ import com.yourname.simpletranslate.keybind.HoldOriginalFeature;
 import com.yourname.simpletranslate.keybind.HoldOriginalState;
 import com.yourname.simpletranslate.core.ComponentTranslationResult;
 import com.yourname.simpletranslate.core.DirectSurfaceTranslator;
+import com.yourname.simpletranslate.core.TextContextMemory;
 import com.yourname.simpletranslate.feature.tooltip.TooltipTranslationHelper;
 import net.minecraft.client.Minecraft;
 import net.minecraft.network.chat.Component;
+import net.minecraft.network.syncher.EntityDataAccessor;
 import net.minecraft.world.entity.Display;
+import org.jetbrains.annotations.Nullable;
 import org.spongepowered.asm.mixin.Mixin;
+import org.spongepowered.asm.mixin.Shadow;
+import org.spongepowered.asm.mixin.Unique;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
 @Mixin(Display.TextDisplay.class)
 public class TextDisplayMixin {
+    private static final long CACHE_RECHECK_MILLIS = 1_000L;
+
+    /**
+     * Minecraft 1.19.4 TextDisplay has no TextRenderState record; the text and
+     * line width live in synched entity data.
+     */
+    @Shadow
+    @Nullable
+    private static EntityDataAccessor<Integer> DATA_LINE_WIDTH_ID;
+    @Unique private Component simple_translate$lastSource;
+    @Unique private Component simple_translate$lastTranslation;
+    @Unique private long simple_translate$nextCacheCheckAtNanos;
+    @Unique private long simple_translate$runtimeRevision = -1L;
+    @Unique private long simple_translate$textContextRevision = -1L;
 
     @Inject(method = "cacheDisplay", at = @At("HEAD"), cancellable = true)
     private void simple_translate$cacheDisplay(Display.TextDisplay.LineSplitter splitter,
             CallbackInfoReturnable<Display.TextDisplay.CachedInfo> cir) {
-        if (!ModConfig.CONTENT_TEXT_DISPLAY_ENABLED.get()
+        Display.TextDisplay self = (Display.TextDisplay) (Object) this;
+        Component original = self.getText();
+        if (!ModConfig.GLOBAL_ENABLED.get()
+                || !ModConfig.CONTENT_TEXT_DISPLAY_ENABLED.get()
                 || HoldOriginalState.isHolding(HoldOriginalFeature.TEXT_DISPLAY)
-                || !simple_translate$isInRange()) {
+                || !simple_translate$isInRange()
+                || original == null) {
+            return;
+        }
+        int lineWidth = self.getEntityData().get(DATA_LINE_WIDTH_ID);
+
+        long runtimeRevision = SimpleTranslateMod.getRuntimeRevision();
+        long textContextRevision = TextContextMemory.revision();
+        if (simple_translate$runtimeRevision != runtimeRevision
+                || simple_translate$textContextRevision != textContextRevision) {
+            simple_translate$runtimeRevision = runtimeRevision;
+            simple_translate$textContextRevision = textContextRevision;
+            simple_translate$lastSource = null;
+            simple_translate$lastTranslation = null;
+            simple_translate$nextCacheCheckAtNanos = 0L;
+        }
+        long nowNanos = System.nanoTime();
+        if (original.equals(simple_translate$lastSource)) {
+            if (simple_translate$lastTranslation != null) {
+                cir.setReturnValue(splitter.split(simple_translate$lastTranslation, lineWidth));
+                return;
+            }
+            if (nowNanos < simple_translate$nextCacheCheckAtNanos) {
+                return;
+            }
+        } else {
+            simple_translate$lastSource = original;
+            simple_translate$lastTranslation = null;
+            simple_translate$nextCacheCheckAtNanos = 0L;
+        }
+        if (!TooltipTranslationHelper.containsEnglish(original.getString())) {
+            simple_translate$nextCacheCheckAtNanos = Long.MAX_VALUE;
             return;
         }
 
-        Display.TextDisplay display = (Display.TextDisplay) (Object) this;
-        Component original = display.getText();
-        if (original == null || !TooltipTranslationHelper.containsEnglish(original.getString())) {
-            return;
-        }
-
-            ComponentTranslationResult direct =
+        ComponentTranslationResult direct =
                 DirectSurfaceTranslator.translateComponent(
                         original, "text_display.component.direct", "text-display");
         if (!direct.handled || !direct.translated) {
+            simple_translate$nextCacheCheckAtNanos = nowNanos + CACHE_RECHECK_MILLIS * 1_000_000L;
             return;
         }
 
         Component renderComponent = direct.component;
         if (renderComponent == null || renderComponent == original) {
+            simple_translate$nextCacheCheckAtNanos = nowNanos + CACHE_RECHECK_MILLIS * 1_000_000L;
             return;
         }
 
+        simple_translate$lastTranslation = renderComponent;
+        simple_translate$nextCacheCheckAtNanos = Long.MAX_VALUE;
+
         Display.TextDisplay.CachedInfo cachedInfo =
-                splitter.split(renderComponent, display.getLineWidth());
+                splitter.split(renderComponent, lineWidth);
         cir.setReturnValue(cachedInfo);
     }
 

@@ -6,6 +6,9 @@ param(
 
     [int]$ReadyGraceSeconds = 5,
 
+    [ValidateRange(35, 300)]
+    [int]$QuickPlayWaitSeconds = 90,
+
     [string]$TestClientRoot = "",
 
     [string]$WorldName = "CodexSmokeWorld",
@@ -27,6 +30,22 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+
+if ([string]::IsNullOrWhiteSpace($TestClientRoot)) {
+    $TestClientRoot = [string]$env:SIMPLETRANSLATE_TEST_CLIENT_ROOT
+}
+if ([string]::IsNullOrWhiteSpace($TestClientRoot)) {
+    throw "No test-client root configured. Pass -TestClientRoot or set SIMPLETRANSLATE_TEST_CLIENT_ROOT."
+}
+
+# BEGIN SimpleTranslate project JDK pin
+. (Join-Path $PSScriptRoot "resolve-java.ps1")
+Use-SimpleTranslateProjectJava -ProjectDir $ProjectDir -Purpose Client | Out-Null
+# END SimpleTranslate project JDK pin
+
+
+
+
 
 function Get-ChildProcessIds {
     param([int]$ParentPid)
@@ -341,6 +360,8 @@ public class CodexUser32 {
   [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hWnd);
   [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
   [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr hWnd, out RECT lpRect);
+  [DllImport("user32.dll")] public static extern bool GetClientRect(IntPtr hWnd, out RECT lpRect);
+  [DllImport("user32.dll")] public static extern bool ClientToScreen(IntPtr hWnd, ref POINT lpPoint);
   [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
   [DllImport("user32.dll")] public static extern bool SetCursorPos(int X, int Y);
   [DllImport("user32.dll")] public static extern void mouse_event(uint dwFlags, uint dx, uint dy, uint dwData, UIntPtr dwExtraInfo);
@@ -350,6 +371,10 @@ public struct RECT {
   public int Top;
   public int Right;
   public int Bottom;
+}
+public struct POINT {
+  public int X;
+  public int Y;
 }
 "@
 }
@@ -391,6 +416,18 @@ function Minimize-ClientWindows {
     }
 }
 
+function Get-MinecraftWindowClientSize {
+    param([IntPtr]$Handle)
+
+    Ensure-User32
+    $rect = New-Object RECT
+    [CodexUser32]::GetClientRect($Handle, [ref]$rect) | Out-Null
+    return @{
+        Width = $rect.Right - $rect.Left
+        Height = $rect.Bottom - $rect.Top
+    }
+}
+
 function Invoke-WindowClick {
     param([IntPtr]$Handle, [double]$XRatio, [double]$YRatio)
 
@@ -402,10 +439,18 @@ function Invoke-WindowClick {
     [CodexUser32]::ShowWindow($Handle, 9) | Out-Null
     [CodexUser32]::SetForegroundWindow($Handle) | Out-Null
     Start-Sleep -Milliseconds 250
-    $rect = New-Object RECT
-    [CodexUser32]::GetWindowRect($Handle, [ref]$rect) | Out-Null
-    $x = [int]($rect.Left + (($rect.Right - $rect.Left) * $XRatio))
-    $y = [int]($rect.Top + (($rect.Bottom - $rect.Top) * $YRatio))
+    # Ratios are fractions of the GAME client area. GetWindowRect includes the
+    # title bar and borders, which historically shifted every click down by the
+    # chrome height and sent menu clicks onto the wrong buttons (observed:
+    # Singleplayer clicks landing on Multiplayer).
+    $clientRect = New-Object RECT
+    [CodexUser32]::GetClientRect($Handle, [ref]$clientRect) | Out-Null
+    $origin = New-Object POINT
+    $origin.X = 0
+    $origin.Y = 0
+    [CodexUser32]::ClientToScreen($Handle, [ref]$origin) | Out-Null
+    $x = [int]($origin.X + (($clientRect.Right - $clientRect.Left) * $XRatio))
+    $y = [int]($origin.Y + (($clientRect.Bottom - $clientRect.Top) * $YRatio))
     [CodexUser32]::SetCursorPos($x, $y) | Out-Null
     Start-Sleep -Milliseconds 100
     [CodexUser32]::mouse_event(0x0002, 0, 0, 0, [UIntPtr]::Zero)
@@ -479,17 +524,46 @@ function Send-KeysToGame {
     [System.Windows.Forms.SendKeys]::SendWait($Keys)
 }
 
+function Get-SingleplayerButtonYRatio {
+    param(
+        [double]$ClientHeight,
+        [string]$MinecraftVersion
+    )
+
+    # 1.21.9+ (and 26.x) centers the main-menu button stack lower; the measured
+    # Singleplayer center is ~0.50 of the client height.
+    if ($MinecraftVersion -match '^1\.21\.(\d+)$' -and [int]$Matches[1] -ge 9) {
+        return 0.50
+    }
+    if ($MinecraftVersion -notmatch '^1\.\d') {
+        return 0.50
+    }
+    # Classic layout (<= 1.21.8, both loaders): the button stack is anchored at
+    # height/4 + 48 px and Singleplayer is the first 20 px button, so its center
+    # is height/4 + 58 px. This MUST be derived from the real client height;
+    # a fixed ratio lands on Multiplayer/Options at other window sizes.
+    if ($ClientHeight -le 0) {
+        return 0.37
+    }
+    return 0.25 + (58.0 / $ClientHeight)
+}
+
 function Invoke-CreateSingleplayerWorldUi {
-    param([string]$WorldName)
+    param(
+        [string]$WorldName,
+        [string]$MinecraftVersion
+    )
 
     $handle = Get-MinecraftWindowHandle
     if ($handle -eq [IntPtr]::Zero) {
         throw "Could not find Minecraft window for world creation."
     }
 
-    # Main menu: Singleplayer. 1.21.9+ places the main button stack lower than
-    # older assumptions; clicking too high can land outside Singleplayer.
-    Invoke-WindowClick -Handle $handle -XRatio 0.50 -YRatio 0.52
+    $size = Get-MinecraftWindowClientSize -Handle $handle
+    $singleplayerY = Get-SingleplayerButtonYRatio -ClientHeight $size.Height -MinecraftVersion $MinecraftVersion
+
+    # Main menu: Singleplayer (version-aware; see Get-SingleplayerButtonYRatio).
+    Invoke-WindowClick -Handle $handle -XRatio 0.50 -YRatio $singleplayerY
     Start-Sleep -Seconds 2
 
     # With no saves, 1.20.1 opens the Create World screen directly. If a
@@ -515,23 +589,32 @@ function Invoke-CreateSingleplayerWorldUi {
 }
 
 function Invoke-EnterSingleplayerWorldUi {
+    param([string]$MinecraftVersion)
+
     $handle = Get-MinecraftWindowHandle
     if ($handle -eq [IntPtr]::Zero) {
         throw "Could not find Minecraft window for singleplayer world entry."
     }
 
-    # Main menu: Singleplayer. 1.21.9+ places the main button stack lower than
-    # older assumptions; clicking too high can land outside Singleplayer.
-    Invoke-WindowClick -Handle $handle -XRatio 0.50 -YRatio 0.52
+    $size = Get-MinecraftWindowClientSize -Handle $handle
+    $singleplayerY = Get-SingleplayerButtonYRatio -ClientHeight $size.Height -MinecraftVersion $MinecraftVersion
+
+    # Main menu: Singleplayer (version-aware; see Get-SingleplayerButtonYRatio).
+    Invoke-WindowClick -Handle $handle -XRatio 0.50 -YRatio $singleplayerY
     Start-Sleep -Seconds 2
 
-    # World list: select the first visible world, then activate it. Double-click
-    # works on older versions, and the bottom-left play button is a fallback.
+    # World list: click the FIRST row. The list starts right under the search
+    # box (~48-66 px in the classic and 1.21 header layouts); the old 0.32
+    # mid-list click only worked when the client had 3+ saves and selected
+    # nothing otherwise. Then press the bottom-left "play selected world"
+    # button at (0.316, 0.81). Never resurrect the (0.33, 0.93) fallback: that
+    # is the Edit/Delete row and once opened the world-delete confirmation on
+    # a real user save.
     Invoke-WindowClick -Handle $handle -XRatio 0.50 -YRatio 0.28
-    Start-Sleep -Milliseconds 250
-    Invoke-WindowClick -Handle $handle -XRatio 0.50 -YRatio 0.28
-    Start-Sleep -Milliseconds 600
-    Invoke-WindowClick -Handle $handle -XRatio 0.33 -YRatio 0.93
+    Start-Sleep -Milliseconds 500
+    Invoke-WindowClick -Handle $handle -XRatio 0.316 -YRatio 0.81
+    Start-Sleep -Seconds 2
+    Invoke-WindowClick -Handle $handle -XRatio 0.316 -YRatio 0.81
 }
 
 function Invoke-AcceptExperimentalWorldWarningUi {
@@ -581,7 +664,37 @@ function Get-LocalSmokeServerJar {
     if (Test-Path -LiteralPath $loomJar) {
         return $loomJar
     }
-    return $null
+    # Forge/NeoForge trees have no fabric-loom cache. Fall back to the vanilla
+    # server jar straight from Mojang, cached per MC version, so background
+    # EnterWorld checks on loader targets never need UI clicks.
+    $cacheDir = Join-Path $env:LOCALAPPDATA "SimpleTranslateTest\server-jars"
+    $cached = Join-Path $cacheDir "minecraft-server-$MinecraftVersion.jar"
+    if (Test-Path -LiteralPath $cached) {
+        return $cached
+    }
+    try {
+        New-Item -ItemType Directory -Force -Path $cacheDir | Out-Null
+        $manifest = Invoke-RestMethod -Uri "https://piston-meta.mojang.com/mc/game/version_manifest_v2.json" -TimeoutSec 30
+        $entry = @($manifest.versions | Where-Object { $_.id -eq $MinecraftVersion }) | Select-Object -First 1
+        if (-not $entry) {
+            Write-Warning "No vanilla server jar: $MinecraftVersion is not in the Mojang version manifest."
+            return $null
+        }
+        $versionMeta = Invoke-RestMethod -Uri $entry.url -TimeoutSec 30
+        $serverUrl = $versionMeta.downloads.server.url
+        if ([string]::IsNullOrWhiteSpace($serverUrl)) {
+            Write-Warning "No vanilla server jar download listed for $MinecraftVersion."
+            return $null
+        }
+        $tmp = "$cached.download"
+        Invoke-WebRequest -Uri $serverUrl -OutFile $tmp -TimeoutSec 300
+        Move-Item -LiteralPath $tmp -Destination $cached -Force
+        Write-Output "INFO: downloaded vanilla server jar for $MinecraftVersion to $cached"
+        return $cached
+    } catch {
+        Write-Warning "Could not download vanilla server jar for $MinecraftVersion. $($_.Exception.Message)"
+        return $null
+    }
 }
 
 function Stop-LocalSmokeServer {
@@ -718,6 +831,27 @@ function Get-TestClientMapping {
         $clientRoot = Join-Path $Root "forge\${minecraftVersion}forge"
     } else {
         throw "Could not determine loader for project '$leaf'."
+    }
+
+    # A caller may bind a project directly to a concrete PCL version
+    # directory (for example <launcher>\versions\MyPack) instead of the
+    # conventional loader/version root under the configured test-client root.
+    if (Test-Path -LiteralPath $Root) {
+        $resolvedRoot = (Resolve-Path -LiteralPath $Root).Path
+        $directVersionId = Split-Path -Leaf $resolvedRoot
+        $directVersionJson = Join-Path $resolvedRoot "$directVersionId.json"
+        $versionsDir = Split-Path -Parent $resolvedRoot
+        if ((Split-Path -Leaf $versionsDir) -eq "versions" -and
+                (Test-Path -LiteralPath $directVersionJson)) {
+            return [pscustomobject]@{
+                Loader = $loader
+                MinecraftVersion = $minecraftVersion
+                ClientRoot = Split-Path -Parent $versionsDir
+                VersionId = $directVersionId
+                DirectVersionDir = $resolvedRoot
+                ModPattern = "simple_translate*.jar"
+            }
+        }
     }
 
     if (-not (Test-Path -LiteralPath $clientRoot)) {
@@ -922,7 +1056,13 @@ function Expand-NativeLibraries {
 }
 
 function Get-ClassPath {
-    param($VersionJson, [string]$LibrariesRoot, [string]$VersionDir, [string]$VersionId)
+    param(
+        $VersionJson,
+        [string]$LibrariesRoot,
+        [string]$VersionDir,
+        [string]$VersionId,
+        [string]$VersionJarOverride = ""
+    )
 
     function Get-VersionSortKey([string]$Version) {
         $numeric = ($Version -replace '[^0-9\.].*$', '')
@@ -1007,7 +1147,12 @@ function Get-ClassPath {
         if ([string]::IsNullOrWhiteSpace([string]$versionJarId)) {
             continue
         }
-        $versionJar = Join-Path $versionsRoot (Join-Path ([string]$versionJarId) "$versionJarId.jar")
+        $versionJar = if (-not [string]::IsNullOrWhiteSpace($VersionJarOverride) -and
+                [string]::Equals([string]$versionJarId, $VersionId, [System.StringComparison]::Ordinal)) {
+            $VersionJarOverride
+        } else {
+            Join-Path $versionsRoot (Join-Path ([string]$versionJarId) "$versionJarId.jar")
+        }
         if (Test-Path -LiteralPath $versionJar) {
             $paths.Add($versionJar)
         }
@@ -1229,16 +1374,77 @@ function Get-AsciiClientRoot {
     return $aliasPath
 }
 
-$project = (Resolve-Path -LiteralPath $ProjectDir).Path
-if ([string]::IsNullOrWhiteSpace($TestClientRoot)) {
-    $TestClientRoot = Join-Path "D:\mc" ([string]([char]0x6A21) + [string]([char]0x7EC4) + [string]([char]0x6D4B) + [string]([char]0x8BD5))
+function Get-AsciiVersionDir {
+    param([string]$RealVersionDir, [string]$Loader, [string]$VersionId)
+
+    if ($RealVersionDir -match '^[\x00-\x7F]+$') {
+        return $RealVersionDir
+    }
+
+    $base = Join-Path $env:TEMP "codex-mc-test-clients\version-dirs"
+    New-Item -ItemType Directory -Path $base -Force | Out-Null
+    $aliasName = ($Loader + "-" + $VersionId) -replace '[^A-Za-z0-9_.-]', '_'
+    $aliasPath = Join-Path $base $aliasName
+    if (Test-Path -LiteralPath $aliasPath) {
+        $item = Get-Item -LiteralPath $aliasPath
+        if (-not ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)) {
+            throw "ASCII test-version alias path exists but is not a junction: $aliasPath"
+        }
+        $target = if ($item.Target -is [array]) { [string]::Join("", $item.Target) } else { [string]$item.Target }
+        $expected = (Resolve-Path -LiteralPath $RealVersionDir).Path.TrimEnd("\")
+        $actual = $target.TrimEnd("\")
+        if (-not [string]::Equals($actual, $expected, [System.StringComparison]::OrdinalIgnoreCase)) {
+            try {
+                Remove-Item -LiteralPath $aliasPath -Force
+            } catch {
+                [System.IO.Directory]::Delete($aliasPath, $false)
+            }
+            New-Item -ItemType Junction -Path $aliasPath -Target $RealVersionDir | Out-Null
+        }
+        return $aliasPath
+    }
+
+    New-Item -ItemType Junction -Path $aliasPath -Target $RealVersionDir | Out-Null
+    return $aliasPath
 }
+
+function Get-AsciiVersionJar {
+    param([string]$RealVersionJar, [string]$Loader, [string]$MinecraftVersion)
+
+    if ($RealVersionJar -match '^[\x00-\x7F]+$') {
+        return $RealVersionJar
+    }
+    if (-not (Test-Path -LiteralPath $RealVersionJar)) {
+        throw "Missing test client game jar: $RealVersionJar"
+    }
+
+    $base = Join-Path $env:TEMP "codex-mc-test-clients\game-jars"
+    New-Item -ItemType Directory -Path $base -Force | Out-Null
+    $aliasJar = Join-Path $base "$Loader-$MinecraftVersion-minecraft.jar"
+    $copyRequired = -not (Test-Path -LiteralPath $aliasJar)
+    if (-not $copyRequired) {
+        $source = Get-Item -LiteralPath $RealVersionJar
+        $copy = Get-Item -LiteralPath $aliasJar
+        $copyRequired = $source.Length -ne $copy.Length -or $source.LastWriteTimeUtc -gt $copy.LastWriteTimeUtc
+    }
+    if ($copyRequired) {
+        Copy-Item -LiteralPath $RealVersionJar -Destination $aliasJar -Force
+    }
+    return $aliasJar
+}
+
+$project = (Resolve-Path -LiteralPath $ProjectDir).Path
+
 $mapping = Get-TestClientMapping -ProjectPath $project -Root $TestClientRoot
 $realClientRoot = (Resolve-Path -LiteralPath $mapping.ClientRoot).Path
 $clientRoot = Get-AsciiClientRoot -RealClientRoot $realClientRoot -Loader $mapping.Loader -VersionId $mapping.VersionId
-$versionDir = Join-Path $clientRoot "versions\$($mapping.VersionId)"
-$realVersionDir = Join-Path $realClientRoot "versions\$($mapping.VersionId)"
-$versionJsonPath = Join-Path $versionDir "$($mapping.VersionId).json"
+$realVersionDir = if ($mapping.PSObject.Properties.Name -contains "DirectVersionDir") {
+    (Resolve-Path -LiteralPath $mapping.DirectVersionDir).Path
+} else {
+    Join-Path $realClientRoot "versions\$($mapping.VersionId)"
+}
+$versionDir = Get-AsciiVersionDir -RealVersionDir $realVersionDir -Loader $mapping.Loader -VersionId $mapping.VersionId
+$versionJsonPath = Join-Path $realVersionDir "$($mapping.VersionId).json"
 $modsDir = Join-Path $versionDir "mods"
 $librariesRoot = Join-Path $clientRoot "libraries"
 $assetsRoot = Join-Path $clientRoot "assets"
@@ -1289,7 +1495,9 @@ Set-MinecraftSmokeTestOptions -VersionDir $realVersionDir
 
 $versionJson = Resolve-VersionJsonWithInheritance -VersionJsonPath $versionJsonPath
 Expand-NativeLibraries -VersionJson $versionJson -LibrariesRoot $librariesRoot -NativesDir $nativesDir
-$classPath = Get-ClassPath -VersionJson $versionJson -LibrariesRoot $librariesRoot -VersionDir $versionDir -VersionId $mapping.VersionId
+$realVersionJar = Join-Path $realVersionDir "$($mapping.VersionId).jar"
+$versionJarOverride = Get-AsciiVersionJar -RealVersionJar $realVersionJar -Loader $mapping.Loader -MinecraftVersion $mapping.MinecraftVersion
+$classPath = Get-ClassPath -VersionJson $versionJson -LibrariesRoot $librariesRoot -VersionDir $versionDir -VersionId $mapping.VersionId -VersionJarOverride $versionJarOverride
 if ([string]::IsNullOrWhiteSpace($classPath)) {
     throw "Could not build classpath for test client $($mapping.VersionId)."
 }
@@ -1318,7 +1526,7 @@ if ($enterWorld) {
 $usingQuickPlaySingleplayer = [bool]($enterWorld -and -not $NoQuickPlay -and $versionSupportsQuickPlaySingleplayer -and -not [string]::IsNullOrWhiteSpace($worldToEnter))
 $localSmokeServerJar = Get-LocalSmokeServerJar -MinecraftVersion $mapping.MinecraftVersion
 $useLocalSmokeServer = [bool]($enterWorld -and -not $AllowInteractiveUi -and -not $usingQuickPlaySingleplayer -and -not [string]::IsNullOrWhiteSpace($localSmokeServerJar))
-$legacyNoBackgroundWorldEntry = [bool]($enterWorld -and -not $AllowInteractiveUi -and -not $usingQuickPlaySingleplayer -and $mapping.MinecraftVersion -match '^1\.19\.')
+$legacyNoBackgroundWorldEntry = [bool]($enterWorld -and -not $AllowInteractiveUi -and -not $usingQuickPlaySingleplayer -and $mapping.MinecraftVersion -match '^1\.19\.' -and [string]::IsNullOrWhiteSpace($localSmokeServerJar))
 if ($legacyNoBackgroundWorldEntry) {
     $useLocalSmokeServer = $false
 }
@@ -1332,8 +1540,8 @@ $launchVariables = @{
     "classpath" = $classPath
     "classpath_separator" = [IO.Path]::PathSeparator
     "library_directory" = $librariesRoot
-    "version_name" = [string]$mapping.VersionId
-    "primary_jar_name" = "$($mapping.VersionId).jar"
+    "version_name" = "$($mapping.Loader)-$($mapping.MinecraftVersion)-codex"
+    "primary_jar_name" = Split-Path -Leaf $versionJarOverride
     "auth_player_name" = "CodexTester"
     "game_directory" = $versionDir
     "assets_root" = $assetsRoot
@@ -1408,6 +1616,20 @@ function Test-JavaHome([string]$JavaHome) {
     }
 }
 
+function Get-JavaMajor([string]$JavaHome) {
+    if (-not (Test-JavaHome $JavaHome)) {
+        return 0
+    }
+    try {
+        $java = [System.IO.Path]::Combine($JavaHome, "bin", "java.exe")
+        $versionText = [string]::Join("`n", @(& $java -version 2>&1))
+        $match = [regex]::Match($versionText, '(?:version\s+"|openjdk\s+)(\d+)')
+        return $match.Success ? [int]$match.Groups[1].Value : 0
+    } catch {
+        return 0
+    }
+}
+
 function Select-TestJavaHome {
     param([object]$VersionJson)
 
@@ -1420,23 +1642,33 @@ function Select-TestJavaHome {
         $major = 0
     }
 
-    $java17Home = "C:\Program Files\eclipse adoptium\jdk-17.0.13.11-hotspot"
-    $java21Home = "C:\Program Files\zulu\zulu-21"
-
-    if ($major -gt 0 -and $major -le 17 -and (Test-JavaHome $java17Home)) {
-        return $java17Home
+    $requiredMajor = if ($major -gt 0) { $major } else { 17 }
+    $candidates = [System.Collections.Generic.List[string]]::new()
+    if (-not [string]::IsNullOrWhiteSpace($env:JAVA_HOME)) {
+        $candidates.Add($env:JAVA_HOME)
     }
-    if ($major -ge 21 -and (Test-JavaHome $java21Home)) {
-        return $java21Home
+    $roots = @(
+        [System.IO.Path]::Combine($env:USERPROFILE, ".jdks"),
+        [System.IO.Path]::Combine($env:USERPROFILE, ".gradle", "jdks"),
+        [System.IO.Path]::Combine($env:ProgramFiles, "Java"),
+        [System.IO.Path]::Combine($env:ProgramFiles, "Zulu"),
+        [System.IO.Path]::Combine($env:ProgramFiles, "Eclipse Adoptium")
+    )
+    foreach ($root in $roots) {
+        try {
+            if (Test-Path -LiteralPath $root -PathType Container -ErrorAction Stop) {
+                Get-ChildItem -LiteralPath $root -Directory -ErrorAction Stop |
+                        Sort-Object Name -Descending |
+                        ForEach-Object { $candidates.Add($_.FullName) }
+            }
+        } catch {
+            # A stale JAVA_HOME or missing optional JDK root is not fatal.
+        }
     }
-    if (Test-JavaHome $env:JAVA_HOME) {
-        return $env:JAVA_HOME
-    }
-    if (Test-JavaHome $java21Home) {
-        return $java21Home
-    }
-    if (Test-JavaHome $java17Home) {
-        return $java17Home
+    foreach ($candidate in $candidates) {
+        if ((Get-JavaMajor $candidate) -ge $requiredMajor) {
+            return $candidate
+        }
     }
     return $null
 }
@@ -1447,7 +1679,7 @@ if (Test-JavaHome $selectedJavaHome) {
     $env:Path = "$env:JAVA_HOME\bin;$env:Path"
     $javaExe = [System.IO.Path]::Combine($env:JAVA_HOME, "bin", "java.exe")
 } else {
-    $javaExe = "java.exe"
+    throw "No compatible Java runtime found for this Minecraft version. Set JAVA_HOME to a valid matching JDK."
 }
 
 $localSmokeServer = $null
@@ -1520,11 +1752,15 @@ $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
 
 $launchWindowStyle = $WindowStyle
 if ($launchWindowStyle -eq "Auto") {
-    $launchWindowStyle = "Minimized"
+    $launchWindowStyle = "Normal"
 }
-if (-not $AllowInteractiveUi -and $launchWindowStyle -eq "Normal") {
-    Write-Output "INFO: overriding -WindowStyle Normal to Minimized because background checks must not steal focus. Use -AllowInteractiveUi only when explicitly permitted."
-    $launchWindowStyle = "Minimized"
+if (-not $AllowInteractiveUi -and $launchWindowStyle -ne "Normal") {
+    # A game window that is born (or iconified) during the loading overlay or
+    # world load gets a 0x0 framebuffer and can pop "GLFW error 65540: Invalid
+    # window size 0x0", blocking the run. Start Normal and let the polling
+    # loop minimize the window only AFTER loading is confirmed from the log.
+    Write-Output "INFO: launching the client with a Normal window; it is minimized automatically after loading finishes (born-minimized windows can hit GLFW error 65540)."
+    $launchWindowStyle = "Normal"
 }
 
 $startProcessArgs = @{
@@ -1538,7 +1774,6 @@ $startProcessArgs = @{
 }
 
 $process = Start-Process @startProcessArgs
-Minimize-ClientWindows
 
 $initializationPatterns = @(
     "Simple Translate Fabric mod initialized",
@@ -1591,10 +1826,19 @@ $quickPlayFallbackTriggered = $false
 $quickPlayWarningAccepted = $false
 $thirdPartyOnlineWarningAccepted = $false
 $experimentalWarningAccepted = $false
+$worldEntryAttempts = 0
+$lastWorldEntryAttemptAt = Get-Date
+$worldEntryConfirmed = $false
 $lastBackgroundMinimizeAt = (Get-Date).AddSeconds(-10)
 
 while (((Get-Date) - $startTime).TotalSeconds -lt $TimeoutSeconds) {
-    if (-not $AllowInteractiveUi -and ((Get-Date) - $lastBackgroundMinimizeAt).TotalSeconds -ge 1) {
+    # Minimizing is only safe once loading has finished: iconifying the game
+    # window during the loading overlay or world load yields a 0x0 framebuffer
+    # and can pop "GLFW error 65540" (observed 2026-07-25). For world-entry
+    # runs that means waiting for the actual world-ready patterns, not just
+    # the main-menu initialization patterns.
+    $safeToMinimize = $ready -and (-not $enterWorld -or $worldEntryConfirmed)
+    if (-not $AllowInteractiveUi -and $safeToMinimize -and ((Get-Date) - $lastBackgroundMinimizeAt).TotalSeconds -ge 1) {
         Minimize-ClientWindows
         $lastBackgroundMinimizeAt = Get-Date
     }
@@ -1651,13 +1895,45 @@ while (((Get-Date) - $startTime).TotalSeconds -lt $TimeoutSeconds) {
             }
         }
 
+        # Readiness is checked FIRST every iteration: a slow modded client can
+        # reach the world in the same polling window that crosses the Quick
+        # Play / warning deadlines, and those deadline branches must never win
+        # against a log that already proves world entry.
+        if (-not $ready) {
+            $readyText = $lastLog
+            if ($useLocalSmokeServer -and $localSmokeServer -and
+                    (Test-Path -LiteralPath $localSmokeServer.LogPath)) {
+                $readyText += "`n" + (Get-Content -LiteralPath $localSmokeServer.LogPath -Raw -ErrorAction SilentlyContinue)
+            }
+            foreach ($pattern in $readyPatterns) {
+                if ($readyText -match $pattern) {
+                    $ready = $true
+                    $readyAt = Get-Date
+                    break
+                }
+            }
+        }
+        if ($enterWorld -and -not $worldEntryConfirmed) {
+            $worldEntryText = $lastLog
+            if ($useLocalSmokeServer -and $localSmokeServer -and
+                    (Test-Path -LiteralPath $localSmokeServer.LogPath)) {
+                $worldEntryText += "`n" + (Get-Content -LiteralPath $localSmokeServer.LogPath -Raw -ErrorAction SilentlyContinue)
+            }
+            foreach ($pattern in $worldReadyPatterns) {
+                if ($worldEntryText -match $pattern) {
+                    $worldEntryConfirmed = $true
+                    break
+                }
+            }
+        }
+
         if ($needsWorldCreation -and -not $worldCreationTriggered) {
             foreach ($pattern in $uiCreationReadyPatterns) {
                 if ($lastLog -match $pattern) {
                     $worldCreationTriggered = $true
                     try {
                         Start-Sleep -Seconds 3
-                        Invoke-CreateSingleplayerWorldUi -WorldName $WorldName
+                        Invoke-CreateSingleplayerWorldUi -WorldName $WorldName -MinecraftVersion $mapping.MinecraftVersion
                     } catch {
                         Add-RunClientScreenshot -Label "create-world-ui-failed"
                         Stop-ProcessTree -RootPid $process.Id
@@ -1676,9 +1952,11 @@ while (((Get-Date) - $startTime).TotalSeconds -lt $TimeoutSeconds) {
             foreach ($pattern in $uiCreationReadyPatterns) {
                 if ($lastLog -match $pattern) {
                     $worldEntryTriggered = $true
+                    $worldEntryAttempts = 1
+                    $lastWorldEntryAttemptAt = Get-Date
                     try {
                         Start-Sleep -Seconds 3
-                        Invoke-EnterSingleplayerWorldUi
+                        Invoke-EnterSingleplayerWorldUi -MinecraftVersion $mapping.MinecraftVersion
                     } catch {
                         Add-RunClientScreenshot -Label "enter-world-ui-failed"
                         Stop-ProcessTree -RootPid $process.Id
@@ -1693,11 +1971,39 @@ while (((Get-Date) - $startTime).TotalSeconds -lt $TimeoutSeconds) {
             }
         }
 
-        if ($usingQuickPlaySingleplayer -and -not $ready -and -not $quickPlayFallbackTriggered -and (((Get-Date) - $startTime).TotalSeconds -ge 35)) {
+        if ($needsWorldEntryUi -and $worldEntryTriggered -and -not $ready) {
+            # Fast-fail when the menu clicks missed Singleplayer and landed in
+            # a server join instead of hanging until the global timeout.
+            if ($lastLog -match "Connecting to") {
+                Add-RunClientScreenshot -Label "enter-world-landed-in-multiplayer"
+                Stop-ProcessTree -RootPid $process.Id
+                Write-Output "FAIL: UI world entry landed in MULTIPLAYER (log shows 'Connecting to'). The Singleplayer menu click missed; check Get-SingleplayerButtonYRatio for this version/loader instead of retrying blindly."
+                Write-Output "Test client: $realVersionDir"
+                Write-Output "Deployed jar: $($builtJar.FullName)"
+                Write-LaunchDiagnostics -LatestLog $latestLog -CrashDir $crashDir -Stdout $stdout -Stderr $stderr -StartTime $startTime -BeforeCrashes $beforeCrashes
+                exit 1
+            }
+            # Retry the entry a bounded number of times: back out with Escape
+            # (safe from the world list and the main menu) and click again.
+            if ($worldEntryAttempts -lt 3 -and ((Get-Date) - $lastWorldEntryAttemptAt).TotalSeconds -ge 25) {
+                $worldEntryAttempts++
+                $lastWorldEntryAttemptAt = Get-Date
+                Write-Output "INFO: world not entered yet; retrying singleplayer UI entry (attempt $worldEntryAttempts of 3)."
+                try {
+                    Send-KeysToGame "{ESC}"
+                    Start-Sleep -Seconds 2
+                    Invoke-EnterSingleplayerWorldUi -MinecraftVersion $mapping.MinecraftVersion
+                } catch {
+                    Write-Output "WARN: retry of singleplayer UI entry failed. $($_.Exception.Message)"
+                }
+            }
+        }
+
+        if ($usingQuickPlaySingleplayer -and -not $ready -and -not $quickPlayFallbackTriggered -and (((Get-Date) - $startTime).TotalSeconds -ge $QuickPlayWaitSeconds)) {
             $quickPlayFallbackTriggered = $true
             Add-RunClientScreenshot -Label "quickplay-wait"
             Stop-ProcessTree -RootPid $process.Id
-            Write-Output "FAIL: Quick Play did not reach a world within 35 seconds. Screenshot captured; fix the save identifier or launch arguments instead of waiting on the error screen."
+            Write-Output "FAIL: Quick Play did not reach a world within $QuickPlayWaitSeconds seconds. Screenshot captured; fix the save identifier or launch arguments instead of waiting on the error screen."
             Write-Output "Quick Play world: $worldToEnter"
             Write-Output "Test client: $realVersionDir"
             Write-Output "Deployed jar: $($builtJar.FullName)"
@@ -1743,21 +2049,6 @@ while (((Get-Date) - $startTime).TotalSeconds -lt $TimeoutSeconds) {
                     } catch {
                         Write-Output "WARN: could not click experimental-world warning confirmation. $($_.Exception.Message)"
                     }
-                    break
-                }
-            }
-        }
-
-        if (-not $ready) {
-            $readyText = $lastLog
-            if ($useLocalSmokeServer -and $localSmokeServer -and
-                    (Test-Path -LiteralPath $localSmokeServer.LogPath)) {
-                $readyText += "`n" + (Get-Content -LiteralPath $localSmokeServer.LogPath -Raw -ErrorAction SilentlyContinue)
-            }
-            foreach ($pattern in $readyPatterns) {
-                if ($readyText -match $pattern) {
-                    $ready = $true
-                    $readyAt = Get-Date
                     break
                 }
             }

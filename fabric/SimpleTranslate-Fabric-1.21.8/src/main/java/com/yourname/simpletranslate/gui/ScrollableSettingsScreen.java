@@ -79,11 +79,9 @@ public abstract class ScrollableSettingsScreen extends BaseSimpleTranslateScreen
         int centerX = this.width / 2;
         int buttonY = this.height - 25;
 
-        this.backButton = Button.builder(
+        this.backButton = new HoverHighlightButton(centerX - contentWidth / 2, buttonY, contentWidth, 20,
                 Component.translatable("screen.simple_translate.back"),
-                button -> this.onClose())
-                .bounds(centerX - contentWidth / 2, buttonY, contentWidth, 20)
-                .build();
+                button -> this.onClose());
         withTooltip(this.backButton, "screen.simple_translate.back.tooltip");
         this.addRenderableWidget(this.backButton);
     }
@@ -109,6 +107,11 @@ public abstract class ScrollableSettingsScreen extends BaseSimpleTranslateScreen
      */
     protected void addSectionHeader(String text) {
         entries.add(new SettingsEntry(null, "=== " + text + " ===", 0xFF888888));
+    }
+
+    /** Add centered explanatory text without presenting it as a clickable control. */
+    protected void addDescription(String text) {
+        entries.add(new SettingsEntry(null, text, 0xFFAAAAAA));
     }
 
     /**

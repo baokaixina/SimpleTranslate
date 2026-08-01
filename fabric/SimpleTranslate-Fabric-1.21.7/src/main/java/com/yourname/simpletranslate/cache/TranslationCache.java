@@ -76,7 +76,9 @@ public class TranslationCache {
     private final Map<String, Set<CacheReference>> semanticIndex;
     private final Gson gson;
     private final Object saveLock = new Object();
+    private final Object saveIoLock = new Object();
     private volatile boolean dirty;
+    private long contentRevision;
     private ScheduledFuture<?> pendingSave;
 
     public TranslationCache(Path cacheFile) {
@@ -95,6 +97,7 @@ public class TranslationCache {
             translationsByLane.clear();
             compatibleIndexByLane.clear();
             semanticIndex.clear();
+            contentRevision++;
 
             Set<String> lanesToLoad = new HashSet<>(KNOWN_LANES);
             if (Files.exists(cacheRoot)) {
@@ -123,7 +126,7 @@ public class TranslationCache {
         }
     }
 
-    public synchronized void save() {
+    public void save() {
         synchronized (saveLock) {
             dirty = true;
             if (pendingSave == null || pendingSave.isDone()) {
@@ -132,7 +135,7 @@ public class TranslationCache {
         }
     }
 
-    public synchronized void saveNow() {
+    public void saveNow() {
         synchronized (saveLock) {
             pendingSave = null;
             if (!dirty) {
@@ -141,18 +144,38 @@ public class TranslationCache {
             dirty = false;
         }
 
-        try {
-            Files.createDirectories(cacheRoot);
-            for (Map.Entry<String, Map<String, CacheRecord>> entry : translationsByLane.entrySet()) {
-                saveLane(entry.getKey(), entry.getValue());
+        // Never hold the cache monitor while Gson serializes or the filesystem
+        // writes. HUD cache reads occur on the client render thread, so the old
+        // synchronized saveNow could stall an otherwise asynchronous dialogue
+        // every time a larger cache lane was flushed.
+        Map<String, Map<String, CacheRecord>> snapshot = snapshotForSave();
+        synchronized (saveIoLock) {
+            try {
+                Files.createDirectories(cacheRoot);
+                for (Map.Entry<String, Map<String, CacheRecord>> entry : snapshot.entrySet()) {
+                    saveLane(entry.getKey(), entry.getValue());
+                }
+            } catch (IOException e) {
+                SimpleTranslateMod.getLogger().error("Failed to save translation cache", e);
             }
-        } catch (IOException e) {
-            SimpleTranslateMod.getLogger().error("Failed to save translation cache", e);
         }
     }
 
-    public synchronized void flush() {
+    public void flush() {
         saveNow();
+    }
+
+    /** Captures a coherent copy under the short cache lock; disk I/O is always outside it. */
+    private synchronized Map<String, Map<String, CacheRecord>> snapshotForSave() {
+        Map<String, Map<String, CacheRecord>> snapshot = new ConcurrentHashMap<>();
+        for (Map.Entry<String, Map<String, CacheRecord>> lane : translationsByLane.entrySet()) {
+            Map<String, CacheRecord> records = new ConcurrentHashMap<>();
+            for (Map.Entry<String, CacheRecord> entry : lane.getValue().entrySet()) {
+                records.put(entry.getKey(), CacheRecord.copyForPersistence(entry.getValue()));
+            }
+            snapshot.put(lane.getKey(), records);
+        }
+        return snapshot;
     }
 
     public static void shutdownExecutor() {
@@ -179,53 +202,6 @@ public class TranslationCache {
             }
         }
         return Optional.ofNullable(translated);
-    }
-
-    public synchronized List<String> getCompatibleBySource(String exactKey) {
-        if (exactKey == null || !TranslationCacheKeys.isCurrentProtocolKey(exactKey)) {
-            return List.of();
-        }
-
-        String lane = TranslationCacheKeys.laneFromKey(exactKey);
-        String surface = TranslationCacheKeys.surfaceFromKey(exactKey);
-        String sourceHash = TranslationCacheKeys.sourceHashFromKey(exactKey);
-        String languageHash = CacheRecord.extractKeyPart(exactKey, "lang=");
-        String formatPreset = formatPresetFromKey(exactKey);
-        if (surface.isBlank() || sourceHash.isBlank() || languageHash.isBlank()) {
-            return List.of();
-        }
-
-        Map<String, CacheRecord> laneMap = getLaneMap(lane, false);
-        if (laneMap.isEmpty()) {
-            return List.of();
-        }
-
-        var blacklist = SimpleTranslateMod.getTranslationBlacklist();
-        long now = System.currentTimeMillis();
-        List<String> matches = new ArrayList<>();
-        String groupKey = compatibleGroupKey(surface, sourceHash, languageHash, formatPreset);
-        Set<String> candidateKeys = compatibleIndexByLane
-                .getOrDefault(normalizeLane(lane), Map.of())
-                .getOrDefault(groupKey, Set.of());
-        if (candidateKeys.isEmpty()) {
-            return List.of();
-        }
-        for (String key : candidateKeys) {
-            CacheRecord record = laneMap.get(key);
-            if (record == null || key == null || key.equals(exactKey)
-                    || record.translation == null || record.translation.isBlank()) {
-                continue;
-            }
-            if (blacklist != null && blacklist.containsBlacklistedEntry(record.translation)) {
-                continue;
-            }
-            if (now - record.lastUsedAt > 60_000L) {
-                record.lastUsedAt = now;
-                dirty = true;
-            }
-            matches.add(record.translation);
-        }
-        return matches.isEmpty() ? List.of() : List.copyOf(matches);
     }
 
     /**
@@ -369,12 +345,17 @@ public class TranslationCache {
     }
 
     public synchronized void put(String original, String translated, String sourceText, String translationText) {
+        putInternal(original, translated, sourceText, translationText, true);
+    }
+
+    private CacheRecord putInternal(String original, String translated, String sourceText,
+                                    String translationText, boolean enqueueForSharing) {
         if (original == null || translated == null || !TranslationCacheKeys.isCurrentProtocolKey(original)) {
-            return;
+            return null;
         }
         var blacklist = SimpleTranslateMod.getTranslationBlacklist();
         if (blacklist != null && blacklist.containsBlacklistedEntry(translated)) {
-            return;
+            return null;
         }
 
         String lane = TranslationCacheKeys.laneFromKey(original);
@@ -400,24 +381,41 @@ public class TranslationCache {
         laneMap.put(original, record);
         indexCompatibleEntry(lane, original);
         indexSemanticEntry(lane, original, record);
-        dirty = true;
-        enqueueShareableLocalEntry(lane, original, record);
+        markContentChanged();
+        if (enqueueForSharing) {
+            enqueueShareableLocalEntry(lane, original, record);
+        }
+        return record;
     }
 
     public synchronized void putComponentJson(String key, String translatedJson, String sourceJson,
                                               String sourceText, String translationText) {
-        put(key, translatedJson, sourceText, translationText);
-        CacheRecord record = getLaneMap(TranslationCacheKeys.laneFromKey(key), false).get(key);
+        putComponentJson(key, translatedJson, sourceJson, sourceText, translationText, "");
+    }
+
+    public synchronized void putComponentJson(String key, String translatedJson, String sourceJson,
+                                              String sourceText, String translationText,
+                                              String promptFingerprint) {
+        CacheRecord record = putInternal(key, translatedJson, sourceText, translationText, false);
         if (record == null) {
             return;
         }
         record.format = TranslationCacheKeys.COMPONENT_JSON_FORMAT;
         record.sourcePayload = sourceJson == null ? "" : sourceJson;
-        dirty = true;
+        record.promptFingerprint = promptFingerprint == null ? "" : promptFingerprint;
+        markContentChanged();
+        enqueueShareableLocalEntry(TranslationCacheKeys.laneFromKey(key), key, record);
     }
 
     public synchronized boolean putSharedIfAbsent(String key, String translated, String sourceText, String translationText,
                                      boolean editedByPlayer, long createdAt, long editedAt) {
+        return putSharedIfAbsent(key, translated, sourceText, translationText,
+                editedByPlayer, createdAt, editedAt, "");
+    }
+
+    public synchronized boolean putSharedIfAbsent(String key, String translated, String sourceText,
+                                     String translationText, boolean editedByPlayer,
+                                     long createdAt, long editedAt, String promptFingerprint) {
         if (key == null || translated == null || !isSupportedComponentJsonKey(key)
                 || translated.isBlank()) {
             return false;
@@ -440,12 +438,13 @@ public class TranslationCache {
         record.editedByPlayer = editedByPlayer;
         record.editedAt = editedAt;
         record.sharedImported = true;
+        record.promptFingerprint = promptFingerprint == null ? "" : promptFingerprint;
         if (laneMap.putIfAbsent(key, record) != null) {
             return false;
         }
         indexCompatibleEntry(lane, key);
         indexSemanticEntry(lane, key, record);
-        dirty = true;
+        markContentChanged();
         return true;
     }
 
@@ -459,7 +458,7 @@ public class TranslationCache {
         if (removed != null) {
             unindexCompatibleEntry(lane, original);
             unindexSemanticEntry(lane, original, removed);
-            dirty = true;
+            markContentChanged();
         }
     }
 
@@ -467,7 +466,7 @@ public class TranslationCache {
         translationsByLane.values().forEach(Map::clear);
         compatibleIndexByLane.clear();
         semanticIndex.clear();
-        dirty = true;
+        markContentChanged();
     }
 
     public synchronized int size() {
@@ -476,6 +475,11 @@ public class TranslationCache {
             size += map.size();
         }
         return size;
+    }
+
+    /** Changes only when cached translation content or provenance changes. */
+    public synchronized long contentRevision() {
+        return contentRevision;
     }
 
     public synchronized Map<String, String> getAll() {
@@ -504,6 +508,25 @@ public class TranslationCache {
             }
         }
         return Map.copyOf(result);
+    }
+
+    /** Allocation-free surface probe for startup compatibility migrations. */
+    public synchronized boolean hasSurface(String surface) {
+        if (surface == null || surface.isBlank()) {
+            return false;
+        }
+        for (Map<String, CacheRecord> lane : translationsByLane.values()) {
+            for (Map.Entry<String, CacheRecord> entry : lane.entrySet()) {
+                String recordSurface = entry.getValue().surface;
+                if (recordSurface == null || recordSurface.isBlank()) {
+                    recordSurface = TranslationCacheKeys.surfaceFromKey(entry.getKey());
+                }
+                if (surface.equals(recordSurface)) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     public synchronized Optional<CacheViewEntry> getEntry(String key) {
@@ -542,7 +565,7 @@ public class TranslationCache {
         record.editedAt = System.currentTimeMillis();
         record.lastUsedAt = record.editedAt;
         record.sharedImported = false;
-        dirty = true;
+        markContentChanged();
         enqueueShareableLocalEntry(TranslationCacheKeys.laneFromKey(key), key, record);
         return Optional.empty();
     }
@@ -564,22 +587,8 @@ public class TranslationCache {
                 record.editedAt,
                 record.sharedImported,
                 record.sourcePayload == null ? "" : record.sourcePayload,
-                record.format == null ? "" : record.format);
-    }
-
-    public synchronized void clearLane(String lane) {
-        if (lane == null || lane.isBlank()) {
-            return;
-        }
-        Map<String, CacheRecord> laneMap = getLaneMap(lane, false);
-        if (!laneMap.isEmpty()) {
-            for (Map.Entry<String, CacheRecord> entry : laneMap.entrySet()) {
-                unindexCompatibleEntry(lane, entry.getKey());
-                unindexSemanticEntry(lane, entry.getKey(), entry.getValue());
-            }
-            laneMap.clear();
-            dirty = true;
-        }
+                record.format == null ? "" : record.format,
+                record.promptFingerprint == null ? "" : record.promptFingerprint);
     }
 
     public synchronized void exportToFile(Path file) throws IOException {
@@ -640,7 +649,7 @@ public class TranslationCache {
             clear();
         }
         CacheImportResult result = new CacheImportResult();
-        importSource(file, result, null);
+        importSource(file, result, null, false);
         SimpleTranslateMod.getLogger().debug(
                 "Imported cache file: sources={}, imported={}, existing={}, invalid={}, worldMismatch={}, failed={}",
                 result.sourceCount(), result.imported(), result.skippedExisting(),
@@ -654,7 +663,7 @@ public class TranslationCache {
             return result;
         }
         for (Path source : sources) {
-            importSource(source, result, null);
+            importSource(source, result, null, true);
         }
         SimpleTranslateMod.getLogger().debug(
                 "Imported cache share sources: sources={}, imported={}, existing={}, invalid={}, failed={}",
@@ -669,7 +678,7 @@ public class TranslationCache {
             return result;
         }
         for (Path source : sources) {
-            importSource(source, result, expectedWorldName);
+            importSource(source, result, expectedWorldName, true);
         }
         SimpleTranslateMod.getLogger().debug(
                 "Imported cache share sources: sources={}, imported={}, existing={}, invalid={}, worldMismatch={}, failed={}",
@@ -867,7 +876,8 @@ public class TranslationCache {
             long editedAt,
             boolean sharedImported,
             String sourcePayload,
-            String format) {
+            String format,
+            String promptFingerprint) {
     }
 
     public record CacheShareMetadata(String worldKind, String worldName) {
@@ -982,6 +992,7 @@ public class TranslationCache {
         volatile boolean sharedImported;
         volatile String sourcePayload;
         volatile String format;
+        volatile String promptFingerprint;
 
         static CacheRecord fromKey(String key, String translation, long now) {
             CacheRecord record = new CacheRecord();
@@ -1018,6 +1029,27 @@ public class TranslationCache {
             record.editedAt = source.editedAt;
             record.sourcePayload = source.sourcePayload;
             record.format = source.format;
+            record.promptFingerprint = source.promptFingerprint;
+            return record;
+        }
+
+        static CacheRecord copyForPersistence(CacheRecord source) {
+            CacheRecord record = new CacheRecord();
+            record.translation = source.translation;
+            record.sourceText = source.sourceText;
+            record.translationText = source.translationText;
+            record.surface = source.surface;
+            record.sourceHash = source.sourceHash;
+            record.contextHash = source.contextHash;
+            record.layoutSignature = source.layoutSignature;
+            record.createdAt = source.createdAt;
+            record.lastUsedAt = source.lastUsedAt;
+            record.editedByPlayer = source.editedByPlayer;
+            record.editedAt = source.editedAt;
+            record.sharedImported = source.sharedImported;
+            record.sourcePayload = source.sourcePayload;
+            record.format = source.format;
+            record.promptFingerprint = source.promptFingerprint;
             return record;
         }
 
@@ -1090,11 +1122,12 @@ public class TranslationCache {
         if (path == null || path.getFileName() == null) {
             return false;
         }
-        String name = path.getFileName().toString().toLowerCase();
+        String name = path.getFileName().toString().toLowerCase(java.util.Locale.ROOT);
         return name.endsWith(".json") || name.endsWith(".zip");
     }
 
-    private void importSource(Path source, CacheImportResult result, String expectedWorldName) {
+    private void importSource(Path source, CacheImportResult result, String expectedWorldName,
+                              boolean sharedImport) {
         if (source == null || !Files.exists(source)) {
             if (result != null) {
                 result.addFailedFile();
@@ -1108,10 +1141,10 @@ public class TranslationCache {
                     stream.filter(path -> Files.isRegularFile(path)
                                     && path.getFileName() != null
                                     && isSupportedImportFile(path))
-                            .forEach(path -> importFile(path, result, expectedWorldName));
+                            .forEach(path -> importFile(path, result, expectedWorldName, sharedImport));
                 }
             } else {
-                importFile(source, result, expectedWorldName);
+                importFile(source, result, expectedWorldName, sharedImport);
             }
         } catch (Exception e) {
             result.addFailedFile();
@@ -1119,16 +1152,18 @@ public class TranslationCache {
         }
     }
 
-    private void importFile(Path file, CacheImportResult result, String expectedWorldName) {
-        String name = file.getFileName() == null ? "" : file.getFileName().toString().toLowerCase();
+    private void importFile(Path file, CacheImportResult result, String expectedWorldName,
+                            boolean sharedImport) {
+        String name = file.getFileName() == null ? "" : file.getFileName().toString().toLowerCase(java.util.Locale.ROOT);
         if (name.endsWith(".zip")) {
-            importZipFile(file, result, expectedWorldName);
+            importZipFile(file, result, expectedWorldName, sharedImport);
         } else {
-            importJsonFile(file, result);
+            importJsonFile(file, result, sharedImport);
         }
     }
 
-    private void importZipFile(Path file, CacheImportResult result, String expectedWorldName) {
+    private void importZipFile(Path file, CacheImportResult result, String expectedWorldName,
+                               boolean sharedImport) {
         try (ZipFile zip = new ZipFile(file.toFile(), StandardCharsets.UTF_8)) {
             // World name mismatch is intentionally NOT checked here.
             // Cache keys already contain all identity info (surface + source hash + lang hash).
@@ -1139,7 +1174,7 @@ public class TranslationCache {
             Enumeration<? extends ZipEntry> entries = zip.entries();
             while (entries.hasMoreElements()) {
                 ZipEntry entry = entries.nextElement();
-                if (entry.isDirectory() || !entry.getName().toLowerCase().endsWith(".json")
+                if (entry.isDirectory() || !entry.getName().toLowerCase(java.util.Locale.ROOT).endsWith(".json")
                         || SHARE_MANIFEST_FILE.equals(entry.getName())) {
                     continue;
                 }
@@ -1151,7 +1186,7 @@ public class TranslationCache {
                 if (hasLaneEntries && "cache_export.json".equals(entry.name())) {
                     continue;
                 }
-                importJsonText(entry.name(), entry.json(), result);
+                importJsonText(entry.name(), entry.json(), result, sharedImport);
             }
         } catch (Exception e) {
             result.addFailedFile();
@@ -1159,16 +1194,17 @@ public class TranslationCache {
         }
     }
 
-    private void importJsonFile(Path file, CacheImportResult result) {
+    private void importJsonFile(Path file, CacheImportResult result, boolean sharedImport) {
         try {
-            importJsonText(file.toString(), Files.readString(file), result);
+            importJsonText(file.toString(), Files.readString(file), result, sharedImport);
         } catch (Exception e) {
             result.addFailedFile();
             SimpleTranslateMod.getLogger().warn("Failed to import cache json {}: {}", file, e.getMessage());
         }
     }
 
-    private void importJsonText(String label, String json, CacheImportResult result) {
+    private void importJsonText(String label, String json, CacheImportResult result,
+                                boolean sharedImport) {
         try {
             JsonElement parsed = JsonParser.parseString(json);
             if (!parsed.isJsonObject()) {
@@ -1177,17 +1213,18 @@ public class TranslationCache {
             }
             JsonObject object = parsed.getAsJsonObject();
             if (object.has("entries")) {
-                importLaneFileObject(object, result);
+                importLaneFileObject(object, result, sharedImport);
                 return;
             }
-            importFlatObject(object, result);
+            importFlatObject(object, result, sharedImport);
         } catch (Exception e) {
             result.addFailedFile();
             SimpleTranslateMod.getLogger().warn("Failed to import cache json {}: {}", label, e.getMessage());
         }
     }
 
-    private void importLaneFileObject(JsonObject object, CacheImportResult result) {
+    private void importLaneFileObject(JsonObject object, CacheImportResult result,
+                                      boolean sharedImport) {
         if (!object.has("entries") || !object.get("entries").isJsonObject()) {
             result.addInvalid();
             return;
@@ -1199,11 +1236,11 @@ public class TranslationCache {
             return;
         }
         for (Map.Entry<String, CacheRecord> entry : records.entrySet()) {
-            importRecord(entry.getKey(), entry.getValue(), result);
+            importRecord(entry.getKey(), entry.getValue(), result, sharedImport);
         }
     }
 
-    private void importFlatObject(JsonObject object, CacheImportResult result) {
+    private void importFlatObject(JsonObject object, CacheImportResult result, boolean sharedImport) {
         for (Map.Entry<String, JsonElement> entry : object.entrySet()) {
             JsonElement value = entry.getValue();
             if (value == null || !value.isJsonPrimitive() || !value.getAsJsonPrimitive().isString()) {
@@ -1216,11 +1253,12 @@ public class TranslationCache {
                 continue;
             }
             importRecord(entry.getKey(), CacheRecord.fromKey(entry.getKey(), translation, System.currentTimeMillis()),
-                    result);
+                    result, sharedImport);
         }
     }
 
-    private void importRecord(String key, CacheRecord source, CacheImportResult result) {
+    private void importRecord(String key, CacheRecord source, CacheImportResult result,
+                              boolean sharedImport) {
         if (key == null || source == null || !isSupportedComponentJsonKey(key)
                 || source.translation == null || source.translation.isBlank()) {
             result.addInvalid();
@@ -1233,7 +1271,10 @@ public class TranslationCache {
         }
         String lane = TranslationCacheKeys.laneFromKey(key);
         CacheRecord imported = CacheRecord.copyForImport(key, source, System.currentTimeMillis());
-        imported.sharedImported = false;
+        // Cache-share archives are usable as exact cache hits, but remain
+        // identifiable so scoped Component context retrieval can exclude them by
+        // default. Direct legacy-scope migration retains the source provenance.
+        imported.sharedImported = sharedImport || source.sharedImported;
         CacheRecord previous = getLaneMap(lane, true).putIfAbsent(key, imported);
         if (previous != null) {
             result.addExisting();
@@ -1241,13 +1282,18 @@ public class TranslationCache {
         }
         indexCompatibleEntry(lane, key);
         indexSemanticEntry(lane, key, imported);
-        dirty = true;
+        markContentChanged();
         result.addImported();
         enqueueShareableLocalEntry(lane, key, imported);
     }
 
     private void enqueueShareableLocalEntry(String lane, String key, CacheRecord record) {
         SharedCacheClient.enqueueLocalEntry(toViewEntry(lane, key, record));
+    }
+
+    private void markContentChanged() {
+        contentRevision++;
+        dirty = true;
     }
 
     private void writeZipJson(ZipOutputStream zip, String name, String json) throws IOException {

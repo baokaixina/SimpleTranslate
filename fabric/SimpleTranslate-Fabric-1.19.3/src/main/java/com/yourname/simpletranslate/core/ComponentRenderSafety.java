@@ -83,6 +83,7 @@ public final class ComponentRenderSafety {
             return literal.text() == null ? fallback : literal.text();
         }
         if (component.getContents() instanceof TranslatableContents translatable) {
+            // TranslatableContents.getFallback() only exists on 1.19.4+.
             if (translatable.getKey() != null && !translatable.getKey().isBlank()) {
                 return translatable.getKey();
             }

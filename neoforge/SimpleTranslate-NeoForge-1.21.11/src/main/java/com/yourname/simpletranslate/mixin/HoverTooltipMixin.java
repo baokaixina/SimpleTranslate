@@ -1,230 +1,368 @@
 package com.yourname.simpletranslate.mixin;
 
-import com.yourname.simpletranslate.SimpleTranslateMod;
+import com.llamalad7.mixinextras.injector.wrapmethod.WrapMethod;
+import com.llamalad7.mixinextras.injector.wrapoperation.Operation;
 import com.yourname.simpletranslate.config.ModConfig;
 import com.yourname.simpletranslate.keybind.HoldOriginalFeature;
 import com.yourname.simpletranslate.keybind.HoldOriginalState;
-import com.yourname.simpletranslate.util.TooltipTranslationHelper;
-import net.minecraft.client.Minecraft;
+import com.yourname.simpletranslate.feature.tooltip.TooltipTranslationController;
+import com.yourname.simpletranslate.feature.tooltip.TooltipTranslationGlowRenderer;
+import com.yourname.simpletranslate.feature.tooltip.TooltipTranslationHelper;
+import com.yourname.simpletranslate.feature.gui.GuiTranslationHelper;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphics;
-import net.minecraft.client.gui.screens.ChatScreen;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.gui.screens.inventory.BookViewScreen;
+import net.minecraft.client.gui.screens.inventory.tooltip.ClientTooltipComponent;
+import net.minecraft.client.gui.screens.inventory.tooltip.ClientTooltipPositioner;
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.chat.HoverEvent;
 import net.minecraft.network.chat.Style;
-import net.minecraft.world.inventory.tooltip.TooltipComponent;
-import org.spongepowered.asm.mixin.Unique;
+import net.minecraft.resources.Identifier;
+import net.minecraft.util.FormattedCharSequence;
+import net.minecraft.world.item.ItemStack;
 import org.spongepowered.asm.mixin.Mixin;
+import org.spongepowered.asm.mixin.Shadow;
+import org.spongepowered.asm.mixin.Unique;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 import java.util.List;
 import java.util.Optional;
+import java.util.function.Consumer;
 
 /**
- * Mixin to translate hover tooltips in chat and book screens
- *
- * 拦截悬浮提示的渲染，翻译SHOW_TEXT类型的HoverEvent
+ * Intercepts hover tooltips in chat/book screens and mod overlay tooltips that
+ * render directly through {@link GuiGraphics} instead of {@link HoverEvent}.
+ * All three {@code renderTooltip} overloads share one translation path via
+ * {@link #renderTranslatedTooltip}.
  */
 @Mixin(GuiGraphics.class)
 public class HoverTooltipMixin {
+    @Shadow private Runnable deferredTooltip;
+    @Unique private String simple_translate$candidateItemFrameKey;
+    @Unique private boolean simple_translate$candidateItemFrameRequest;
+    @Unique private boolean simple_translate$candidateItemSubmission;
+    @Unique private boolean simple_translate$candidatePrepared;
+    @Unique private List<Component> simple_translate$candidateItemRows;
+    @Unique private String simple_translate$pendingItemFrameKey;
+    @Unique private boolean simple_translate$pendingItemFrameRequest;
+    @Unique private boolean simple_translate$pendingItemSubmission;
+    @Unique private List<Component> simple_translate$pendingItemRows;
 
-    @Unique
-    private boolean simple_translate$renderingTranslatedTooltip;
-
-    /**
-     * Intercept hover effect rendering to translate tooltips with style preservation
-     */
     @Inject(method = "renderComponentHoverEffect", at = @At("HEAD"), cancellable = true)
     private void onRenderComponentHoverEffect(Font font, Style style, int mouseX, int mouseY, CallbackInfo ci) {
-        if (style == null) {
+        if (style == null || HoldOriginalState.isHolding(HoldOriginalFeature.TOOLTIP_HOVER)) {
             return;
         }
-        if (HoldOriginalState.isHolding(HoldOriginalFeature.TOOLTIP_HOVER)) {
-            return;
-        }
-
         HoverEvent hoverEvent = style.getHoverEvent();
-        if (hoverEvent == null) {
-            return;
-        }
-
-        // Check if it's a SHOW_TEXT hover event
         if (!(hoverEvent instanceof HoverEvent.ShowText showText)) {
             return;
         }
-
-        // Check which screen we're on and if translation is enabled
-        Screen screen = Minecraft.getInstance().screen;
-        if (screen == null) {
-            return;
-        }
-
-        boolean shouldTranslate = false;
-
-        if (screen instanceof ChatScreen) {
-            boolean enabled = ModConfig.TOOLTIP_CHAT_HOVER_ENABLED.get();
-            SimpleTranslateMod.getLogger().debug("ChatScreen hover detected, enabled={}", enabled);
-            if (enabled) {
-                shouldTranslate = true;
-            }
-        } else if (screen instanceof BookViewScreen && ModConfig.TOOLTIP_BOOK_HOVER_ENABLED.get()) {
-            shouldTranslate = true;
-        }
-
-        if (!shouldTranslate) {
-            return;
-        }
-
-        // Get the hover text
         Component hoverText = showText.value();
-        if (hoverText == null) {
+        if (!TooltipTranslationController.shouldTranslateChatHover(hoverText) && !shouldTranslateBookHover()) {
             return;
         }
+        TooltipTranslationController.RenderContext context = TooltipTranslationController.resolveRenderContext();
+        boolean requestAllowed = TooltipTranslationController.allowRequest(context, List.of(hoverText));
+        List<Component> translatedLines = TooltipTranslationHelper.translateHoverComponentLines(hoverText, requestAllowed);
 
-        String plainText = hoverText.getString();
-        SimpleTranslateMod.getLogger().debug("Hover text: {}", plainText);
-
-        if (plainText.isEmpty() || !TooltipTranslationHelper.containsEnglish(plainText)) {
-            return;
-        }
-
-        // Translate with line-template preservation. SHOW_TEXT hover payloads often
-        // contain embedded newlines inside one Component, so render the translated
-        // result as a component list to keep the original line slots.
-        List<Component> translatedLines = TooltipTranslationHelper.translateHoverComponentLines(hoverText);
-
-        if (!(translatedLines.size() == 1 && translatedLines.get(0) == hoverText)) {
-            SimpleTranslateMod.getLogger().debug("Rendering translated tooltip with {} lines", translatedLines.size());
-            // Cancel the original rendering and render translated tooltip
-            GuiGraphics guiGraphics = (GuiGraphics)(Object)this;
-            simple_translate$renderingTranslatedTooltip = true;
-            try {
-                guiGraphics.setTooltipForNextFrame(font, translatedLines, Optional.empty(), mouseX, mouseY);
-            } finally {
-                simple_translate$renderingTranslatedTooltip = false;
+        if (translatedLines.size() == 1 && translatedLines.get(0) == hoverText) {
+            if (requestAllowed || TooltipTranslationHelper.isHoverTranslationPending(hoverText)) {
+                GuiGraphics guiGraphics = (GuiGraphics) (Object) this;
+                TooltipTranslationController.beginRenderingTranslated();
+                try {
+                    TooltipTranslationController.armPendingGlowForHover(hoverText, requestAllowed);
+                    guiGraphics.setTooltipForNextFrame(font,
+                            TooltipTranslationHelper.splitHoverComponentLinesForRender(hoverText),
+                            Optional.empty(), mouseX, mouseY);
+                } finally {
+                    TooltipTranslationController.endRenderingTranslated();
+                }
+                ci.cancel();
             }
-            ci.cancel();
-        } else {
-            SimpleTranslateMod.getLogger().debug("Translation not cached yet, showing original");
-        }
-    }
-
-    /**
-     * Translate already-materialized tooltip component lists. Some UI mods render
-     * inventory/ability tooltips directly through GuiGraphics instead of asking
-     * ItemStack for tooltip lines, so ItemStackMixin never sees those texts.
-     */
-    @Inject(
-            method = "setTooltipForNextFrame(Lnet/minecraft/client/gui/Font;Ljava/util/List;Ljava/util/Optional;II)V",
-            at = @At("HEAD"),
-            cancellable = true
-    )
-    private void simple_translate$onSetTooltipForNextFrame(Font font, List<Component> components,
-                                                           Optional<TooltipComponent> image, int mouseX, int mouseY,
-                                                           CallbackInfo ci) {
-        if (!simple_translate$shouldTranslateRenderedTooltip(components)) {
             return;
         }
-
-        List<Component> translated = TooltipTranslationHelper.translateComponentsBatch(components);
-        if (translated == components) {
-            return;
-        }
-
-        GuiGraphics guiGraphics = (GuiGraphics)(Object)this;
-        simple_translate$renderingTranslatedTooltip = true;
-        try {
-            guiGraphics.setTooltipForNextFrame(font, translated, image, mouseX, mouseY);
-        } finally {
-            simple_translate$renderingTranslatedTooltip = false;
-        }
-        ci.cancel();
-    }
-
-    @Inject(method = "setComponentTooltipForNextFrame(Lnet/minecraft/client/gui/Font;Ljava/util/List;II)V", at = @At("HEAD"), cancellable = true)
-    private void simple_translate$onSetComponentTooltipForNextFrame(Font font, List<Component> components, int mouseX, int mouseY,
-                                                                    CallbackInfo ci) {
-        if (!simple_translate$shouldTranslateRenderedTooltip(components)) {
-            return;
-        }
-
-        List<Component> translated = TooltipTranslationHelper.translateComponentsBatch(components);
-        if (translated == components) {
-            return;
-        }
-
-        GuiGraphics guiGraphics = (GuiGraphics)(Object)this;
-        simple_translate$renderingTranslatedTooltip = true;
-        try {
-            guiGraphics.setComponentTooltipForNextFrame(font, translated, mouseX, mouseY);
-        } finally {
-            simple_translate$renderingTranslatedTooltip = false;
-        }
-        ci.cancel();
+        renderTranslatedTooltip(guiGraphics -> guiGraphics.setTooltipForNextFrame(font, translatedLines, Optional.empty(), mouseX, mouseY), ci);
     }
 
     @Inject(
-            method = "setTooltipForNextFrame(Lnet/minecraft/client/gui/Font;Lnet/minecraft/network/chat/Component;II)V",
-            at = @At("HEAD"),
-            cancellable = true
-    )
-    private void simple_translate$onSetTooltipComponentForNextFrame(Font font, Component component, int mouseX, int mouseY,
-                                                                    CallbackInfo ci) {
-        if (component == null || simple_translate$renderingTranslatedTooltip) {
+            method = "renderTooltip(Lnet/minecraft/client/gui/Font;Ljava/util/List;IILnet/minecraft/client/gui/screens/inventory/tooltip/ClientTooltipPositioner;Lnet/minecraft/resources/Identifier;)V",
+            at = @At("TAIL"),
+            require = 0)
+    private void simple_translate$renderPendingTranslationGlow(Font font,
+                                                               List<ClientTooltipComponent> components,
+                                                               int mouseX, int mouseY,
+                                                               ClientTooltipPositioner positioner,
+                                                               Identifier texture,
+                                                               CallbackInfo ci) {
+        if (!TooltipTranslationController.consumePendingGlow()) {
             return;
         }
-        if (TooltipTranslationHelper.isMarkedTranslatedTooltip(component)) {
-            return;
-        }
-        if (!ModConfig.TOOLTIP_ITEM_ENABLED.get()) {
-            return;
-        }
-        if (HoldOriginalState.isHolding(HoldOriginalFeature.TOOLTIP_ITEM)) {
-            return;
-        }
-        if (!TooltipTranslationHelper.containsEnglish(component.getString())) {
-            return;
-        }
+        TooltipTranslationGlowRenderer.render((GuiGraphics) (Object) this, font, components,
+                mouseX, mouseY, positioner);
+    }
 
-        List<Component> translated = TooltipTranslationHelper.translateComponentsBatch(List.of(component));
-        if (translated.isEmpty() || (translated.size() == 1 && translated.get(0) == component)) {
+    /** Records the final post-decoration Component document without changing it. */
+    @Inject(
+            method = "setTooltipForNextFrame(Lnet/minecraft/client/gui/Font;Ljava/util/List;Ljava/util/Optional;IILnet/minecraft/resources/Identifier;)V",
+            at = @At("HEAD"), require = 1)
+    private void simple_translate$captureFinalComponentRows(
+            Font font, List<Component> components, Optional<?> image,
+            int mouseX, int mouseY, Identifier texture, CallbackInfo ci) {
+        simple_translate$captureItemFrame(components);
+    }
+
+    /** Marks decorated item submissions that use the default tooltip texture. */
+    @Inject(
+            method = "setTooltipForNextFrame(Lnet/minecraft/client/gui/Font;Ljava/util/List;Ljava/util/Optional;Lnet/minecraft/world/item/ItemStack;II)V",
+            at = @At("HEAD"), require = 1)
+    private void simple_translate$beginDecoratedItemStackSubmission(
+            Font font, List<Component> components, java.util.Optional<?> image, ItemStack stack,
+            int mouseX, int mouseY, CallbackInfo ci) {
+        TooltipTranslationController.beginItemTooltipSubmission();
+    }
+
+    @Inject(
+            method = "setTooltipForNextFrame(Lnet/minecraft/client/gui/Font;Ljava/util/List;Ljava/util/Optional;Lnet/minecraft/world/item/ItemStack;II)V",
+            at = @At("RETURN"), require = 1)
+    private void simple_translate$endDecoratedItemStackSubmission(
+            Font font, List<Component> components, java.util.Optional<?> image, ItemStack stack,
+            int mouseX, int mouseY, CallbackInfo ci) {
+        TooltipTranslationController.endItemTooltipSubmission();
+    }
+
+    /** Marks decorated item submissions that provide an explicit tooltip texture. */
+    @Inject(
+            method = "setTooltipForNextFrame(Lnet/minecraft/client/gui/Font;Ljava/util/List;Ljava/util/Optional;Lnet/minecraft/world/item/ItemStack;IILnet/minecraft/resources/Identifier;)V",
+            at = @At("HEAD"), require = 1)
+    private void simple_translate$beginTexturedDecoratedItemStackSubmission(
+            Font font, List<Component> components, java.util.Optional<?> image, ItemStack stack,
+            int mouseX, int mouseY, Identifier texture, CallbackInfo ci) {
+        TooltipTranslationController.beginItemTooltipSubmission();
+    }
+
+    @Inject(
+            method = "setTooltipForNextFrame(Lnet/minecraft/client/gui/Font;Ljava/util/List;Ljava/util/Optional;Lnet/minecraft/world/item/ItemStack;IILnet/minecraft/resources/Identifier;)V",
+            at = @At("RETURN"), require = 1)
+    private void simple_translate$endTexturedDecoratedItemStackSubmission(
+            Font font, List<Component> components, java.util.Optional<?> image, ItemStack stack,
+            int mouseX, int mouseY, Identifier texture, CallbackInfo ci) {
+        TooltipTranslationController.endItemTooltipSubmission();
+    }
+
+    /** The ItemStack overload proves that its delegated Component list is an item tooltip. */
+    @Inject(
+            method = "setTooltipForNextFrame(Lnet/minecraft/client/gui/Font;Lnet/minecraft/world/item/ItemStack;II)V",
+            at = @At("HEAD"), require = 1)
+    private void simple_translate$beginItemStackSubmission(
+            Font font, ItemStack stack, int mouseX, int mouseY, CallbackInfo ci) {
+        TooltipTranslationController.beginItemTooltipSubmission();
+    }
+
+    @Inject(
+            method = "setTooltipForNextFrame(Lnet/minecraft/client/gui/Font;Lnet/minecraft/world/item/ItemStack;II)V",
+            at = @At("RETURN"), require = 1)
+    private void simple_translate$endItemStackSubmission(
+            Font font, ItemStack stack, int mouseX, int mouseY, CallbackInfo ci) {
+        TooltipTranslationController.endItemTooltipSubmission();
+    }
+
+    /** Records final shaped rows used by custom mod tooltip submitters. */
+    @Inject(
+            method = "setTooltipForNextFrame(Lnet/minecraft/client/gui/Font;Ljava/util/List;IILnet/minecraft/resources/Identifier;)V",
+            at = @At("HEAD"), require = 1)
+    private void simple_translate$captureFinalVisualRows(
+            Font font, List<FormattedCharSequence> rows, int mouseX, int mouseY,
+            Identifier texture, CallbackInfo ci) {
+        if (TooltipTranslationController.isRenderingTranslated() || rows == null || rows.isEmpty()) {
+            simple_translate$clearCandidateItemFrame();
             return;
         }
+        List<Component> source = rows.stream()
+                .map(GuiTranslationHelper::componentFromFormattedSequence)
+                .toList();
+        simple_translate$captureItemFrame(source);
+    }
 
-        GuiGraphics guiGraphics = (GuiGraphics)(Object)this;
-        simple_translate$renderingTranslatedTooltip = true;
-        try {
-            if (translated.size() == 1) {
-                guiGraphics.setTooltipForNextFrame(font, translated.get(0), mouseX, mouseY);
+    @Unique
+    private void simple_translate$captureItemFrame(List<Component> components) {
+        simple_translate$clearCandidateItemFrame();
+        simple_translate$candidatePrepared = true;
+        if (!TooltipTranslationController.isItemTooltipSubmission()) {
+            return;
+        }
+        simple_translate$candidateItemSubmission = true;
+        TooltipTranslationController.RenderContext context =
+                TooltipTranslationController.resolveRenderContext();
+        if (context != TooltipTranslationController.RenderContext.ITEM
+                || !TooltipTranslationController.shouldCaptureItemFrame(components)) {
+            return;
+        }
+        simple_translate$candidateItemFrameKey =
+                GuiTranslationHelper.detachedFrameKey("gui.item_tooltip", components);
+        // This Component list is only a provisional submission. Vanilla and
+        // third-party decorators can replace it before the deferred tooltip is
+        // accepted, so feeding it into the hover dwell state would alternate
+        // signatures with the final visual rows and prevent automatic requests.
+        simple_translate$candidateItemFrameRequest = false;
+        simple_translate$candidateItemRows = List.copyOf(components);
+    }
+
+    /** Mirrors GuiGraphics' exact first-wins/replaceExisting deferred acceptance rule. */
+    @Inject(
+            method = "setTooltipForNextFrameInternal(Lnet/minecraft/client/gui/Font;Ljava/util/List;IILnet/minecraft/client/gui/screens/inventory/tooltip/ClientTooltipPositioner;Lnet/minecraft/resources/Identifier;Z)V",
+            at = @At("HEAD"), require = 1)
+    private void simple_translate$commitAcceptedTooltipClassification(
+            Font font, List<ClientTooltipComponent> components, int mouseX, int mouseY,
+            ClientTooltipPositioner positioner, Identifier texture, boolean replaceExisting,
+            CallbackInfo ci) {
+        boolean accepted = components != null && !components.isEmpty()
+                && (this.deferredTooltip == null || replaceExisting);
+        if (accepted) {
+            simple_translate$clearPendingItemFrame();
+            if (simple_translate$candidatePrepared) {
+                simple_translate$pendingItemSubmission = simple_translate$candidateItemSubmission;
+                simple_translate$pendingItemFrameKey = simple_translate$candidateItemFrameKey;
+                simple_translate$pendingItemFrameRequest = simple_translate$candidateItemFrameRequest;
+                simple_translate$pendingItemRows = simple_translate$candidateItemRows;
+            }
+        }
+        simple_translate$clearCandidateItemFrame();
+    }
+
+    @WrapMethod(
+            method = "renderTooltip(Lnet/minecraft/client/gui/Font;Ljava/util/List;IILnet/minecraft/client/gui/screens/inventory/tooltip/ClientTooltipPositioner;Lnet/minecraft/resources/Identifier;)V",
+            require = 1)
+    private void simple_translate$renderItemTooltipFrame(
+            Font font, List<ClientTooltipComponent> components, int mouseX, int mouseY,
+            ClientTooltipPositioner positioner, Identifier texture, Operation<Void> original) {
+        boolean itemSubmission = simple_translate$pendingItemSubmission;
+        String frameKey = simple_translate$pendingItemFrameKey;
+        boolean request = simple_translate$pendingItemFrameRequest;
+        List<Component> submittedRows = simple_translate$pendingItemRows;
+        List<Component> finalTextRows = simple_translate$finalTextRows(components);
+        if (itemSubmission && TooltipTranslationController.shouldCaptureItemFrame(finalTextRows)) {
+            // Minecraft 1.21.11 defers a post-decoration ClientTooltipComponent
+            // document. Probe and key the cache from those exact visual rows,
+            // not the earlier Component submission: resource-pack resolution,
+            // Alt/Shift decorators and third-party tooltip hooks may have
+            // changed structure before the renderer accepted the frame.
+            if (finalTextRows == simple_translate$lastKeyRows) {
+                frameKey = simple_translate$lastKeyResult;
             } else {
-                guiGraphics.setTooltipForNextFrame(font, translated, Optional.empty(), mouseX, mouseY);
+                frameKey = GuiTranslationHelper.detachedFrameKey(
+                        "gui.item_tooltip", finalTextRows);
+                simple_translate$lastKeyRows = finalTextRows;
+                simple_translate$lastKeyResult = frameKey;
             }
+            request = request || TooltipTranslationController.allowRequest(
+                    TooltipTranslationController.RenderContext.ITEM, finalTextRows);
+            submittedRows = finalTextRows;
+        }
+        boolean itemFrameStarted = itemSubmission && frameKey != null
+                && GuiTranslationHelper.beginItemTooltipFrame(
+                frameKey, "Item tooltip", request, submittedRows);
+        boolean itemFrameSuppressed = itemSubmission && !itemFrameStarted;
+        if (itemFrameSuppressed) {
+            // GUI AUTO/K must never bypass the dedicated item-tooltip setting.
+            GuiTranslationHelper.beginCaptureSuppression();
+        }
+        boolean pending = GuiTranslationHelper.isFrameTranslationPending(frameKey);
+        boolean hasSnapshot = GuiTranslationHelper.hasFrameSnapshot(frameKey);
+        // Cache hits (memory or synchronous disk hydrate) must never arm the
+        // pending glow — only a true miss that is requesting or already in flight.
+        TooltipTranslationController.armPendingGlowIf(
+                itemSubmission && itemFrameStarted && !hasSnapshot && (request || pending));
+        simple_translate$clearPendingItemFrame();
+        try {
+            original.call(font, components, mouseX, mouseY, positioner, texture);
         } finally {
-            simple_translate$renderingTranslatedTooltip = false;
+            if (itemFrameStarted) {
+                GuiTranslationHelper.endDetachedFrame((GuiGraphics) (Object) this);
+            }
+            if (itemFrameSuppressed) {
+                GuiTranslationHelper.endCaptureSuppression();
+            }
+        }
+    }
+
+    @Unique
+    private static List<ClientTooltipComponent> simple_translate$lastRowComponents;
+    @Unique
+    private static List<Component> simple_translate$lastRowResult;
+    @Unique
+    private static List<Component> simple_translate$lastKeyRows;
+    @Unique
+    private static String simple_translate$lastKeyResult;
+
+    @Unique
+    private static List<Component> simple_translate$finalTextRows(
+            List<ClientTooltipComponent> components) {
+        if (components == simple_translate$lastRowComponents) {
+            return simple_translate$lastRowResult;
+        }
+        if (components == null || components.isEmpty()) {
+            return List.of();
+        }
+        java.util.ArrayList<Component> rows = new java.util.ArrayList<>();
+        for (ClientTooltipComponent component : components) {
+            if (component instanceof ClientTextTooltipAccessor accessor) {
+                FormattedCharSequence text = accessor.simple_translate$getText();
+                if (text != null) {
+                    rows.add(GuiTranslationHelper.componentFromFormattedSequence(text));
+                }
+            }
+        }
+        if (rows.isEmpty()) {
+            return List.of();
+        }
+        List<Component> result = List.copyOf(rows);
+        simple_translate$lastRowComponents = components;
+        simple_translate$lastRowResult = result;
+        return result;
+    }
+
+    @Unique
+    private void simple_translate$clearPendingItemFrame() {
+        simple_translate$pendingItemFrameKey = null;
+        simple_translate$pendingItemFrameRequest = false;
+        simple_translate$pendingItemSubmission = false;
+        simple_translate$pendingItemRows = null;
+    }
+
+    @Unique
+    private void simple_translate$clearCandidateItemFrame() {
+        simple_translate$candidateItemFrameKey = null;
+        simple_translate$candidateItemFrameRequest = false;
+        simple_translate$candidateItemSubmission = false;
+        simple_translate$candidatePrepared = false;
+        simple_translate$candidateItemRows = null;
+    }
+
+    /** Shared re-render path: wraps the callback in begin/end guards and cancels. */
+    private void renderTranslatedTooltip(java.util.function.Consumer<GuiGraphics> renderer, CallbackInfo ci) {
+        GuiGraphics guiGraphics = (GuiGraphics) (Object) this;
+        renderWithGuard(guiGraphics, renderer, ci);
+    }
+
+    private void renderWithGuard(GuiGraphics guiGraphics, Consumer<GuiGraphics> renderer, CallbackInfo ci) {
+        TooltipTranslationController.beginRenderingTranslated();
+        try {
+            renderer.accept(guiGraphics);
+        } finally {
+            TooltipTranslationController.endRenderingTranslated();
         }
         ci.cancel();
     }
 
     @Unique
-    private boolean simple_translate$shouldTranslateRenderedTooltip(List<Component> components) {
-        if (simple_translate$renderingTranslatedTooltip) {
-            return false;
-        }
-        if (TooltipTranslationHelper.isMarkedTranslatedTooltip(components)) {
-            return false;
-        }
-        if (!ModConfig.TOOLTIP_ITEM_ENABLED.get()) {
-            return false;
-        }
-        if (HoldOriginalState.isHolding(HoldOriginalFeature.TOOLTIP_ITEM)) {
-            return false;
-        }
-        return components != null
-                && !components.isEmpty()
-                && TooltipTranslationHelper.anyContainsEnglish(components);
+    private static boolean shouldTranslateBookHover() {
+        Screen screen = net.minecraft.client.Minecraft.getInstance().screen;
+        return ModConfig.GLOBAL_ENABLED.get()
+                && screen instanceof BookViewScreen
+                && ModConfig.TOOLTIP_BOOK_HOVER_ENABLED.get()
+                && !HoldOriginalState.isHolding(HoldOriginalFeature.TOOLTIP_HOVER);
     }
 }

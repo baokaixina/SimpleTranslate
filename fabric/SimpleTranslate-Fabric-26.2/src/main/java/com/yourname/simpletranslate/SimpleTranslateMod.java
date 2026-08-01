@@ -6,7 +6,6 @@ import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import com.mojang.logging.LogUtils;
 import com.yourname.simpletranslate.cache.TermDictionary;
-import com.yourname.simpletranslate.compat.ClientGuiCompat;
 import com.yourname.simpletranslate.cache.TranslationBlacklist;
 import com.yourname.simpletranslate.cache.LineTranslationMemory;
 import com.yourname.simpletranslate.cache.TranslationCache;
@@ -19,16 +18,18 @@ import com.yourname.simpletranslate.keybind.ModKeyBindings;
 import com.yourname.simpletranslate.cache.SharedCacheClient;
 import com.yourname.simpletranslate.transport.TranslationManager;
 import com.yourname.simpletranslate.transport.TranslationRequestQueue;
-import com.yourname.simpletranslate.feature.advancement.AdvancementTranslationHelper;
 import com.yourname.simpletranslate.core.BlacklistRefreshAware;
 import com.yourname.simpletranslate.feature.book.BookTranslationHelper;
 import com.yourname.simpletranslate.feature.hud.HudTranslationHistory;
 import com.yourname.simpletranslate.feature.hud.ScoreboardTranslationHelper;
+import com.yourname.simpletranslate.feature.gui.GuiTranslationHelper;
 import com.yourname.simpletranslate.feature.sign.SignContextSelectionManager;
 import com.yourname.simpletranslate.feature.sign.SignSelectionHighlighter;
 import com.yourname.simpletranslate.feature.sign.SignTranslationHelper;
 import com.yourname.simpletranslate.feature.tooltip.TooltipTranslationHelper;
+import com.yourname.simpletranslate.feature.tooltip.TooltipTranslationTriggerState;
 import com.yourname.simpletranslate.core.JsonPassthroughPipeline;
+import com.yourname.simpletranslate.core.TextContextMemory;
 import com.yourname.simpletranslate.transport.TranslationLanes;
 import com.yourname.simpletranslate.transport.TokenUsageMonitor;
 import net.fabricmc.api.ClientModInitializer;
@@ -60,13 +61,13 @@ public class SimpleTranslateMod implements ClientModInitializer {
     private static final String GLOBAL_CACHE_SCOPE = "global";
     private static final String CACHE_SETTINGS_FILE = "cache_settings.json";
 
-    private static TranslationCache translationCache;
-    private static LineTranslationMemory lineTranslationMemory;
-    private static TermDictionary termDictionary;
+    private static volatile TranslationCache translationCache;
+    private static volatile LineTranslationMemory lineTranslationMemory;
+    private static volatile TermDictionary termDictionary;
     private static TranslationBlacklist translationBlacklist;
     private static TranslationManager translationManager;
     private static Path configDir;
-    private static String currentWorldId = null;
+    private static volatile String currentWorldId = null;
     private static Set<String> lastLegacyLocalWorldIds = Set.of();
     private static volatile long runtimeRevision = 0L;
     private static long blacklistRevision = 0L;
@@ -137,6 +138,8 @@ public class SimpleTranslateMod implements ClientModInitializer {
             switchGlobalData();
         });
         ClientLifecycleEvents.CLIENT_STOPPING.register(client -> shutdown());
+        ClientLifecycleEvents.CLIENT_STARTED.register(
+                client -> com.yourname.simpletranslate.compat.IcebergTooltipGatherCompat.registerIfPresent());
 
         LOGGER.info("Simple Translate Fabric mod initialized");
     }
@@ -171,12 +174,11 @@ public class SimpleTranslateMod implements ClientModInitializer {
         if (manager != null && manager.isReady()) {
             return;
         }
-        if (client == null || client.player == null) {
+        if (client == null || client.gui == null) {
             return;
         }
-        client.player.sendOverlayMessage(
-                net.minecraft.network.chat.Component.translatable("chat.simple_translate.first_run_hint")
-        );
+        client.gui.hud.setOverlayMessage(
+                net.minecraft.network.chat.Component.translatable("chat.simple_translate.first_run_hint"), false);
     }
 
     private static String getWorldIdentifier() {
@@ -221,7 +223,7 @@ public class SimpleTranslateMod implements ClientModInitializer {
     }
 
     private static String sanitizeFilename(String name) {
-        return name.replaceAll("[^a-zA-Z0-9._-]", "_").toLowerCase();
+        return name.replaceAll("[^a-zA-Z0-9._-]", "_").toLowerCase(java.util.Locale.ROOT);
     }
 
     private static String stripMinecraftFormatting(String name) {
@@ -272,6 +274,7 @@ public class SimpleTranslateMod implements ClientModInitializer {
         Path worldCacheDir = configDir.resolve("cache").resolve(worldId);
         translationCache = new TranslationCache(worldCacheDir.resolve("translations.json"));
         translationCache.load();
+        GuiTranslationHelper.migrateLegacyHudFrameActivation(translationCache);
         lineTranslationMemory = new LineTranslationMemory(worldCacheDir.resolve("line_memory.json"));
         lineTranslationMemory.load();
         loadCacheScopeSettings(worldId);
@@ -371,7 +374,7 @@ public class SimpleTranslateMod implements ClientModInitializer {
         try (var stream = Files.list(sourceDir)) {
             for (Path source : stream.filter(Files::isRegularFile).toList()) {
                 String name = source.getFileName() == null
-                        ? "" : source.getFileName().toString().toLowerCase();
+                        ? "" : source.getFileName().toString().toLowerCase(java.util.Locale.ROOT);
                 if (!name.endsWith(".json")
                         || "line_memory.json".equals(name)
                         || CACHE_SETTINGS_FILE.equals(name)) {
@@ -455,6 +458,19 @@ public class SimpleTranslateMod implements ClientModInitializer {
         resetTranslationRuntime("cache-edit");
     }
 
+    public static void onTranslationProfileChanged() {
+        resetTranslationRuntime("translation-profile");
+    }
+
+    public static void onTextContextSettingsChanged() {
+        TextContextMemory.settingsChanged();
+        resetTranslationRuntime("text-context-settings");
+    }
+
+    public static void onTermDictionaryChanged() {
+        resetTranslationRuntime("term-dictionary");
+    }
+
     public static void onGlobalTranslationSettingChanged(boolean enabled) {
         if (!enabled) {
             ChatContextBatchTranslator.restoreVisibleOriginalMessages();
@@ -466,17 +482,29 @@ public class SimpleTranslateMod implements ClientModInitializer {
         refreshCacheBackedRenderState("shared-cache-import");
     }
 
+    /**
+     * Clears every in-memory translation surface that can retain stale results
+     * across world switches, language changes, blacklist edits, or global toggle.
+     *
+     * <p>Keep this list complete when adding a new surface with static/session
+     * caches. HudFeature instances clear themselves on the next render via
+     * {@link #getRuntimeRevision()} rather than a static registry.</p>
+     */
     private static synchronized void resetTranslationRuntime(String reason) {
         runtimeRevision++;
+        // chat AUTO/BUTTON + message store + peer identity maps
         ChatTranslationController.clearRuntimeState();
         ChatContextBatchTranslator.clear();
+        // request lanes, JSON batcher, recovery freezes
         TranslationLanes.clearAll();
         TranslationRequestQueue.clear();
+        // feature session caches
+        TooltipTranslationTriggerState.clearShortcutRequest();
         TooltipTranslationHelper.clearPendingCache();
-        AdvancementTranslationHelper.clearCache();
         BookTranslationHelper.clearCache();
         HudTranslationHistory.clear();
         ScoreboardTranslationHelper.clearLocalCache();
+        GuiTranslationHelper.clearLocalState();
         SignTranslationHelper.clearAllCache();
         SignContextSelectionManager.clearAll();
         TokenUsageMonitor.clear();
@@ -485,9 +513,9 @@ public class SimpleTranslateMod implements ClientModInitializer {
 
     private static synchronized void refreshCacheBackedRenderState(String reason) {
         TooltipTranslationHelper.clearPendingCache();
-        AdvancementTranslationHelper.clearCache();
         BookTranslationHelper.clearCache();
         ScoreboardTranslationHelper.clearLocalCache();
+        GuiTranslationHelper.clearLocalState();
         SignTranslationHelper.clearAllCache();
         LOGGER.debug("Refreshed SimpleTranslate cache-backed render state: {}", reason);
     }
@@ -505,7 +533,7 @@ public class SimpleTranslateMod implements ClientModInitializer {
             if (minecraft.gui.hud instanceof BlacklistRefreshAware aware) {
                 aware.simple_translate$refreshBlacklistedTranslations();
             }
-            var chat = ClientGuiCompat.chat(minecraft);
+            var chat = minecraft.gui.hud.getChat();
             if (chat instanceof BlacklistRefreshAware aware) {
                 aware.simple_translate$refreshBlacklistedTranslations();
             }
@@ -550,7 +578,7 @@ public class SimpleTranslateMod implements ClientModInitializer {
             Files.createDirectories(file.getParent());
             CacheScopeSettings settings = new CacheScopeSettings();
             settings.serverShareEnabled = currentCacheServerShareEnabled;
-            Files.writeString(file, GSON.toJson(settings));
+            com.yourname.simpletranslate.core.AtomicFiles.writeString(file, GSON.toJson(settings));
         } catch (IOException e) {
             LOGGER.warn("Failed to save cache scope settings {}", file, e);
         }

@@ -1,7 +1,6 @@
 package com.yourname.simpletranslate.mixin;
 
 import com.yourname.simpletranslate.feature.chat.ChatComponentAccess;
-import com.yourname.simpletranslate.feature.chat.ChatMessageReplacer;
 import com.yourname.simpletranslate.feature.chat.ChatTranslationController;
 import com.yourname.simpletranslate.keybind.HoldOriginalAware;
 import com.yourname.simpletranslate.keybind.HoldOriginalFeature;
@@ -13,10 +12,8 @@ import com.yourname.simpletranslate.feature.hud.HudTranslationHistory;
 import net.minecraft.client.GuiMessage;
 import net.minecraft.client.GuiMessageTag;
 import net.minecraft.client.gui.components.ChatComponent;
-import net.minecraft.network.chat.ClickEvent;
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.chat.MessageSignature;
-import net.minecraft.network.chat.Style;
 import org.spongepowered.asm.mixin.Final;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
@@ -24,7 +21,6 @@ import org.spongepowered.asm.mixin.Unique;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
-import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
 import java.util.List;
 
@@ -44,9 +40,6 @@ public abstract class ChatComponentMixin
 
     @Shadow
     public abstract void rescaleChat();
-
-    @Shadow
-    public abstract Style getClickedComponentStyleAt(double mouseX, double mouseY);
 
     @Unique
     private ChatTranslationController simple_translate$controller;
@@ -72,20 +65,6 @@ public abstract class ChatComponentMixin
     @Inject(method = "addMessage(Lnet/minecraft/network/chat/Component;Lnet/minecraft/network/chat/MessageSignature;Lnet/minecraft/client/GuiMessageTag;)V", at = @At("TAIL"))
     private void onAddMessage(Component message, MessageSignature signature, GuiMessageTag tag, CallbackInfo ci) {
         SafeTranslate.guard(() -> simple_translate$controller().onAddMessage(message), "chat.onAddMessage");
-    }
-
-    @Inject(method = "handleChatQueueClicked", at = @At("HEAD"), cancellable = true)
-    private void onHandleChatQueueClicked(double mouseX, double mouseY, CallbackInfoReturnable<Boolean> cir) {
-        SafeTranslate.guard(() -> {
-            Style style = this.getClickedComponentStyleAt(mouseX, mouseY);
-            if (style != null && style.getClickEvent() != null) {
-                ClickEvent clickEvent = style.getClickEvent();
-                String value = ChatMessageReplacer.suggestCommandValue(clickEvent);
-                if (value != null && simple_translate$controller().handleButtonClickEvent(value)) {
-                    cir.setReturnValue(true);
-                }
-            }
-        }, "chat.onHandleChatQueueClicked");
     }
 
     @Override

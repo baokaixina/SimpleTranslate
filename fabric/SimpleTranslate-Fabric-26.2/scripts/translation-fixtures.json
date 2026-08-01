@@ -1,15 +1,28 @@
 {
-  "version": "component-json-fixtures-v1",
-  "description": "Offline fixtures for the universal Minecraft Component JSON translation pipeline.",
+  "version": "component-json-fixtures-v2",
+  "description": "Offline fixtures for Component JSON parity, shared GUI draw frames, Wynn layout/dialogue, smart context and HUD anchors.",
   "fixtures": [
     { "surface": "chat.context.batch.direct", "name": "ordered chat block" },
-    { "surface": "tooltip.item_context.direct", "name": "item tooltip component array" },
+    { "surface": "gui.component.visible_frame.v3", "name": "item tooltip detached draw frame" },
     { "surface": "hover.context.direct", "name": "chat hover component array" },
     { "surface": "book.page.direct", "name": "book page-line slots" },
     { "surface": "sign.manual.group.by_id.direct", "name": "two four-line signs" },
-    { "surface": "advancement.document.direct", "name": "advancement title and description" },
-    { "surface": "scoreboard.component.direct", "name": "scoreboard component" },
+    { "surface": "gui.component.visible_frame.v3", "name": "advancement widget detached draw frame" },
+    { "surface": "scoreboard.component.semantic_frame.v3", "name": "scoreboard whole-frame context and lossless row remap" },
     { "surface": "bossbar.component.direct", "name": "boss bar component" },
-    { "surface": "hud.title_group.component.direct", "name": "title and subtitle pair" }
+    { "surface": "hud.title_group.component.direct", "name": "title and subtitle pair" },
+    { "surface": "hud.actionbar.component.direct", "name": "Wynncraft PUA actionbar component JSON reconstruction" },
+    { "surface": "hud.actionbar.component.direct", "name": "Wynncraft PUA actionbar text-segment reconstruction" },
+    { "surface": "gui.component.visible_frame.v3", "name": "advancement toast detached draw frame" },
+    { "surface": "tooltip.visible.book_hover.component.v2", "name": "Patchouli terminal ClientTooltipComponent text with custom component order preserved" },
+    { "surface": "chat.context.batch.direct", "name": "missing dynamic translate key containing multiline formatted natural language" },
+    { "surface": "hud.actionbar.wynn.glyph_overlay.v5", "name": "Wynn selector E000/E002/E001 source-stream glyph suppression and direct Chinese overlay" },
+    { "surface": "hud.actionbar.wynn.glyph_overlay.v5", "name": "Wynn selector E000/E001 play-switch source-stream glyph suppression and direct Chinese overlay" },
+    { "surface": "hud.actionbar.wynn.glyph_overlay.v5", "name": "Wynn top-middle CreateaCharacter glyph grid reconstruction" },
+    { "surface": "hud.actionbar.wynn.glyph_overlay.v5", "name": "Wynn selector rejects unsafe translations, slot mismatches and altered source streams" },
+    { "surface": "hud.actionbar.wynn.dialogue.content.paragraph.v5", "name": "Wynn name/body/control coherent BODY paragraph projection" },
+    { "surface": "hud.actionbar.wynn.dialogue.options.semantic.v1", "name": "Wynn preloaded dialogue choices projection" },
+    { "surface": "component_json.context", "name": "scope-local prompt metadata remains outside the user array" },
+    { "surface": "hud.anchor.profile.v1", "name": "nine-grid user rule normalization and inert missing profile" }
   ]
 }

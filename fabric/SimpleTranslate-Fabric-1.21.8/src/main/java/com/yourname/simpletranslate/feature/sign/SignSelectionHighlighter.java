@@ -32,18 +32,13 @@ public final class SignSelectionHighlighter {
 
     private static void simple_translate$renderSelectionsImpl(WorldRenderContext context) {
         Minecraft minecraft = Minecraft.getInstance();
-        if (minecraft == null || minecraft.level == null) {
+        if (minecraft == null || minecraft.level == null || context == null) {
             return;
         }
-        if (context == null) {
-            return;
-        }
-
         MultiBufferSource consumers = context.consumers();
         if (consumers == null) {
             return;
         }
-
         Camera camera = context.camera();
         if (camera == null) {
             return;
@@ -53,8 +48,10 @@ public final class SignSelectionHighlighter {
         for (SignContextSelectionManager.SelectionView selection :
                 SignContextSelectionManager.getRenderableSelections(minecraft.level)) {
             float[] color = colorFor(selection.state());
-            AABB box = new AABB(selection.pos()).inflate(0.04D).move(-cameraPos.x, -cameraPos.y, -cameraPos.z);
-            ShapeRenderer.renderLineBox(context.matrixStack(), lines, box, color[0], color[1], color[2], 1.0F);
+            AABB box = new AABB(selection.pos()).inflate(0.04D)
+                    .move(-cameraPos.x, -cameraPos.y, -cameraPos.z);
+            ShapeRenderer.renderLineBox(context.matrixStack(), lines, box,
+                    color[0], color[1], color[2], 1.0F);
         }
     }
 

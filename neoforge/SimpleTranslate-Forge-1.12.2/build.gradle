@@ -1,0 +1,95 @@
+buildscript {
+    repositories {
+        maven { url = 'https://maven.minecraftforge.net/' }
+        maven { url = 'https://repo.spongepowered.org/maven' }
+        mavenCentral()
+    }
+    dependencies {
+        classpath 'net.minecraftforge.gradle:ForgeGradle:3.+'
+        classpath 'org.spongepowered:mixingradle:0.7.38'
+    }
+}
+
+repositories {
+    maven { url = 'https://maven.cleanroommc.com' }
+}
+
+apply plugin: 'net.minecraftforge.gradle'
+apply plugin: 'org.spongepowered.mixin'
+apply plugin: 'eclipse'
+apply plugin: 'maven-publish'
+
+version = project.mod_version
+group = project.maven_group
+archivesBaseName = "${project.archives_base_name}-${project.minecraft_version}-forge"
+
+sourceCompatibility = targetCompatibility = compileJava.sourceCompatibility = compileJava.targetCompatibility = '1.8'
+
+minecraft {
+    mappings channel: 'snapshot', version: '20171003-1.12'
+    runs {
+        client {
+            workingDirectory project.file('run')
+            property 'forge.logging.markers', 'SCAN,REGISTRIES,REGISTRYDUMP'
+            property 'forge.logging.console.level', 'info'
+        }
+    }
+}
+
+dependencies {
+    minecraft "net.minecraftforge:forge:${project.minecraft_version}-${project.forge_version}"
+    compileOnly('zone.rong:mixinbooter:9.4') {
+        transitive = false
+    }
+    annotationProcessor 'org.spongepowered:mixin:0.8.5:processor'
+}
+
+mixin {
+    add sourceSets.main, 'simple_translate.refmap.json'
+}
+
+processResources {
+    inputs.properties(
+            version: project.version,
+            mod_id: project.mod_id,
+            mod_name: project.mod_name,
+            mod_description: project.mod_description
+    )
+    filesMatching('mcmod.info') {
+        expand(
+                version: project.version,
+                mod_id: project.mod_id,
+                mod_name: project.mod_name,
+                mod_description: project.mod_description
+        )
+    }
+}
+
+tasks.withType(JavaCompile) {
+    options.encoding = 'UTF-8'
+}
+
+jar {
+    manifest {
+        attributes([
+                'Specification-Title': project.mod_id,
+                'Specification-Vendor': 'baokaixing',
+                'Specification-Version': '1',
+                'Implementation-Title': project.mod_name,
+                'Implementation-Version': project.version,
+                'Implementation-Vendor': 'baokaixing',
+                // MixinBooter 9.4 discovers this early loader before vanilla GUI classes load.
+                'FMLCorePlugin': 'com.yourname.simpletranslate.bootstrap.SimpleTranslateMixinLoader',
+                'FMLCorePluginContainsFMLMod': 'true'
+        ])
+    }
+}
+
+jar.finalizedBy('reobfJar')
+
+task validatePortLogic(type: JavaExec, dependsOn: testClasses) {
+    group = 'verification'
+    description = 'Runs the build-only Component-JSON transport and recovery fixture.'
+    classpath = sourceSets.test.runtimeClasspath
+    main = 'com.yourname.simpletranslate.validation.PortLogicValidation'
+}

@@ -43,10 +43,6 @@ sourceSets {
 }
 
 repositories {
-    def localClientLibraries = file("D:/mc/模组测试/neoforge/${project.minecraft_version}/libraries")
-    if (localClientLibraries.exists()) {
-        maven { url = localClientLibraries.toURI() }
-    }
     maven { url = "https://maven.neoforged.net/releases" }
     mavenCentral()
 }
@@ -55,6 +51,42 @@ dependencies {
     minecraft "net.neoforged:forge:${project.minecraft_version}-${project.neoforge_version}"
     annotationProcessor "org.spongepowered:mixin:0.8.5:processor"
     compileOnly "org.jetbrains:annotations:24.1.0"
+    // MixinExtras is not bundled with NeoForge 47.1.x (bundling starts with
+    // NeoForge 20.6); compile against mixinextras-common and embed the
+    // Forge bootstrap jar (which carries the real nested MixinExtras jar)
+    // via JarJar so production clients get it too.
+    compileOnly "io.github.llamalad7:mixinextras-common:0.4.1"
+    // MixinExtras ships an AP extension that teaches the Mixin AP to remap
+    // @WrapOperation/@WrapWithCondition targets into the refmap. ForgeGradle
+    // only sees annotationProcessor-path deps, so it must be listed here or
+    // every MixinExtras injector keeps unmapped (mojmap) targets at runtime.
+    annotationProcessor "io.github.llamalad7:mixinextras-common:0.4.1"
+    jarJar(group: "io.github.llamalad7", name: "mixinextras-forge", version: "[0.4.1,0.5.0)")
+}
+
+jarJar {
+    enable()
+}
+
+// The deployable artifact is the JarJar-combined jar: NeoForge 47.1.x does
+// not bundle MixinExtras, so the main (classifier-less) jar must carry the
+// nested mixinextras-forge jar. The plain classes-only jar is demoted to a
+// dev-shadow classifier that deploy scripts skip.
+tasks.named("jarJar") {
+    archiveClassifier = ''
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+    manifest {
+        attributes([
+                "Specification-Title"     : project.mod_id,
+                "Specification-Vendor"    : project.mod_authors,
+                "Specification-Version"   : "1",
+                "Implementation-Title"    : project.mod_name,
+                "Implementation-Version"  : project.version,
+                "Implementation-Vendor"   : project.mod_authors,
+                "Implementation-Timestamp": new Date().format("yyyy-MM-dd'T'HH:mm:ssZ"),
+                "MixinConfigs"            : "simple_translate.mixins.json"
+        ])
+    }
 }
 
 processResources {
@@ -66,6 +98,7 @@ processResources {
             mod_authors: project.mod_authors,
             mod_license: project.mod_license,
             neoforge_version: project.neoforge_version,
+            neoforge_version_floor: project.neoforge_version_floor,
             minecraft_version: project.minecraft_version
     )
 
@@ -78,6 +111,7 @@ processResources {
                 mod_authors: project.mod_authors,
                 mod_license: project.mod_license,
                 neoforge_version: project.neoforge_version,
+                neoforge_version_floor: project.neoforge_version_floor,
                 minecraft_version: project.minecraft_version
         )
     }
@@ -115,6 +149,7 @@ tasks.named("processResources").configure {
 }
 
 jar {
+    archiveClassifier = 'dev-shadow'
     duplicatesStrategy = DuplicatesStrategy.EXCLUDE
     manifest {
         attributes([
@@ -135,7 +170,7 @@ jar.finalizedBy("reobfJar")
 publishing {
     publications {
         mavenJava(MavenPublication) {
-            artifact jar
+            artifact tasks.named("jarJar")
         }
     }
 }

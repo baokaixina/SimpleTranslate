@@ -54,6 +54,7 @@ public class ModelSettingsScreen extends ScrollableSettingsScreen {
                 Component.translatable("screen.simple_translate.model_settings.api_url"));
         this.apiUrlInput.setMaxLength(512);
         this.apiUrlInput.setValue(this.currentApiUrl);
+        this.apiUrlInput.setSuggestion(Component.translatable("screen.simple_translate.model_settings.api_url_hint").getString());
         withTooltip(this.apiUrlInput, "screen.simple_translate.model_settings.api_url.tooltip");
         addEntry(this.apiUrlInput);
 
@@ -61,6 +62,7 @@ public class ModelSettingsScreen extends ScrollableSettingsScreen {
                 Component.translatable("screen.simple_translate.model_settings.api_key"));
         this.apiKeyInput.setMaxLength(512);
         this.apiKeyInput.setValue(this.currentApiKey);
+        this.apiKeyInput.setSuggestion(Component.translatable("screen.simple_translate.model_settings.api_key_hint").getString());
         withTooltip(this.apiKeyInput, "screen.simple_translate.model_settings.api_key.tooltip");
         this.apiKeyInput.setFormatter((value, pos) -> value.isEmpty()
                 ? FormattedCharSequence.EMPTY
@@ -71,12 +73,12 @@ public class ModelSettingsScreen extends ScrollableSettingsScreen {
                 Component.translatable("screen.simple_translate.model_settings.model_id"));
         this.modelInput.setMaxLength(256);
         this.modelInput.setValue(this.currentModelId);
+        this.modelInput.setSuggestion(Component.translatable("screen.simple_translate.model_settings.model_hint").getString());
         withTooltip(this.modelInput, "screen.simple_translate.model_settings.model_id.tooltip");
         addEntry(this.modelInput);
 
-        this.formatButton = CycleButton.<ApiFormat>builder(format -> Component.literal(format.getDisplayName()))
+        this.formatButton = CycleButton.<ApiFormat>builder(format -> Component.literal(format.getDisplayName())).withInitialValue(this.currentApiFormat)
                 .withValues(ApiFormat.values())
-                .withInitialValue(this.currentApiFormat)
                 .create(0, 0, this.contentWidth, 20,
                         Component.translatable("screen.simple_translate.model_settings.api_format"),
                         (button, value) -> {
@@ -84,8 +86,20 @@ public class ModelSettingsScreen extends ScrollableSettingsScreen {
                             if (this.modelInput != null && (this.modelInput.getValue() == null || this.modelInput.getValue().isBlank())) {
                                 this.modelInput.setValue(value.getDefaultModel());
                             }
+                            if (value == ApiFormat.LOCAL_OLLAMA) {
+                                if (this.apiUrlInput != null && (this.apiUrlInput.getValue() == null
+                                        || this.apiUrlInput.getValue().isBlank()
+                                        || ModConfig.DEFAULT_API_URL.equals(this.apiUrlInput.getValue()))) {
+                                    this.apiUrlInput.setValue("http://localhost:11434/v1");
+                                }
+                                if (this.apiKeyInput != null && (this.apiKeyInput.getValue() == null || this.apiKeyInput.getValue().isBlank())) {
+                                    this.apiKeyInput.setValue("ollama");
+                                }
+                            }
                         });
         withTooltip(this.formatButton, "screen.simple_translate.model_settings.api_format.tooltip");
+        addEntry(this.formatButton);
+        addDescription(text("screen.simple_translate.model_settings.local_llm_warning"));
         addEntry(this.formatButton);
 
         this.thinkingButton = CycleButton.onOffBuilder(this.currentThinkingEnabled)
@@ -98,9 +112,8 @@ public class ModelSettingsScreen extends ScrollableSettingsScreen {
         withTooltip(this.thinkingButton, "screen.simple_translate.thinking.tooltip");
         addEntry(this.thinkingButton);
 
-        this.maxParallelButton = CycleButton.<Integer>builder(value -> Component.literal(String.valueOf(value)))
+        this.maxParallelButton = CycleButton.<Integer>builder(value -> Component.literal(String.valueOf(value))).withInitialValue(this.currentMaxParallelRequests)
                 .withValues(1, 2, 3, 4, 5, 6, 7, 8)
-                .withInitialValue(this.currentMaxParallelRequests)
                 .create(0, 0, this.contentWidth, 20,
                         Component.translatable("screen.simple_translate.model_settings.max_parallel"),
                         (button, value) -> this.currentMaxParallelRequests = value);
@@ -266,5 +279,3 @@ public class ModelSettingsScreen extends ScrollableSettingsScreen {
         return compact.length() > 64 ? compact.substring(0, 61) + "..." : compact;
     }
 }
-
-

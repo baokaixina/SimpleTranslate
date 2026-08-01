@@ -183,6 +183,9 @@ public final class SignJsonDocument {
             if (translated == null || translated.isEmpty()) {
                 return RestoreResult.fail("component-json-invalid");
             }
+            if (translated.size() != components.size()) {
+                return RestoreResult.fail("component-count-mismatch");
+            }
             Map<String, Component[]> bySign = new LinkedHashMap<>();
             for (SignSlot slot : signs) {
                 Component[] lines = new Component[4];

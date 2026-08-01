@@ -251,7 +251,7 @@ public final class ChatButtonController {
                         .withColor(buttonColor)
                         .withHoverEvent(new HoverEvent.ShowText(Component.literal(hoverText)))
                         .withClickEvent(new ClickEvent.SuggestCommand(
-                                TRANSLATE_CLICK_PREFIX + messageId.toString())));
+                                TRANSLATE_CLICK_PREFIX + messageId)));
 
         return content.copy().append(button);
     }

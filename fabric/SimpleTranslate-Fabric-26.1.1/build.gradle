@@ -10,10 +10,16 @@ base {
     archivesName = "${project.archives_base_name}-${project.minecraft_version}-fabric"
 }
 
+loom {
+    accessWidenerPath = file("src/main/resources/simple_translate.accesswidener")
+    noIntermediateMappings()
+}
+
 repositories {
     mavenLocal()
     maven { url = "https://maven.fabricmc.net/" }
     maven { url = "https://maven.terraformersmc.com/releases/" }
+    maven { url = "https://api.modrinth.com/maven" }
     mavenCentral()
 }
 
@@ -21,10 +27,24 @@ dependencies {
     minecraft "com.mojang:minecraft:${project.minecraft_version}"
     implementation "net.fabricmc:fabric-loader:${project.loader_version}"
     implementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_version}"
-    compileOnly("com.terraformersmc:modmenu:${project.modmenu_version}") {
+    compileOnly("maven.modrinth:mOgUt4GM:${project.modmenu_modrinth_version}") {
         transitive = false
     }
-    compileOnly "org.jetbrains:annotations:24.1.0"
+    testImplementation "net.fabricmc:fabric-loader-junit:${project.loader_version}"
+}
+
+def fabricLoaderJUnitPathSupported = !System.getProperty("os.name").toLowerCase().contains("windows")
+        || java.nio.charset.StandardCharsets.US_ASCII.newEncoder().canEncode(project.projectDir.absolutePath)
+
+test {
+    useJUnitPlatform()
+    // Fabric Loader JUnit corrupts Windows class paths containing non-ASCII
+    // characters before it starts the game provider. Keep compilation and all
+    // packaging checks available here; run the loader-backed tests from an
+    // ASCII-only checkout instead.
+    onlyIf("Fabric Loader JUnit requires an ASCII-only project path on Windows") {
+        fabricLoaderJUnitPathSupported
+    }
 }
 
 processResources {

@@ -18,7 +18,8 @@ public final class SharedCachePayload implements CustomPacketPayload {
     public static final int MAX_PACKET_BYTES = 30_000;
     private static final int PACKET_HEADER_BYTES = 8;
 
-    public static final ResourceLocation CHANNEL = new ResourceLocation("simple_translate", "cache_sync/v1");
+    public static final ResourceLocation CHANNEL =
+            new ResourceLocation("simple_translate", "cache_sync/v1");
     public static final CustomPacketPayload.Type<SharedCachePayload> TYPE = new CustomPacketPayload.Type<>(CHANNEL);
     public static final StreamCodec<RegistryFriendlyByteBuf, SharedCachePayload> CODEC =
             StreamCodec.ofMember(SharedCachePayload::write, SharedCachePayload::read);

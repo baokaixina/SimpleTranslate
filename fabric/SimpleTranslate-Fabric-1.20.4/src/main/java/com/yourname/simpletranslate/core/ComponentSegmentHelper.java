@@ -39,7 +39,7 @@ public final class ComponentSegmentHelper {
             return "";
         }
 
-        if (component.getContents() instanceof PlainTextContents.LiteralContents literal) {
+        if (component.getContents() instanceof PlainTextContents literal) {
             return literal.text() == null ? "" : literal.text();
         }
 

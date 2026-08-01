@@ -17,16 +17,25 @@ import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
+/**
+ * Register translated sign text at the inner text-rendering step so mods like
+ * Enhanced Block Entities can replace the outer renderer without bypassing us.
+ *
+ * <p>Minecraft 1.19.4 renders the single sign face through
+ * {@code renderSignText(SignBlockEntity, PoseStack, MultiBufferSource, int,
+ * float)}; there is no SignText side holder, so the block entity itself is the
+ * translation identity and the face is always the front.</p>
+ */
 @Mixin(SignRenderer.class)
 public class SignRendererMixin {
 
     @Inject(
-            method = "render(Lnet/minecraft/world/level/block/entity/SignBlockEntity;FLcom/mojang/blaze3d/vertex/PoseStack;Lnet/minecraft/client/renderer/MultiBufferSource;II)V",
+            method = "renderSignText(Lnet/minecraft/world/level/block/entity/SignBlockEntity;Lcom/mojang/blaze3d/vertex/PoseStack;Lnet/minecraft/client/renderer/MultiBufferSource;IF)V",
             at = @At("HEAD"),
-            require = 1)
-    private void simple_translate$onRenderSign(SignBlockEntity sign, float partialTick, PoseStack poseStack,
-            MultiBufferSource buffer, int packedLight, int packedOverlay, CallbackInfo ci) {
-        MixinRuntimeProbe.matched("SignRendererMixin#render");
+            require = 0)
+    private void simple_translate$onRenderSignText(SignBlockEntity sign, PoseStack poseStack,
+            MultiBufferSource buffer, int packedLight, float textScale, CallbackInfo ci) {
+        MixinRuntimeProbe.matched("SignRendererMixin#renderSignText");
         simple_translate$registerRenderedText(sign);
     }
 
@@ -36,9 +45,9 @@ public class SignRendererMixin {
                     value = "INVOKE",
                     target = "Lnet/minecraft/client/renderer/blockentity/SignRenderer;getDarkColor(Lnet/minecraft/world/level/block/entity/SignBlockEntity;)I",
                     shift = At.Shift.BEFORE),
-            require = 1)
+            require = 0)
     private void simple_translate$scaleTranslatedText(SignBlockEntity sign, PoseStack poseStack,
-            MultiBufferSource buffer, int packedLight, float scaleBase, CallbackInfo ci) {
+            MultiBufferSource buffer, int packedLight, float textScale, CallbackInfo ci) {
         if (!ModConfig.CONTENT_SIGN_ENABLED.get()
                 || HoldOriginalState.isHolding(HoldOriginalFeature.SIGN)) {
             return;
@@ -49,7 +58,10 @@ public class SignRendererMixin {
         }
         float scale = data.renderScale;
         if (Float.isFinite(scale) && scale > 0.0F && scale < 1.0F) {
+            float verticalCenter = -sign.getTextLineHeight() / 2.0F;
+            poseStack.translate(0.0F, verticalCenter, 0.0F);
             poseStack.scale(scale, scale, scale);
+            poseStack.translate(0.0F, -verticalCenter, 0.0F);
         }
     }
 

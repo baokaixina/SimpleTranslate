@@ -1,10 +1,9 @@
 package com.yourname.simpletranslate.gui;
 
-import com.mojang.blaze3d.vertex.PoseStack;
-
 import com.yourname.simpletranslate.config.ModConfig;
 import net.minecraft.client.Minecraft;
-import com.yourname.simpletranslate.compat.GuiGraphics;
+import com.mojang.blaze3d.vertex.PoseStack;
+import com.yourname.simpletranslate.core.render.GuiGraphics;
 import net.minecraft.client.gui.components.AbstractWidget;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.components.events.GuiEventListener;
@@ -81,11 +80,9 @@ public abstract class ScrollableSettingsScreen extends BaseSimpleTranslateScreen
         int centerX = this.width / 2;
         int buttonY = this.height - 25;
 
-        this.backButton = Button.builder(
+        this.backButton = new HoverHighlightButton(centerX - contentWidth / 2, buttonY, contentWidth, 20,
                 Component.translatable("screen.simple_translate.back"),
-                button -> this.onClose())
-                .bounds(centerX - contentWidth / 2, buttonY, contentWidth, 20)
-                .build();
+                button -> this.onClose());
         withTooltip(this.backButton, "screen.simple_translate.back.tooltip");
         this.addRenderableWidget(this.backButton);
     }
@@ -110,7 +107,12 @@ public abstract class ScrollableSettingsScreen extends BaseSimpleTranslateScreen
      * Add a separator/section header
      */
     protected void addSectionHeader(String text) {
-        entries.add(new SettingsEntry(null, "=== " + text + " ===", 0x888888));
+        entries.add(new SettingsEntry(null, "=== " + text + " ===", 0xFF888888));
+    }
+
+    /** Add centered explanatory text without presenting it as a clickable control. */
+    protected void addDescription(String text) {
+        entries.add(new SettingsEntry(null, text, 0xFFAAAAAA));
     }
 
     /**
@@ -153,11 +155,11 @@ public abstract class ScrollableSettingsScreen extends BaseSimpleTranslateScreen
 
     @Override
     public void render(PoseStack poseStack, int mouseX, int mouseY, float partialTick) {
-        GuiGraphics graphics = new GuiGraphics(poseStack);
+        GuiGraphics graphics = GuiGraphics.wrap(poseStack);
         ScreenBackgrounds.renderPlain(graphics, this.width, this.height);
 
         // Draw title
-        graphics.drawCenteredString(this.font, this.title, this.width / 2, 15, 0xFFFFFF);
+        graphics.drawCenteredString(this.font, this.title, this.width / 2, 15, 0xFFFFFFFF);
 
         // Enable scissor to clip content area
         int contentBottom = getContentBottom();
@@ -181,17 +183,16 @@ public abstract class ScrollableSettingsScreen extends BaseSimpleTranslateScreen
             drawScrollBar(graphics);
         }
 
-        renderWidgetsWithFixedBottomActions(poseStack, graphics, mouseX, mouseY, partialTick);
+        renderWidgetsWithFixedBottomActions(graphics, mouseX, mouseY, partialTick);
     }
 
-    private void renderWidgetsWithFixedBottomActions(PoseStack poseStack, GuiGraphics graphics,
-                                                     int mouseX, int mouseY, float partialTick) {
+    private void renderWidgetsWithFixedBottomActions(GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
         boolean backVisible = this.backButton != null && this.backButton.visible;
         if (this.backButton != null) {
             this.backButton.visible = false;
         }
 
-        super.render(poseStack, mouseX, mouseY, partialTick);
+        super.render(graphics.pose(), mouseX, mouseY, partialTick);
 
         if (this.backButton != null) {
             this.backButton.visible = backVisible;
@@ -200,7 +201,7 @@ public abstract class ScrollableSettingsScreen extends BaseSimpleTranslateScreen
         renderAboveScrollableContentBeforeBottomActions(graphics, mouseX, mouseY, partialTick);
         drawBottomBar(graphics);
         if (this.backButton != null && this.backButton.visible) {
-            this.backButton.render(poseStack, mouseX, mouseY, partialTick);
+            this.backButton.render(graphics.pose(), mouseX, mouseY, partialTick);
         }
     }
 

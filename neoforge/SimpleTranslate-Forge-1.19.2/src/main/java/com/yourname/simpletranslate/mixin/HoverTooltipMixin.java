@@ -1,18 +1,25 @@
 package com.yourname.simpletranslate.mixin;
 
+import com.llamalad7.mixinextras.injector.wrapmethod.WrapMethod;
+import com.llamalad7.mixinextras.injector.wrapoperation.Operation;
 import com.mojang.blaze3d.vertex.PoseStack;
 import com.yourname.simpletranslate.config.ModConfig;
+import com.yourname.simpletranslate.core.render.GuiGraphics;
 import com.yourname.simpletranslate.keybind.HoldOriginalFeature;
 import com.yourname.simpletranslate.keybind.HoldOriginalState;
-import com.yourname.simpletranslate.util.TooltipTranslationController;
-import com.yourname.simpletranslate.util.TooltipTranslationHelper;
+import com.yourname.simpletranslate.feature.tooltip.TooltipTranslationController;
+import com.yourname.simpletranslate.feature.tooltip.TooltipTranslationGlowRenderer;
+import com.yourname.simpletranslate.feature.tooltip.TooltipTranslationHelper;
+import com.yourname.simpletranslate.feature.gui.GuiTranslationHelper;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.gui.screens.inventory.BookViewScreen;
+import net.minecraft.client.gui.screens.inventory.tooltip.ClientTooltipComponent;
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.chat.HoverEvent;
 import net.minecraft.network.chat.Style;
-import net.minecraft.world.inventory.tooltip.TooltipComponent;
+import net.minecraft.util.FormattedCharSequence;
+import net.minecraft.world.item.ItemStack;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Unique;
 import org.spongepowered.asm.mixin.injection.At;
@@ -20,129 +27,286 @@ import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 import java.util.List;
-import java.util.Optional;
+import java.util.function.Consumer;
 
 /**
- * Intercepts hover tooltips in chat/book screens and materialized tooltip lists.
- * Minecraft 1.19.4 renders through Screen/PoseStack, so this keeps the old
- * descriptor while sharing the same controller and cache-miss queue as newer
- * GuiGraphics targets.
+ * Intercepts hover tooltips in chat/book screens and mod overlay tooltips that
+ * render directly through {@link Screen} instead of {@link HoverEvent}.
+ *
+ * <p>Minecraft 1.19.2 has no GuiGraphics and no ClientTooltipPositioner: every
+ * tooltip overload lives on Screen and funnels synchronously into the private
+ * {@code renderTooltipInternal(PoseStack, List, int, int)}. The item-frame
+ * capture, commit and render hooks therefore hang on that exact overload set.</p>
  */
 @Mixin(Screen.class)
 public class HoverTooltipMixin {
+    @Unique private String simple_translate$candidateItemFrameKey;
+    @Unique private boolean simple_translate$candidateItemFrameRequest;
+    @Unique private boolean simple_translate$candidateItemSubmission;
+    @Unique private boolean simple_translate$candidatePrepared;
+    @Unique private List<Component> simple_translate$candidateItemRows;
+    @Unique private String simple_translate$pendingItemFrameKey;
+    @Unique private boolean simple_translate$pendingItemFrameRequest;
+    @Unique private boolean simple_translate$pendingItemSubmission;
+    @Unique private List<Component> simple_translate$pendingItemRows;
 
     @Inject(method = "renderComponentHoverEffect", at = @At("HEAD"), cancellable = true)
     private void onRenderComponentHoverEffect(PoseStack poseStack, Style style, int mouseX, int mouseY, CallbackInfo ci) {
-        if (style == null) {
+        if (style == null || HoldOriginalState.isHolding(HoldOriginalFeature.TOOLTIP_HOVER)) {
             return;
         }
-
         HoverEvent hoverEvent = style.getHoverEvent();
         if (hoverEvent == null || hoverEvent.getAction() != HoverEvent.Action.SHOW_TEXT) {
             return;
         }
-
         Component hoverText = hoverEvent.getValue(HoverEvent.Action.SHOW_TEXT);
-        if (!TooltipTranslationController.shouldTranslateChatHover(hoverText)
-                && !simple_translate$shouldTranslateBookHover(hoverText)) {
+        if (!TooltipTranslationController.shouldTranslateChatHover(hoverText) && !shouldTranslateBookHover()) {
             return;
         }
-
-        List<Component> translatedLines = TooltipTranslationHelper.translateHoverComponentLines(hoverText);
-        if (translatedLines.size() == 1 && translatedLines.get(0) == hoverText) {
-            return;
-        }
-
+        TooltipTranslationController.RenderContext context = TooltipTranslationController.resolveRenderContext();
+        boolean requestAllowed = TooltipTranslationController.allowRequest(context, List.of(hoverText));
+        List<Component> translatedLines = TooltipTranslationHelper.translateHoverComponentLines(hoverText, requestAllowed);
         Screen screen = (Screen) (Object) this;
-        TooltipTranslationController.beginRenderingTranslated();
-        try {
-            screen.renderTooltip(poseStack, translatedLines, Optional.empty(), mouseX, mouseY);
-        } finally {
-            TooltipTranslationController.endRenderingTranslated();
+
+        if (translatedLines.size() == 1 && translatedLines.get(0) == hoverText) {
+            if (requestAllowed || TooltipTranslationHelper.isHoverTranslationPending(hoverText)) {
+                TooltipTranslationController.beginRenderingTranslated();
+                try {
+                    TooltipTranslationController.armPendingGlowForHover(hoverText, requestAllowed);
+                    screen.renderComponentTooltip(poseStack,
+                            TooltipTranslationHelper.splitHoverComponentLinesForRender(hoverText),
+                            mouseX, mouseY);
+                } finally {
+                    TooltipTranslationController.endRenderingTranslated();
+                }
+                ci.cancel();
+            }
+            return;
         }
-        ci.cancel();
+        renderTranslatedTooltip(poseStack,
+                stack -> screen.renderComponentTooltip(stack, translatedLines, mouseX, mouseY), ci);
     }
 
+    @Inject(
+            method = "renderTooltipInternal(Lcom/mojang/blaze3d/vertex/PoseStack;Ljava/util/List;II)V",
+            at = @At("TAIL"),
+            require = 0)
+    private void simple_translate$renderPendingTranslationGlow(PoseStack poseStack,
+                                                               List<ClientTooltipComponent> components,
+                                                               int mouseX, int mouseY,
+                                                               CallbackInfo ci) {
+        if (!TooltipTranslationController.consumePendingGlow()) {
+            return;
+        }
+        TooltipTranslationGlowRenderer.render(GuiGraphics.wrap(poseStack), (Screen) (Object) this,
+                Minecraft.getInstance().font, components, mouseX, mouseY);
+    }
+
+    /** Records the final post-decoration Component document without changing it. */
     @Inject(
             method = "renderTooltip(Lcom/mojang/blaze3d/vertex/PoseStack;Ljava/util/List;Ljava/util/Optional;II)V",
-            at = @At("HEAD"),
-            cancellable = true
-    )
-    private void simple_translate$onRenderTooltipList(PoseStack poseStack, List<Component> components,
-                                                      Optional<TooltipComponent> image, int mouseX, int mouseY,
-                                                      CallbackInfo ci) {
-        if (!TooltipTranslationController.shouldTranslateRenderedTooltip(components)) {
-            return;
-        }
+            at = @At("HEAD"), require = 1)
+    private void simple_translate$captureFinalComponentRows(
+            PoseStack poseStack, List<Component> components, java.util.Optional<?> image,
+            int mouseX, int mouseY, CallbackInfo ci) {
+        simple_translate$captureItemFrame(components);
+    }
 
-        TooltipTranslationController.RenderContext context = TooltipTranslationController.resolveRenderContext();
-        List<Component> translated = TooltipTranslationController.translateForRender(components, context);
-        if (translated == components) {
-            return;
-        }
-
-        Screen screen = (Screen) (Object) this;
-        TooltipTranslationController.beginRenderingTranslated();
-        try {
-            screen.renderTooltip(poseStack, translated, image, mouseX, mouseY);
-        } finally {
-            TooltipTranslationController.endRenderingTranslated();
-        }
-        ci.cancel();
+    /** The ItemStack overload proves that its delegated Component list is an item tooltip. */
+    @Inject(
+            method = "renderTooltip(Lcom/mojang/blaze3d/vertex/PoseStack;Lnet/minecraft/world/item/ItemStack;II)V",
+            at = @At("HEAD"), require = 1)
+    private void simple_translate$beginItemStackSubmission(
+            PoseStack poseStack, ItemStack stack, int mouseX, int mouseY, CallbackInfo ci) {
+        TooltipTranslationController.beginItemTooltipSubmission();
     }
 
     @Inject(
-            method = "renderComponentTooltip(Lcom/mojang/blaze3d/vertex/PoseStack;Ljava/util/List;II)V",
-            at = @At("HEAD"),
-            cancellable = true
-    )
-    private void simple_translate$onRenderComponentTooltip(PoseStack poseStack, List<Component> components,
-                                                           int mouseX, int mouseY, CallbackInfo ci) {
-        if (!TooltipTranslationController.shouldTranslateRenderedTooltip(components)) {
-            return;
-        }
-
-        TooltipTranslationController.RenderContext context = TooltipTranslationController.resolveRenderContext();
-        List<Component> translated = TooltipTranslationController.translateForRender(components, context);
-        if (translated == components) {
-            return;
-        }
-
-        Screen screen = (Screen) (Object) this;
-        TooltipTranslationController.beginRenderingTranslated();
-        try {
-            screen.renderComponentTooltip(poseStack, translated, mouseX, mouseY);
-        } finally {
-            TooltipTranslationController.endRenderingTranslated();
-        }
-        ci.cancel();
+            method = "renderTooltip(Lcom/mojang/blaze3d/vertex/PoseStack;Lnet/minecraft/world/item/ItemStack;II)V",
+            at = @At("RETURN"), require = 1)
+    private void simple_translate$endItemStackSubmission(
+            PoseStack poseStack, ItemStack stack, int mouseX, int mouseY, CallbackInfo ci) {
+        TooltipTranslationController.endItemTooltipSubmission();
     }
 
+    /** Records final shaped rows used by custom mod tooltip submitters. */
     @Inject(
-            method = "renderTooltip(Lcom/mojang/blaze3d/vertex/PoseStack;Lnet/minecraft/network/chat/Component;II)V",
-            at = @At("HEAD"),
-            cancellable = true
-    )
-    private void simple_translate$onRenderTooltipComponent(PoseStack poseStack, Component component, int mouseX, int mouseY,
-                                                           CallbackInfo ci) {
-        if (!TooltipTranslationController.shouldTranslateRenderedTooltip(List.of(component))) {
+            method = "renderTooltip(Lcom/mojang/blaze3d/vertex/PoseStack;Ljava/util/List;II)V",
+            at = @At("HEAD"), require = 1)
+    private void simple_translate$captureFinalVisualRows(
+            PoseStack poseStack, List<? extends FormattedCharSequence> rows,
+            int mouseX, int mouseY, CallbackInfo ci) {
+        if (TooltipTranslationController.isRenderingTranslated() || rows == null || rows.isEmpty()) {
+            simple_translate$clearCandidateItemFrame();
             return;
         }
+        List<Component> source = rows.stream()
+                .map(GuiTranslationHelper::componentFromFormattedSequence)
+                .toList();
+        simple_translate$captureItemFrame(source);
+    }
 
-        TooltipTranslationController.RenderContext context = TooltipTranslationController.resolveRenderContext();
-        List<Component> translated = TooltipTranslationController.translateForRender(List.of(component), context);
-        if (translated.isEmpty() || (translated.size() == 1 && translated.get(0) == component)) {
+    @Unique
+    private void simple_translate$captureItemFrame(List<Component> components) {
+        simple_translate$clearCandidateItemFrame();
+        simple_translate$candidatePrepared = true;
+        if (!TooltipTranslationController.isItemTooltipSubmission()) {
             return;
         }
+        simple_translate$candidateItemSubmission = true;
+        TooltipTranslationController.RenderContext context =
+                TooltipTranslationController.resolveRenderContext();
+        if (context != TooltipTranslationController.RenderContext.ITEM
+                || !TooltipTranslationController.shouldCaptureItemFrame(components)) {
+            return;
+        }
+        simple_translate$candidateItemFrameKey =
+                GuiTranslationHelper.detachedFrameKey("gui.item_tooltip", components);
+        // This Component list is only a provisional submission. Vanilla and
+        // third-party decorators can replace it before the internal renderer
+        // accepts the frame, so feeding it into the hover dwell state would
+        // alternate signatures with the final visual rows and prevent
+        // automatic requests.
+        simple_translate$candidateItemFrameRequest = false;
+        simple_translate$candidateItemRows = List.copyOf(components);
+    }
 
-        Screen screen = (Screen) (Object) this;
-        TooltipTranslationController.beginRenderingTranslated();
-        try {
-            if (translated.size() == 1) {
-                screen.renderTooltip(poseStack, translated.get(0), mouseX, mouseY);
-            } else {
-                screen.renderTooltip(poseStack, translated, Optional.empty(), mouseX, mouseY);
+    /**
+     * 1.19.2 accepts a tooltip frame as soon as renderTooltipInternal runs
+     * with a non-empty component list; there is no deferred first-wins rule.
+     */
+    @Inject(
+            method = "renderTooltipInternal(Lcom/mojang/blaze3d/vertex/PoseStack;Ljava/util/List;II)V",
+            at = @At("HEAD"), require = 1)
+    private void simple_translate$commitAcceptedTooltipClassification(
+            PoseStack poseStack, List<ClientTooltipComponent> components, int mouseX, int mouseY,
+            CallbackInfo ci) {
+        boolean accepted = components != null && !components.isEmpty();
+        if (accepted) {
+            simple_translate$clearPendingItemFrame();
+            if (simple_translate$candidatePrepared) {
+                simple_translate$pendingItemSubmission = simple_translate$candidateItemSubmission;
+                simple_translate$pendingItemFrameKey = simple_translate$candidateItemFrameKey;
+                simple_translate$pendingItemFrameRequest = simple_translate$candidateItemFrameRequest;
+                simple_translate$pendingItemRows = simple_translate$candidateItemRows;
             }
+        }
+        simple_translate$clearCandidateItemFrame();
+    }
+
+    @WrapMethod(
+            method = "renderTooltipInternal(Lcom/mojang/blaze3d/vertex/PoseStack;Ljava/util/List;II)V",
+            require = 1)
+    private void simple_translate$renderItemTooltipFrame(
+            PoseStack poseStack, List<ClientTooltipComponent> components, int mouseX, int mouseY,
+            Operation<Void> original) {
+        boolean itemSubmission = simple_translate$pendingItemSubmission;
+        String frameKey = simple_translate$pendingItemFrameKey;
+        boolean request = simple_translate$pendingItemFrameRequest;
+        List<Component> submittedRows = simple_translate$pendingItemRows;
+        List<Component> finalTextRows = simple_translate$finalTextRows(components);
+        if (itemSubmission && TooltipTranslationController.shouldCaptureItemFrame(finalTextRows)) {
+            // Probe and key the cache from the exact visual rows the renderer
+            // accepted, not the earlier Component submission: resource-pack
+            // resolution, Alt/Shift decorators and third-party tooltip hooks
+            // may have changed structure before the frame was accepted.
+            if (finalTextRows == simple_translate$lastKeyRows) {
+                frameKey = simple_translate$lastKeyResult;
+            } else {
+                frameKey = GuiTranslationHelper.detachedFrameKey(
+                        "gui.item_tooltip", finalTextRows);
+                simple_translate$lastKeyRows = finalTextRows;
+                simple_translate$lastKeyResult = frameKey;
+            }
+            request = request || TooltipTranslationController.allowRequest(
+                    TooltipTranslationController.RenderContext.ITEM, finalTextRows);
+            submittedRows = finalTextRows;
+        }
+        boolean itemFrameStarted = itemSubmission && frameKey != null
+                && GuiTranslationHelper.beginItemTooltipFrame(
+                frameKey, "Item tooltip", request, submittedRows);
+        boolean itemFrameSuppressed = itemSubmission && !itemFrameStarted;
+        if (itemFrameSuppressed) {
+            // GUI AUTO/K must never bypass the dedicated item-tooltip setting.
+            GuiTranslationHelper.beginCaptureSuppression();
+        }
+        boolean pending = GuiTranslationHelper.isFrameTranslationPending(frameKey);
+        boolean hasSnapshot = GuiTranslationHelper.hasFrameSnapshot(frameKey);
+        // Cache hits (memory or synchronous disk hydrate) must never arm the
+        // pending glow — only a true miss that is requesting or already in flight.
+        TooltipTranslationController.armPendingGlowIf(
+                itemSubmission && itemFrameStarted && !hasSnapshot && (request || pending));
+        simple_translate$clearPendingItemFrame();
+        try {
+            original.call(poseStack, components, mouseX, mouseY);
+        } finally {
+            if (itemFrameStarted) {
+                GuiTranslationHelper.endDetachedFrame(GuiGraphics.wrap(poseStack));
+            }
+            if (itemFrameSuppressed) {
+                GuiTranslationHelper.endCaptureSuppression();
+            }
+        }
+    }
+
+    @Unique
+    private static List<ClientTooltipComponent> simple_translate$lastRowComponents;
+    @Unique
+    private static List<Component> simple_translate$lastRowResult;
+    @Unique
+    private static List<Component> simple_translate$lastKeyRows;
+    @Unique
+    private static String simple_translate$lastKeyResult;
+
+    @Unique
+    private static List<Component> simple_translate$finalTextRows(
+            List<ClientTooltipComponent> components) {
+        if (components == simple_translate$lastRowComponents) {
+            return simple_translate$lastRowResult;
+        }
+        if (components == null || components.isEmpty()) {
+            return List.of();
+        }
+        java.util.ArrayList<Component> rows = new java.util.ArrayList<>();
+        for (ClientTooltipComponent component : components) {
+            if (component instanceof ClientTextTooltipAccessor accessor) {
+                FormattedCharSequence text = accessor.simple_translate$getText();
+                if (text != null) {
+                    rows.add(GuiTranslationHelper.componentFromFormattedSequence(text));
+                }
+            }
+        }
+        if (rows.isEmpty()) {
+            return List.of();
+        }
+        List<Component> result = List.copyOf(rows);
+        simple_translate$lastRowComponents = components;
+        simple_translate$lastRowResult = result;
+        return result;
+    }
+
+    @Unique
+    private void simple_translate$clearPendingItemFrame() {
+        simple_translate$pendingItemFrameKey = null;
+        simple_translate$pendingItemFrameRequest = false;
+        simple_translate$pendingItemSubmission = false;
+        simple_translate$pendingItemRows = null;
+    }
+
+    @Unique
+    private void simple_translate$clearCandidateItemFrame() {
+        simple_translate$candidateItemFrameKey = null;
+        simple_translate$candidateItemFrameRequest = false;
+        simple_translate$candidateItemSubmission = false;
+        simple_translate$candidatePrepared = false;
+        simple_translate$candidateItemRows = null;
+    }
+
+    /** Shared re-render path: wraps the callback in begin/end guards and cancels. */
+    private void renderTranslatedTooltip(PoseStack poseStack, Consumer<PoseStack> renderer, CallbackInfo ci) {
+        TooltipTranslationController.beginRenderingTranslated();
+        try {
+            renderer.accept(poseStack);
         } finally {
             TooltipTranslationController.endRenderingTranslated();
         }
@@ -150,15 +314,11 @@ public class HoverTooltipMixin {
     }
 
     @Unique
-    private static boolean simple_translate$shouldTranslateBookHover(Component hoverText) {
-        if (hoverText == null || TooltipTranslationController.isRenderingTranslated()) {
-            return false;
-        }
+    private static boolean shouldTranslateBookHover() {
         Screen screen = Minecraft.getInstance().screen;
-        return screen instanceof BookViewScreen
+        return ModConfig.GLOBAL_ENABLED.get()
+                && screen instanceof BookViewScreen
                 && ModConfig.TOOLTIP_BOOK_HOVER_ENABLED.get()
-                && !HoldOriginalState.isHolding(HoldOriginalFeature.TOOLTIP_HOVER)
-                && !TooltipTranslationHelper.isMarkedTranslatedTooltip(hoverText)
-                && TooltipTranslationHelper.containsEnglish(hoverText.getString());
+                && !HoldOriginalState.isHolding(HoldOriginalFeature.TOOLTIP_HOVER);
     }
 }

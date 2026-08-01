@@ -14,6 +14,8 @@ import net.minecraft.network.chat.MutableComponent;
 import net.minecraft.network.chat.Style;
 
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -30,9 +32,18 @@ public class BookTranslationHelper {
     private static final int MAX_PAGE_SOURCE_CHARS_PER_REQUEST = 3200;
     private static final int MAX_PAGE_LINES_PER_DIRECT_REQUEST = 96;
     private static final int BOOK_CONTEXT_RADIUS_PAGES = 2;
+    private static final int MAX_BOOK_CACHE = 40;
     private static final Set<String> pendingTranslations = ConcurrentHashMap.newKeySet();
     private static final Map<String, List<PageData>> pendingPageData = new ConcurrentHashMap<>();
-    private static final Map<String, BookTranslationData> translatedBookCache = new ConcurrentHashMap<>();
+    private static final Map<String, BookTranslationData> translatedBookCache =
+            Collections.synchronizedMap(new LinkedHashMap<>(16, 0.75f, true) {
+                private static final long serialVersionUID = 1L;
+
+                @Override
+                protected boolean removeEldestEntry(Map.Entry<String, BookTranslationData> eldest) {
+                    return size() > MAX_BOOK_CACHE;
+                }
+            });
 
     public static class PageData {
         public final String plainText;
@@ -493,9 +504,10 @@ public class BookTranslationHelper {
         }
 
         translatedBookCache.put(bookKey, new BookTranslationData(List.copyOf(translatedPages)));
-        if (translatedBookCache.size() > 40) {
-            long cutoff = System.currentTimeMillis() - CACHE_TTL_MS;
-            translatedBookCache.entrySet().removeIf(entry -> entry.getValue().timestamp < cutoff);
+        long cutoff = System.currentTimeMillis() - CACHE_TTL_MS;
+        synchronized (translatedBookCache) {
+            translatedBookCache.entrySet().removeIf(entry ->
+                    entry.getValue() == null || entry.getValue().timestamp < cutoff);
         }
     }
 

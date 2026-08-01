@@ -51,9 +51,8 @@ public class TooltipGlowSettingsScreen extends ScrollableSettingsScreen {
 
         CycleButton<ModConfig.TooltipGlowTheme> theme = CycleButton
                 .<ModConfig.TooltipGlowTheme>builder(value -> Component.translatable(
-                        "screen.simple_translate.tooltip_glow.theme." + value.name().toLowerCase(Locale.ROOT)))
+                        "screen.simple_translate.tooltip_glow.theme." + value.name().toLowerCase(Locale.ROOT))).withInitialValue(ModConfig.TOOLTIP_GLOW_THEME.get())
                 .withValues(ModConfig.TooltipGlowTheme.values())
-                .withInitialValue(ModConfig.TOOLTIP_GLOW_THEME.get())
                 .create(0, 0, this.contentWidth, 20,
                         Component.translatable("screen.simple_translate.tooltip_glow.theme"),
                         (button, value) -> {

@@ -4,6 +4,7 @@ import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
+import com.yourname.simpletranslate.core.ComponentJsonCompat;
 import net.minecraft.network.chat.Component;
 
 import java.util.ArrayList;
@@ -90,7 +91,7 @@ public final class ComponentJsonCacheEditor {
         List<Component> components = new ArrayList<>();
         for (JsonElement element : root.getAsJsonArray()) {
             try {
-                Component component = Component.Serializer.fromJson(element.toString());
+                Component component = ComponentJsonCompat.fromJson(element);
                 if (component == null) {
                     return List.of();
                 }

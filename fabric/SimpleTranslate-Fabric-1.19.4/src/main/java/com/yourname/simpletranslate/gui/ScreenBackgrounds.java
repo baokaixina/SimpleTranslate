@@ -1,6 +1,6 @@
 package com.yourname.simpletranslate.gui;
 
-import com.yourname.simpletranslate.compat.GuiGraphics;
+import com.yourname.simpletranslate.core.render.GuiGraphics;
 
 public final class ScreenBackgrounds {
     private ScreenBackgrounds() {

@@ -1,5 +1,7 @@
 package com.yourname.simpletranslate.feature.chat;
 
+import com.yourname.simpletranslate.core.TranslationTextDetector;
+
 import java.util.Locale;
 import java.util.Set;
 
@@ -67,7 +69,13 @@ public final class ChatAutoTranslationFilter {
     }
 
     private static Candidate candidateFrom(String plainText) {
-        String text = ChatContextHelper.stripChatButtonSuffix(stripFormatting(plainText)).trim();
+        // The filter only decides whether AUTO may enqueue the original
+        // Component. Normalize compatibility glyphs here so fullwidth Latin
+        // system messages are classified like their ASCII equivalents without
+        // changing the text that is sent to, cached by, or rendered from the
+        // Component JSON translation pipeline.
+        String text = TranslationTextDetector.normalizeForDetection(
+                ChatContextHelper.stripChatButtonSuffix(stripFormatting(plainText))).trim();
         if (text.isEmpty()) {
             return new Candidate("", false);
         }
@@ -79,7 +87,15 @@ public final class ChatAutoTranslationFilter {
 
         int bodyStart = ChatContextHelper.findChatBodyStart(text);
         if (bodyStart > 0 && bodyStart < text.length()) {
-            return new Candidate(text.substring(bodyStart).trim(), true);
+            String body = text.substring(bodyStart).trim();
+            // Prefix detection is necessarily heuristic for unsigned/plugin
+            // chat. Never let an ambiguous "Name: value" guess strip every
+            // translatable word: symbol-only values such as "Status: ✓" are
+            // system labels far more often than useful player chatter.
+            if (Stats.from(body).wordCount > 0) {
+                return new Candidate(body, true);
+            }
+            return new Candidate(text, false);
         }
 
         return new Candidate(text, false);

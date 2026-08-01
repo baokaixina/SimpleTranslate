@@ -4,7 +4,9 @@ import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.google.gson.reflect.TypeToken;
 import com.yourname.simpletranslate.SimpleTranslateMod;
+import com.yourname.simpletranslate.core.AtomicFiles;
 import com.yourname.simpletranslate.config.ModConfig;
+import com.yourname.simpletranslate.api.TranslationRequest;
 
 import java.io.IOException;
 import java.lang.reflect.Type;
@@ -24,7 +26,9 @@ public class TermDictionary {
     private final Path termFile;
     private final Map<String, String> terms; // term -> translation
     private final Map<String, Integer> termCounts; // term -> occurrence count
+    private final Map<Character, List<String>> termsByFirstChar = new ConcurrentHashMap<>();
     private final Gson gson;
+    private volatile String promptFingerprint = CacheKey.hash("");
 
     // Pattern to extract potential terms (capitalized words, phrases in quotes,
     // etc.)
@@ -52,6 +56,7 @@ public class TermDictionary {
                     if (data.terms != null) {
                         terms.clear();
                         terms.putAll(data.terms);
+                        rebuildTermIndex();
                     }
                     if (data.counts != null) {
                         termCounts.clear();
@@ -60,8 +65,13 @@ public class TermDictionary {
                     SimpleTranslateMod.getLogger().debug("Loaded {} terms", terms.size());
                 }
             }
-        } catch (IOException e) {
-            SimpleTranslateMod.getLogger().error("Failed to load term dictionary", e);
+            refreshPromptFingerprint(false);
+        } catch (Exception e) {
+            terms.clear();
+            termCounts.clear();
+            rebuildTermIndex();
+            refreshPromptFingerprint(false);
+            SimpleTranslateMod.getLogger().error("Failed to load term dictionary; reset to empty", e);
         }
     }
 
@@ -73,7 +83,7 @@ public class TermDictionary {
             Files.createDirectories(termFile.getParent());
             TermData data = new TermData(terms, termCounts);
             String json = gson.toJson(data);
-            Files.writeString(termFile, json);
+            AtomicFiles.writeString(termFile, json);
         } catch (IOException e) {
             SimpleTranslateMod.getLogger().error("Failed to save term dictionary", e);
         }
@@ -108,6 +118,8 @@ public class TermDictionary {
         if (count == threshold && !terms.containsKey(term)) {
             // Mark as pending (empty translation means needs translation)
             terms.put(term, "");
+            indexTerm(term);
+            refreshPromptFingerprint(true);
             SimpleTranslateMod.getLogger().info("Term '{}' auto-detected (appeared {} times)", term, count);
             save();
         }
@@ -118,7 +130,9 @@ public class TermDictionary {
      */
     public void addTerm(String term, String translation) {
         terms.put(term, translation);
+        indexTerm(term);
         save();
+        refreshPromptFingerprint(true);
     }
 
     /**
@@ -127,18 +141,11 @@ public class TermDictionary {
     public void removeTerm(String term) {
         terms.remove(term);
         termCounts.remove(term);
+        rebuildTermIndex();
         save();
+        refreshPromptFingerprint(true);
     }
 
-    /**
-     * Update a term's translation
-     */
-    public void updateTerm(String term, String translation) {
-        if (terms.containsKey(term)) {
-            terms.put(term, translation);
-            save();
-        }
-    }
 
     /**
      * Get translation for a term
@@ -158,22 +165,7 @@ public class TermDictionary {
         return Map.copyOf(terms);
     }
 
-    /**
-     * Get all term counts (read-only view)
-     */
-    public Map<String, Integer> getAllCounts() {
-        return Map.copyOf(termCounts);
-    }
 
-    /**
-     * Get terms that need translation (empty translation)
-     */
-    public List<String> getPendingTerms() {
-        return terms.entrySet().stream()
-                .filter(e -> e.getValue().isEmpty())
-                .map(Map.Entry::getKey)
-                .toList();
-    }
 
     /**
      * Export terms to file
@@ -205,8 +197,10 @@ public class TermDictionary {
                 terms.clear();
             }
             terms.putAll(imported);
+            rebuildTermIndex();
             SimpleTranslateMod.getLogger().info("Imported {} terms from {}", imported.size(), file);
             save();
+            refreshPromptFingerprint(true);
         }
     }
 
@@ -216,6 +210,80 @@ public class TermDictionary {
     public void clear() {
         terms.clear();
         termCounts.clear();
+        termsByFirstChar.clear();
+        refreshPromptFingerprint(true);
+    }
+
+    /** Stable identity of only the non-empty term hints that can affect a model prompt. */
+    public String promptFingerprint() {
+        return promptFingerprint;
+    }
+
+    /**
+     * Collect term hints whose source text appears in the given payload.
+     */
+    public List<TranslationRequest.Term> matchTermsInText(String text) {
+        if (text == null || text.isBlank() || terms.isEmpty()) {
+            return List.of();
+        }
+        Set<Character> chars = new HashSet<>();
+        for (int i = 0; i < text.length(); i++) {
+            chars.add(Character.toLowerCase(text.charAt(i)));
+        }
+        Set<String> checked = new HashSet<>();
+        List<TranslationRequest.Term> hints = new ArrayList<>();
+        for (char c : chars) {
+            List<String> bucket = termsByFirstChar.get(c);
+            if (bucket == null) {
+                continue;
+            }
+            for (String term : bucket) {
+                if (!checked.add(term)) {
+                    continue;
+                }
+                String translation = terms.get(term);
+                if (translation != null && !translation.isBlank() && text.contains(term)) {
+                    hints.add(new TranslationRequest.Term(term, translation));
+                }
+            }
+        }
+        return hints.isEmpty() ? List.of() : List.copyOf(hints);
+    }
+
+    private void rebuildTermIndex() {
+        termsByFirstChar.clear();
+        for (String term : terms.keySet()) {
+            indexTerm(term);
+        }
+    }
+
+    private void indexTerm(String term) {
+        if (term == null || term.isEmpty()) {
+            return;
+        }
+        char bucket = Character.toLowerCase(term.charAt(0));
+        termsByFirstChar.computeIfAbsent(bucket, ignored -> new ArrayList<>()).add(term);
+    }
+
+    private void refreshPromptFingerprint(boolean notifyRuntime) {
+        List<Map.Entry<String, String>> effective = terms.entrySet().stream()
+                .filter(entry -> entry.getKey() != null && !entry.getKey().isBlank()
+                        && entry.getValue() != null && !entry.getValue().isBlank())
+                .map(entry -> Map.entry(entry.getKey(), entry.getValue()))
+                .sorted(Map.Entry.<String, String>comparingByKey()
+                        .thenComparing(Map.Entry.comparingByValue()))
+                .toList();
+        StringBuilder identity = new StringBuilder();
+        for (Map.Entry<String, String> entry : effective) {
+            identity.append(entry.getKey()).append('\u0000')
+                    .append(entry.getValue()).append('\n');
+        }
+        String next = CacheKey.hash(identity.toString());
+        String previous = this.promptFingerprint;
+        this.promptFingerprint = next;
+        if (notifyRuntime && !Objects.equals(previous, next)) {
+            SimpleTranslateMod.onTermDictionaryChanged();
+        }
     }
 
     /**

@@ -1,85 +1,75 @@
 package com.yourname.simpletranslate.keybind;
 
-import com.mojang.blaze3d.platform.InputConstants;
 import com.yourname.simpletranslate.SimpleTranslateMod;
 import com.yourname.simpletranslate.config.ModConfig;
-import com.yourname.simpletranslate.gui.OcrHistoryScreen;
-import com.yourname.simpletranslate.gui.OcrOverlayManager;
-import com.yourname.simpletranslate.gui.OcrOverlayScreen;
+import com.yourname.simpletranslate.feature.gui.GuiTranslationHelper;
+import com.yourname.simpletranslate.feature.sign.SignContextSelectionManager;
+import com.yourname.simpletranslate.feature.tooltip.TooltipTranslationTriggerState;
+import com.yourname.simpletranslate.feature.tooltip.TooltipTranslationController;
+import com.yourname.simpletranslate.gui.BaseSimpleTranslateScreen;
 import com.yourname.simpletranslate.gui.SimpleTranslateScreen;
-import com.yourname.simpletranslate.util.SignContextSelectionManager;
+import com.mojang.blaze3d.platform.InputConstants;
 import net.minecraft.client.KeyMapping;
 import net.minecraft.client.Minecraft;
+import net.minecraft.client.gui.components.EditBox;
+import net.minecraft.client.gui.components.MultiLineEditBox;
 import net.minecraft.network.chat.Component;
 import net.minecraftforge.client.event.RegisterKeyMappingsEvent;
 import net.minecraftforge.common.MinecraftForge;
 import net.minecraftforge.event.TickEvent;
-import net.minecraftforge.eventbus.api.IEventBus;
-import org.lwjgl.glfw.GLFW;
 
-public class ModKeyBindings {
-    public static final String KEY_CATEGORY = "key.categories." + SimpleTranslateMod.MODID;
+import java.util.EnumMap;
+import java.util.EnumSet;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.List;
 
+/** Unified exact-modifier shortcut dispatcher for keyboard and mouse chords. */
+public final class ModKeyBindings {
+    /**
+     * Deliberately the only Simple Translate binding registered with Minecraft.
+     * It belongs in Controls so players can discover and change the settings
+     * key with the rest of the game's bindings. Modifier chords remain in the
+     * dedicated page because vanilla KeyMapping cannot represent them.
+     *
+     * <p>1.19.2 KeyMapping categories are plain translation-key strings; the
+     * existing {@code key.category.simple_translate.general} language key is
+     * reused directly as the category. Forge registration goes through
+     * {@link RegisterKeyMappingsEvent} on the mod event bus.</p>
+     */
     private static KeyMapping openSettings;
-    private static KeyMapping toggleMode;
-    private static KeyMapping toggleSignContextSelection;
-    private static KeyMapping submitSignContextSelection;
-    private static KeyMapping toggleOcrOverlay;
-    private static KeyMapping openOcrHistory;
+    private static final EnumMap<ShortcutAction, ShortcutEdgeTracker> EDGES = new EnumMap<>(ShortcutAction.class);
+    private static final EnumSet<ShortcutAction> EVENT_LATCH = EnumSet.noneOf(ShortcutAction.class);
+    private static boolean suppressNextTooltipPoll;
+    private static boolean suppressNextGuiPoll;
     private static boolean initialized;
 
-    public static void register(IEventBus modEventBus) {
-        if (initialized) {
-            return;
-        }
+    private ModKeyBindings() {
+    }
+
+    public static void register() {
+        if (initialized) return;
         initialized = true;
-
-        openSettings = new KeyMapping(
-                "key." + SimpleTranslateMod.MODID + ".open_settings",
-                InputConstants.Type.KEYSYM,
-                GLFW.GLFW_KEY_U,
-                KEY_CATEGORY);
-
-        toggleMode = new KeyMapping(
-                "key." + SimpleTranslateMod.MODID + ".toggle_mode",
-                InputConstants.Type.KEYSYM,
-                InputConstants.UNKNOWN.getValue(),
-                KEY_CATEGORY);
-
-        toggleSignContextSelection = new KeyMapping(
-                "key." + SimpleTranslateMod.MODID + ".sign_context_select",
-                InputConstants.Type.KEYSYM,
-                GLFW.GLFW_KEY_G,
-                KEY_CATEGORY);
-
-        submitSignContextSelection = new KeyMapping(
-                "key." + SimpleTranslateMod.MODID + ".sign_context_submit",
-                InputConstants.Type.KEYSYM,
-                GLFW.GLFW_KEY_H,
-                KEY_CATEGORY);
-
-        toggleOcrOverlay = new KeyMapping(
-                "key." + SimpleTranslateMod.MODID + ".ocr_toggle",
-                InputConstants.Type.KEYSYM,
-                GLFW.GLFW_KEY_O,
-                KEY_CATEGORY);
-
-        openOcrHistory = new KeyMapping(
-                "key." + SimpleTranslateMod.MODID + ".ocr_history",
-                InputConstants.Type.KEYSYM,
-                GLFW.GLFW_KEY_I,
-                KEY_CATEGORY);
-        modEventBus.addListener(ModKeyBindings::registerKeyMappings);
+        ensureOpenSettings();
+        migrateLegacyOpenSettingsBinding();
+        migrateLegacyOptions(Minecraft.getInstance());
+        for (ShortcutAction action : ShortcutAction.values()) EDGES.put(action, new ShortcutEdgeTracker());
         MinecraftForge.EVENT_BUS.addListener(ModKeyBindings::onClientTick);
     }
 
-    private static void registerKeyMappings(RegisterKeyMappingsEvent event) {
+    public static void registerKeyMappings(RegisterKeyMappingsEvent event) {
+        ensureOpenSettings();
         event.register(openSettings);
-        event.register(toggleMode);
-        event.register(toggleSignContextSelection);
-        event.register(submitSignContextSelection);
-        event.register(toggleOcrOverlay);
-        event.register(openOcrHistory);
+    }
+
+    private static void ensureOpenSettings() {
+        if (openSettings == null) {
+            openSettings = new KeyMapping(
+                    "key.simple_translate.open_settings",
+                    InputConstants.Type.KEYSYM,
+                    org.lwjgl.glfw.GLFW.GLFW_KEY_U,
+                    "key.category.simple_translate.general");
+        }
     }
 
     private static void onClientTick(TickEvent.ClientTickEvent event) {
@@ -92,68 +82,168 @@ public class ModKeyBindings {
                 openSettingsScreenSafely(minecraft);
             }
         }
-
-        while (toggleMode.consumeClick()) {
-            toggleTranslationMode();
+        boolean editingText = hasFocusedTextInput(minecraft);
+        boolean editingModSettings = minecraft.screen instanceof BaseSimpleTranslateScreen;
+        for (ShortcutAction action : ShortcutAction.values()) {
+            KeyChord chord = action.chord();
+            boolean primaryDown = chord.isPrimaryDown(minecraft);
+            boolean edge = EDGES.get(action).update(primaryDown,
+                    chord.modifiers() == KeyChord.currentModifiers(minecraft));
+            if (edge && !editingText && !editingModSettings) {
+                if (action == ShortcutAction.TRANSLATE_GUI && suppressNextGuiPoll) {
+                    suppressNextGuiPoll = false;
+                } else if (action == ShortcutAction.TRANSLATE_TOOLTIP && suppressNextTooltipPoll) {
+                    suppressNextTooltipPoll = false;
+                } else {
+                    dispatch(action, minecraft);
+                }
+            }
+            if (!primaryDown) {
+                EVENT_LATCH.remove(action);
+                if (action == ShortcutAction.TRANSLATE_TOOLTIP) suppressNextTooltipPoll = false;
+                if (action == ShortcutAction.TRANSLATE_GUI) suppressNextGuiPoll = false;
+            }
         }
-
-        while (toggleSignContextSelection.consumeClick()) {
-            SignContextSelectionManager.toggleDragSelectionMode();
-        }
-
-        while (submitSignContextSelection.consumeClick()) {
-            SignContextSelectionManager.submitSelection();
-        }
-
-        while (toggleOcrOverlay.consumeClick()) {
-            toggleOcrOverlay(minecraft);
-        }
-        while (openOcrHistory.consumeClick()) {
-            toggleOcrHistory(minecraft);
-        }
-        OcrOverlayManager.tick(minecraft);
         SignContextSelectionManager.tickDragSelection();
     }
-    public static void toggleOcrOverlay(Minecraft minecraft) {
-        if (minecraft == null) {
-            return;
-        }
-        if (!ModConfig.OCR_ENABLED.get()) {
-            if (minecraft.player != null) {
-                minecraft.player.displayClientMessage(
-                        Component.translatable("screen.simple_translate.ocr.disabled_hint"), true);
+
+    private static void dispatch(ShortcutAction action, Minecraft minecraft) {
+        switch (action) {
+            case TOGGLE_GLOBAL_TRANSLATION -> toggleGlobalTranslation();
+            case TOGGLE_CHAT_MODE -> toggleTranslationMode();
+            case TRANSLATE_GUI -> {
+                requestCurrentGuiOrHudTranslation(minecraft);
             }
-            return;
+            case TRANSLATE_TOOLTIP -> {
+                TooltipTranslationController.RenderContext context =
+                        TooltipTranslationController.resolveRenderContext();
+                if (minecraft.screen != null
+                        && TooltipTranslationTriggerState.hasEnabledShortcutMode(context)) {
+                    TooltipTranslationTriggerState.armShortcutRequest();
+                }
+            }
+            case SIGN_SELECT -> {
+                if (minecraft.screen == null) SignContextSelectionManager.toggleDragSelectionMode();
+            }
+            case SIGN_SUBMIT -> {
+                if (minecraft.screen == null) SignContextSelectionManager.submitSelection();
+            }
         }
-        if (minecraft.level == null || minecraft.player == null) {
-            return;
-        }
-        if (minecraft.screen instanceof OcrOverlayScreen) {
-            ((OcrOverlayScreen) minecraft.screen).onClose();
-            return;
-        }
-        if (minecraft.screen != null) {
-            OcrOverlayManager.toggleForScreen(minecraft, minecraft.screen);
-            return;
-        }
-        minecraft.setScreen(new OcrOverlayScreen(minecraft.screen));
     }
 
-    private static void toggleOcrHistory(Minecraft minecraft) {
-        if (minecraft == null) {
-            return;
+    public static boolean matchesTranslateHoveredTooltipKey(int keyCode, int scanCode) {
+        KeyChord chord = ShortcutAction.TRANSLATE_TOOLTIP.chord();
+        boolean matches = !EVENT_LATCH.contains(ShortcutAction.TRANSLATE_TOOLTIP)
+                && chord.matchesKeyboardEvent(keyCode, Minecraft.getInstance())
+                && !hasFocusedTextInput(Minecraft.getInstance());
+        if (matches) {
+            EVENT_LATCH.add(ShortcutAction.TRANSLATE_TOOLTIP);
+            suppressNextTooltipPoll = true;
         }
-        if (minecraft.screen instanceof OcrHistoryScreen) {
-            ((OcrHistoryScreen) minecraft.screen).onClose();
+        return matches;
+    }
+
+    public static boolean handleTranslateGuiKey(int keyCode, int scanCode) {
+        Minecraft minecraft = Minecraft.getInstance();
+        KeyChord chord = ShortcutAction.TRANSLATE_GUI.chord();
+        if (minecraft.screen instanceof BaseSimpleTranslateScreen || hasFocusedTextInput(minecraft)
+                || EVENT_LATCH.contains(ShortcutAction.TRANSLATE_GUI)
+                || !chord.matchesKeyboardEvent(keyCode, minecraft)) return false;
+        EVENT_LATCH.add(ShortcutAction.TRANSLATE_GUI);
+        suppressNextGuiPoll = true;
+        requestCurrentGuiOrHudTranslation(minecraft);
+        return true;
+    }
+
+    private static void requestCurrentGuiOrHudTranslation(Minecraft minecraft) {
+        if (minecraft == null) {
             return;
         }
         if (minecraft.screen == null) {
-            minecraft.setScreen(new OcrHistoryScreen(null));
+            GuiTranslationHelper.requestCurrentHudTranslation();
+        } else if (!(minecraft.screen instanceof BaseSimpleTranslateScreen)) {
+            GuiTranslationHelper.requestCurrentScreenAndOverlayTranslation();
         }
     }
 
-    public static boolean matchesOcrToggleKey(int keyCode, int scanCode) {
-        return toggleOcrOverlay != null && toggleOcrOverlay.matches(keyCode, scanCode);
+    public static boolean hasConflict(KeyChord chord, ShortcutAction exceptAction, HoldOriginalFeature exceptHold) {
+        if (chord == null || !chord.isBound()) return false;
+        for (ShortcutAction action : ShortcutAction.values()) {
+            if (action != exceptAction && action.chord().equals(chord)) return true;
+        }
+        for (HoldOriginalFeature feature : HoldOriginalFeature.values()) {
+            if (feature != exceptHold && feature.chord().equals(chord)) return true;
+        }
+        return false;
+    }
+
+    public static void setChord(ShortcutAction action, KeyChord chord) {
+        ModConfig.getShortcutChord(action).set((chord == null ? KeyChord.NONE : chord).serialize());
+        ModConfig.save();
+    }
+
+    public static void setChord(HoldOriginalFeature feature, KeyChord chord) {
+        ModConfig.getHoldOriginalChord(feature).set((chord == null ? KeyChord.NONE : chord).serialize());
+        ModConfig.save();
+    }
+
+    private static boolean hasFocusedTextInput(Minecraft minecraft) {
+        if (minecraft == null || minecraft.screen == null) return false;
+        Object focused = minecraft.screen.getFocused();
+        return focused instanceof EditBox || focused instanceof MultiLineEditBox;
+    }
+
+    private static void migrateLegacyOptions(Minecraft minecraft) {
+        if (minecraft == null || minecraft.gameDirectory == null) return;
+        EnumMap<ShortcutAction, Boolean> missing = new EnumMap<>(ShortcutAction.class);
+        boolean anyMissing = false;
+        for (ShortcutAction action : ShortcutAction.values()) {
+            boolean value = !ModConfig.hasPersistedKey(ModConfig.getShortcutChord(action).getKey());
+            missing.put(action, value);
+            anyMissing |= value;
+        }
+        if (!anyMissing) return;
+        Path options = minecraft.gameDirectory.toPath().resolve("options.txt");
+        if (!Files.isRegularFile(options)) return;
+        try {
+            List<String> lines = Files.readAllLines(options);
+            for (String line : lines) {
+                int separator = line.indexOf(':');
+                if (separator <= 0) continue;
+                ShortcutAction action = legacyAction(line.substring(0, separator));
+                if (action == null || !missing.getOrDefault(action, false)) continue;
+                KeyChord chord = KeyChord.fromInputName(line.substring(separator + 1).trim());
+                ModConfig.getShortcutChord(action).set(chord.serialize());
+            }
+            ModConfig.save();
+        } catch (Exception e) {
+            SimpleTranslateMod.getLogger().warn("Could not migrate legacy shortcut keys from options.txt", e);
+        }
+    }
+
+    private static void migrateLegacyOpenSettingsBinding() {
+        KeyChord legacy = ModConfig.consumeLegacyOpenSettingsChord();
+        if (!legacy.isBound()) {
+            return;
+        }
+        if (legacy.modifiers() != 0) {
+            SimpleTranslateMod.getLogger().info(
+                    "Simple Translate settings shortcut used modifiers and cannot migrate to vanilla Controls; keeping its default binding");
+            return;
+        }
+        InputConstants.Type type = legacy.type() == KeyChord.InputType.MOUSE
+                ? InputConstants.Type.MOUSE : InputConstants.Type.KEYSYM;
+        openSettings.setKey(type.getOrCreate(legacy.code()));
+        KeyMapping.resetMapping();
+    }
+
+    static ShortcutAction legacyAction(String optionKey) {
+        String key = optionKey == null ? "" : optionKey;
+        if (key.endsWith("simple_translate.toggle_mode")) return ShortcutAction.TOGGLE_CHAT_MODE;
+        if (key.endsWith("simple_translate.translate_hovered_tooltip")) return ShortcutAction.TRANSLATE_TOOLTIP;
+        if (key.endsWith("simple_translate.sign_context_select")) return ShortcutAction.SIGN_SELECT;
+        if (key.endsWith("simple_translate.sign_context_submit")) return ShortcutAction.SIGN_SUBMIT;
+        return null;
     }
 
     private static void openSettingsScreenSafely(Minecraft minecraft) {
@@ -163,29 +253,38 @@ public class ModKeyBindings {
             SimpleTranslateMod.getLogger().error("Failed to open Simple Translate settings screen", t);
             if (minecraft.player != null) {
                 minecraft.player.displayClientMessage(
-                        Component.literal("Failed to open Simple Translate settings. Check latest.log."),
-                        false
-                );
+                        Component.translatable("screen.simple_translate.settings.open_failed"), false);
             }
         }
     }
 
     private static void toggleTranslationMode() {
-        var currentMode = com.yourname.simpletranslate.config.ModConfig.CHAT_MODE.get();
-        var newMode = currentMode == com.yourname.simpletranslate.config.ModConfig.TranslationMode.AUTO
-                ? com.yourname.simpletranslate.config.ModConfig.TranslationMode.BUTTON
-                : com.yourname.simpletranslate.config.ModConfig.TranslationMode.AUTO;
-
-        com.yourname.simpletranslate.config.ModConfig.CHAT_MODE.set(newMode);
-        com.yourname.simpletranslate.config.ModConfig.save();
-        com.yourname.simpletranslate.chat.ChatTranslationController.onChatModeChanged();
-
+        if (!ModConfig.GLOBAL_ENABLED.get()) return;
+        ModConfig.TranslationMode current = ModConfig.CHAT_MODE.get();
+        ModConfig.TranslationMode next = current == ModConfig.TranslationMode.AUTO
+                ? ModConfig.TranslationMode.BUTTON : ModConfig.TranslationMode.AUTO;
+        ModConfig.CHAT_MODE.set(next);
+        ModConfig.save();
+        com.yourname.simpletranslate.feature.chat.ChatTranslationController.onChatModeChanged();
         Minecraft minecraft = Minecraft.getInstance();
         if (minecraft.player != null) {
-            Component modeName = newMode == com.yourname.simpletranslate.config.ModConfig.TranslationMode.AUTO
-                    ? Component.translatable("screen.simple_translate.mode.auto")
-                    : Component.translatable("screen.simple_translate.mode.button");
-            minecraft.player.displayClientMessage(Component.literal("Translation mode: ").append(modeName), true);
+            Component mode = Component.translatable(next == ModConfig.TranslationMode.AUTO
+                    ? "screen.simple_translate.mode.auto" : "screen.simple_translate.mode.button");
+            minecraft.player.displayClientMessage(
+                    Component.translatable("screen.simple_translate.mode.toggle_message", mode), true);
+        }
+    }
+
+    private static void toggleGlobalTranslation() {
+        boolean enabled = !ModConfig.GLOBAL_ENABLED.get();
+        ModConfig.GLOBAL_ENABLED.set(enabled);
+        SimpleTranslateMod.onGlobalTranslationSettingChanged(enabled);
+        ModConfig.save();
+        Minecraft minecraft = Minecraft.getInstance();
+        if (minecraft.player != null) {
+            minecraft.player.displayClientMessage(Component.translatable(enabled
+                    ? "screen.simple_translate.global_toggle.enabled"
+                    : "screen.simple_translate.global_toggle.disabled"), true);
         }
     }
 }

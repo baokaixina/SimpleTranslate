@@ -32,10 +32,8 @@ public class EntityNameTranslationScreen extends ScrollableSettingsScreen {
         withTooltip(entityButton, "screen.simple_translate.entity.enabled.tooltip");
         addEntry(entityButton);
 
-        CycleButton<Integer> radiusButton = CycleButton.<Integer>builder(
-                        value -> Component.translatable("screen.simple_translate.radius.blocks", value))
+        CycleButton<Integer> radiusButton = CycleButton.<Integer>builder(value -> Component.translatable("screen.simple_translate.radius.blocks", value)).withInitialValue(entityNameRadius)
                 .withValues(4, 8, 12, 16, 20, 24, 32, 48, 64)
-                .withInitialValue(entityNameRadius)
                 .create(0, 0, contentWidth, 20,
                         Component.translatable("screen.simple_translate.entity.radius"),
                         (button, value) -> entityNameRadius = value);

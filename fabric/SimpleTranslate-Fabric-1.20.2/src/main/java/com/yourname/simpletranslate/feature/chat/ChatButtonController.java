@@ -250,9 +250,8 @@ public final class ChatButtonController {
                 .withStyle(style -> style
                         .withColor(buttonColor)
                         .withHoverEvent(new HoverEvent(HoverEvent.Action.SHOW_TEXT, Component.literal(hoverText)))
-                        .withClickEvent(new ClickEvent(
-                                ClickEvent.Action.SUGGEST_COMMAND,
-                                TRANSLATE_CLICK_PREFIX + messageId.toString())));
+                        .withClickEvent(new ClickEvent(ClickEvent.Action.SUGGEST_COMMAND,
+                                TRANSLATE_CLICK_PREFIX + messageId)));
 
         return content.copy().append(button);
     }

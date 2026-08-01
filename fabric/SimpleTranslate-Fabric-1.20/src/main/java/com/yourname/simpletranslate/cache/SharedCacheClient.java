@@ -37,16 +37,18 @@ public final class SharedCacheClient {
             return;
         }
         initialized = true;
-        ClientPlayNetworking.registerGlobalReceiver(SharedCachePayload.CHANNEL, (client, handler, buffer, responseSender) -> {
-            SharedCachePayload payload;
-            try {
-                payload = SharedCachePayload.read(buffer);
-            } catch (Exception e) {
-                LOGGER.warn("Ignored invalid shared cache payload from server: {}", e.getMessage());
-                return;
-            }
-            client.execute(() -> handlePayload(payload));
-        });
+        SharedCacheNetworking.registerPayloadTypes();
+        ClientPlayNetworking.registerGlobalReceiver(SharedCachePayload.CHANNEL,
+                (client, handler, buffer, responseSender) -> {
+                    SharedCachePayload payload;
+                    try {
+                        payload = SharedCachePayload.read(buffer);
+                    } catch (Exception e) {
+                        LOGGER.warn("Ignored invalid shared cache payload from server: {}", e.getMessage());
+                        return;
+                    }
+                    client.execute(() -> handlePayload(payload));
+                });
         ClientTickEvents.END_CLIENT_TICK.register(client -> flushPendingUploads());
     }
 
@@ -189,7 +191,10 @@ public final class SharedCacheClient {
         }
         if (imported > 0) {
             receivedEntries += imported;
-            cache.saveNow();
+            // Network payload handling runs on the client thread. Schedule the
+            // existing delayed persistence path instead of serializing every
+            // cache lane during a render tick.
+            cache.save();
             SimpleTranslateMod.onSharedTranslationCacheImported();
         }
     }

@@ -15,7 +15,8 @@ public final class SharedCachePayload {
     public static final int MAX_PACKET_BYTES = 30_000;
     private static final int PACKET_HEADER_BYTES = 8;
 
-    public static final ResourceLocation CHANNEL = new ResourceLocation("simple_translate", "cache_sync/v1");
+    public static final ResourceLocation CHANNEL =
+            new ResourceLocation("simple_translate", "cache_sync/v1");
 
     private final int kind;
     private final List<SharedCacheEntry> entries;

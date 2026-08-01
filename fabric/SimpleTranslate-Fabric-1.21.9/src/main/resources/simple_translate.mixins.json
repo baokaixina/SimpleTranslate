@@ -8,23 +8,37 @@
     "client": [
         "ChatComponentMixin",
         "ChatScreenMixin",
+        "ScreenComponentClickMixin",
+        "CycleButtonTooltipMixin",
         "AbstractContainerScreenMixin",
+        "ScreenGuiTranslationMixin",
+        "compat.WynntilsOverlayManagerMixin",
+        "compat.FtbScreenWrapperTranslationMixin",
+        "compat.FtbTextFieldTranslationMixin",
+        "ScreenAccessor",
+        "ClientTextTooltipAccessor",
+        "GuiGraphicsTranslationMixin",
+        "AbstractWidgetTranslationMixin",
         "BookViewScreenMixin",
         "BookEditScreenMixin",
-        "ItemStackMixin",
         "SignRendererMixin",
         "SignTextMixin",
         "HoverTooltipMixin",
         "ScoreboardMixin",
+        "PlayerTabOverlayMixin",
         "BossHealthOverlayMixin",
         "TitleOverlayMixin",
         "AdvancementToastMixin",
         "AdvancementWidgetMixin",
         "EntityRendererMixin",
-        "TextDisplayMixin"
+        "TextDisplayMixin",
+        "FontManagerAccessor",
+        "FontManagerMixin",
+        "FontSetAccessor",
+        "FontSetMixin",
+        "FontPreparedTextBuilderMixin"
     ],
     "injectors": {
         "defaultRequire": 1
     }
 }
-

@@ -15,7 +15,7 @@ import java.util.regex.Pattern;
 public final class DynamicTextTemplate {
     private static final int DYNAMIC_BASE = 1000;
     private static final int DYNAMIC_LIMIT = 2000;
-    private static final Pattern NUMBER_PATTERN = Pattern.compile("\\d+(?:[.,:]\\d+)*%?");
+    private static final Pattern COMPONENT_DYNAMIC_MARKER = Pattern.compile("⟦N(\\d+)⟧");
     private static final Pattern MARKER_PATTERN = Pattern.compile("⟦\\s*(\\d{1,4})\\s*⟧");
 
     private final Component normalized;
@@ -131,15 +131,29 @@ public final class DynamicTextTemplate {
     }
 
     private static String replaceNumbers(String text, List<String> values) {
-        Matcher matcher = NUMBER_PATTERN.matcher(text);
-        StringBuilder replaced = new StringBuilder();
-        while (matcher.find() && values.size() < DYNAMIC_LIMIT - DYNAMIC_BASE) {
-            String marker = marker(DYNAMIC_BASE + values.size());
-            values.add(matcher.group());
-            matcher.appendReplacement(replaced, Matcher.quoteReplacement(marker));
+        if (text == null || text.isEmpty()) {
+            return text;
         }
-        matcher.appendTail(replaced);
-        return replaced.toString();
+        List<String> extracted = new ArrayList<>();
+        String classified = ComponentJsonNumberNormalizer.normalizeNumbers(text, extracted);
+        if (extracted.isEmpty()) {
+            return text;
+        }
+        int available = Math.max(0, DYNAMIC_LIMIT - DYNAMIC_BASE - values.size());
+        int accepted = Math.min(available, extracted.size());
+        int base = values.size();
+        values.addAll(extracted.subList(0, accepted));
+        Matcher matcher = COMPONENT_DYNAMIC_MARKER.matcher(classified);
+        StringBuilder normalized = new StringBuilder(classified.length());
+        while (matcher.find()) {
+            int index = Integer.parseInt(matcher.group(1));
+            String replacement = index < accepted
+                    ? marker(DYNAMIC_BASE + base + index)
+                    : extracted.get(index);
+            matcher.appendReplacement(normalized, Matcher.quoteReplacement(replacement));
+        }
+        matcher.appendTail(normalized);
+        return normalized.toString();
     }
 
     private static Map<Integer, Integer> markerCounts(String text) {

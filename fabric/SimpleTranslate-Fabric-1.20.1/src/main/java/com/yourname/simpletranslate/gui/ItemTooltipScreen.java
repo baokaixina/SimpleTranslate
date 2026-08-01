@@ -36,11 +36,9 @@ public class ItemTooltipScreen extends ScrollableSettingsScreen {
         withTooltip(itemButton, "screen.simple_translate.item.enabled.tooltip");
         addEntry(itemButton);
 
-        this.triggerModeButton = CycleButton.<ModConfig.TooltipTriggerMode>builder(
-                        mode -> Component.translatable(
-                                "screen.simple_translate.tooltip_trigger_mode." + mode.name().toLowerCase()))
+        this.triggerModeButton = CycleButton.<ModConfig.TooltipTriggerMode>builder(mode -> Component.translatable(
+                                "screen.simple_translate.tooltip_trigger_mode." + mode.name().toLowerCase())).withInitialValue(this.triggerMode)
                 .withValues(ModConfig.TooltipTriggerMode.values())
-                .withInitialValue(this.triggerMode)
                 .create(0, 0, contentWidth, 20,
                         Component.translatable("screen.simple_translate.item.trigger_mode"),
                         (button, value) -> this.triggerMode = value);

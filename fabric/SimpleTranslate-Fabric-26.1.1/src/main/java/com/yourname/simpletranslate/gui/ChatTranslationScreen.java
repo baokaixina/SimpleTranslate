@@ -1,22 +1,30 @@
 package com.yourname.simpletranslate.gui;
 
+import com.yourname.simpletranslate.SimpleTranslateMod;
 import com.yourname.simpletranslate.feature.chat.ChatTranslationController;
 import com.yourname.simpletranslate.config.ModConfig;
+import com.yourname.simpletranslate.core.TranslationTextDetector;
 import net.minecraft.client.gui.components.CycleButton;
+import net.minecraft.client.gui.components.EditBox;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.Component;
 
+import java.util.List;
 import java.util.stream.IntStream;
 
 /**
  * Settings screen for chat translation.
  */
 public class ChatTranslationScreen extends ScrollableSettingsScreen {
+    private static final String CUSTOM = "custom";
+    private static final List<String> SERVER_LANGUAGE_PRESETS = List.of(
+            "en", "zh_cn", "ja", "ko", "es", "fr", "de", "ru", CUSTOM);
 
     private CycleButton<ModConfig.TranslationMode> modeButton;
     private CycleButton<Boolean> contextEnabledToggle;
     private CycleButton<Integer> contextCountButton;
     private CycleButton<ModConfig.TooltipTriggerMode> hoverTriggerModeButton;
+    private EditBox outgoingServerLanguageCustomInput;
 
     private boolean chatEnabled;
     private ModConfig.TranslationMode currentMode;
@@ -24,6 +32,9 @@ public class ChatTranslationScreen extends ScrollableSettingsScreen {
     private ModConfig.TooltipTriggerMode hoverTriggerMode;
     private boolean contextEnabled;
     private int contextMessageCount;
+    private boolean outgoingEnabled;
+    private String outgoingServerLanguagePreset;
+    private String outgoingServerLanguageCustom;
 
     public ChatTranslationScreen(Screen parent) {
         super(Component.translatable("screen.simple_translate.chat_translation"), parent);
@@ -39,6 +50,15 @@ public class ChatTranslationScreen extends ScrollableSettingsScreen {
             this.contextEnabled = false;
         }
         this.contextMessageCount = ModConfig.CHAT_CONTEXT_MESSAGE_COUNT.get();
+        String outgoingServerLanguage = TranslationTextDetector.canonicalLanguageCode(
+                ModConfig.CHAT_OUTGOING_SERVER_LANGUAGE.get());
+        this.outgoingEnabled = ModConfig.CHAT_OUTGOING_ENABLED.get();
+        this.outgoingServerLanguagePreset = SERVER_LANGUAGE_PRESETS.contains(outgoingServerLanguage)
+                ? outgoingServerLanguage
+                : CUSTOM;
+        this.outgoingServerLanguageCustom = CUSTOM.equals(this.outgoingServerLanguagePreset)
+                ? outgoingServerLanguage
+                : "";
     }
 
     @Override
@@ -96,6 +116,40 @@ public class ChatTranslationScreen extends ScrollableSettingsScreen {
         withTooltip(this.contextCountButton, "screen.simple_translate.chat.context_count.tooltip");
         addEntry(this.contextCountButton);
 
+        addSectionHeader(text("screen.simple_translate.chat.section.outgoing"));
+
+        CycleButton<Boolean> outgoingEnabledToggle = CycleButton.onOffBuilder(outgoingEnabled)
+                .create(0, 0, contentWidth, 20,
+                        Component.translatable("screen.simple_translate.chat.outgoing_enabled"),
+                        (button, value) -> {
+                            outgoingEnabled = value;
+                            updateButtonStates();
+                        });
+        withTooltip(outgoingEnabledToggle, "screen.simple_translate.chat.outgoing_enabled.tooltip");
+        addEntry(outgoingEnabledToggle);
+
+        CycleButton<String> outgoingServerLanguageButton = CycleButton.<String>builder(this::languageLabel, this.outgoingServerLanguagePreset)
+                .withValues(SERVER_LANGUAGE_PRESETS)
+                .create(0, 0, contentWidth, 20,
+                        Component.translatable("screen.simple_translate.chat.outgoing_server_language"),
+                        (button, value) -> {
+                            this.outgoingServerLanguagePreset = value;
+                            refreshOutgoingLanguageInput();
+                        });
+        withTooltip(outgoingServerLanguageButton,
+                "screen.simple_translate.chat.outgoing_server_language.tooltip");
+        addEntry(outgoingServerLanguageButton);
+
+        this.outgoingServerLanguageCustomInput = new EditBox(this.font, 0, 0, contentWidth, 20,
+                Component.translatable("screen.simple_translate.chat.outgoing_server_language_custom"));
+        this.outgoingServerLanguageCustomInput.setMaxLength(48);
+        this.outgoingServerLanguageCustomInput.setValue(this.outgoingServerLanguageCustom);
+        this.outgoingServerLanguageCustomInput.setHint(
+                Component.translatable("screen.simple_translate.language_settings.custom_hint"));
+        withTooltip(this.outgoingServerLanguageCustomInput,
+                "screen.simple_translate.chat.outgoing_server_language_custom.tooltip");
+        addEntry(this.outgoingServerLanguageCustomInput);
+
         addSectionHeader(text("screen.simple_translate.chat.section.hover"));
 
         CycleButton<Boolean> hoverEnabledToggle = CycleButton.onOffBuilder(hoverEnabled)
@@ -125,6 +179,7 @@ public class ChatTranslationScreen extends ScrollableSettingsScreen {
     @Override
     protected void repositionEntries() {
         super.repositionEntries();
+        refreshOutgoingLanguageInput();
         updateButtonStates();
     }
 
@@ -148,22 +203,58 @@ public class ChatTranslationScreen extends ScrollableSettingsScreen {
         if (this.hoverTriggerModeButton != null) {
             this.hoverTriggerModeButton.active = this.hoverTriggerModeButton.visible && this.hoverEnabled;
         }
+        refreshOutgoingLanguageInput();
+    }
+
+    private void refreshOutgoingLanguageInput() {
+        if (this.outgoingServerLanguageCustomInput != null) {
+            boolean custom = CUSTOM.equals(this.outgoingServerLanguagePreset);
+            this.outgoingServerLanguageCustomInput.visible = custom
+                    && isEntryVisible(this.outgoingServerLanguageCustomInput.getY(),
+                    this.outgoingServerLanguageCustomInput.getHeight());
+            this.outgoingServerLanguageCustomInput.active =
+                    this.outgoingServerLanguageCustomInput.visible && outgoingEnabled;
+        }
     }
 
     @Override
     protected void saveSettings() {
         ModConfig.TranslationMode previousMode = ModConfig.CHAT_MODE.get();
         boolean previousContextEnabled = ModConfig.CHAT_CONTEXT_ENABLED.get();
+        String previousOutgoingServerLanguage = TranslationTextDetector.canonicalLanguageCode(
+                ModConfig.CHAT_OUTGOING_SERVER_LANGUAGE.get());
         boolean savedContextEnabled = currentMode == ModConfig.TranslationMode.AUTO && contextEnabled;
         ModConfig.CHAT_ENABLED.set(chatEnabled);
         ModConfig.CHAT_MODE.set(currentMode);
         ModConfig.CHAT_CONTEXT_ENABLED.set(savedContextEnabled);
         ModConfig.CHAT_CONTEXT_MESSAGE_COUNT.set(contextMessageCount);
+        ModConfig.CHAT_OUTGOING_ENABLED.set(outgoingEnabled);
+        String newOutgoingServerLanguage = effectiveOutgoingServerLanguage();
+        ModConfig.CHAT_OUTGOING_SERVER_LANGUAGE.set(newOutgoingServerLanguage);
         ModConfig.TOOLTIP_CHAT_HOVER_ENABLED.set(hoverEnabled);
         ModConfig.TOOLTIP_CHAT_HOVER_TRIGGER_MODE.set(this.hoverTriggerMode);
         if (previousMode != currentMode || previousContextEnabled != savedContextEnabled) {
             ChatTranslationController.onChatModeChanged();
         }
+        if (!previousOutgoingServerLanguage.equals(newOutgoingServerLanguage)) {
+            SimpleTranslateMod.onLanguageSettingsChanged();
+        }
+    }
+
+    private String effectiveOutgoingServerLanguage() {
+        String raw = CUSTOM.equals(this.outgoingServerLanguagePreset)
+                ? (this.outgoingServerLanguageCustomInput == null
+                ? "" : this.outgoingServerLanguageCustomInput.getValue())
+                : this.outgoingServerLanguagePreset;
+        String canonical = TranslationTextDetector.canonicalLanguageCode(raw);
+        if (canonical.isBlank() || "auto".equals(canonical)) {
+            return "en";
+        }
+        return canonical;
+    }
+
+    private Component languageLabel(String code) {
+        return Component.translatable("screen.simple_translate.language_settings.lang." + code);
     }
 
     private static String text(String key) {

@@ -7,7 +7,13 @@ import java.text.Normalizer;
 
 public final class TranslationCacheKeys {
     public static final String PROTOCOL = CacheKey.PROTOCOL;
+    /** Current marker-free Component projection cache format. */
     public static final String COMPONENT_JSON_FORMAT = "component_json_v1";
+    public static final String COMPONENT_JSON_FORMAT_V5 = "component_json_v5";
+    public static final String COMPONENT_JSON_FORMAT_V4 = "component_json_v4";
+    public static final String COMPONENT_JSON_FORMAT_V3 = "component_json_v3";
+    public static final String COMPONENT_JSON_FORMAT_V2 = "component_json_v2";
+    public static final String COMPONENT_JSON_FORMAT_V1 = "component_json_v1";
 
     private TranslationCacheKeys() {
     }
@@ -29,12 +35,52 @@ public final class TranslationCacheKeys {
         return CacheKey.create(surface, sourceJson, context, "", COMPONENT_JSON_FORMAT);
     }
 
+    public static String componentJsonKey(String surface, String sourceJson, String context,
+                                          String sourceLanguage, String targetLanguage) {
+        return CacheKey.create(surface, sourceJson, context, "", COMPONENT_JSON_FORMAT,
+                TranslationTextDetector.languagePairKey(sourceLanguage, targetLanguage));
+    }
+
     public static String legacyComponentJsonKey(String surface, String sourceJson) {
         return CacheKey.createLegacy("json." + Surface.normalize(surface), sourceJson, "", "");
     }
 
+    /** Key an entry would have used under the v4 cache format (for lazy migration). */
+    public static String componentJsonV4Key(String surface, String sourceJson, String context,
+                                            String sourceLanguage, String targetLanguage) {
+        return CacheKey.create(surface, sourceJson, context, "", COMPONENT_JSON_FORMAT_V4,
+                TranslationTextDetector.languagePairKey(sourceLanguage, targetLanguage));
+    }
+
+    /** Key an entry would have used under the v3 cache format (for lazy migration). */
+    public static String componentJsonV3Key(String surface, String sourceJson, String context,
+                                            String sourceLanguage, String targetLanguage) {
+        return CacheKey.create(surface, sourceJson, context, "", COMPONENT_JSON_FORMAT_V3,
+                TranslationTextDetector.languagePairKey(sourceLanguage, targetLanguage));
+    }
+
+    /** Key an entry would have used under the v2 cache format (for lazy migration). */
+    public static String componentJsonV2Key(String surface, String sourceJson, String context,
+                                            String sourceLanguage, String targetLanguage) {
+        return CacheKey.create(surface, sourceJson, context, "", COMPONENT_JSON_FORMAT_V2,
+                TranslationTextDetector.languagePairKey(sourceLanguage, targetLanguage));
+    }
+
+    /** Key an entry would have used under the v1 cache format (for lazy migration). */
+    public static String componentJsonV1Key(String surface, String sourceJson, String context,
+                                            String sourceLanguage, String targetLanguage) {
+        return CacheKey.create(surface, sourceJson, context, "", COMPONENT_JSON_FORMAT_V1,
+                TranslationTextDetector.languagePairKey(sourceLanguage, targetLanguage));
+    }
+
     public static boolean isComponentJsonKey(String key) {
-        return key != null && key.contains(":fmt=" + COMPONENT_JSON_FORMAT + ":");
+        return key != null
+                && (key.contains(":fmt=" + COMPONENT_JSON_FORMAT + ":")
+                || key.contains(":fmt=" + COMPONENT_JSON_FORMAT_V5 + ":")
+                || key.contains(":fmt=" + COMPONENT_JSON_FORMAT_V4 + ":")
+                || key.contains(":fmt=" + COMPONENT_JSON_FORMAT_V3 + ":")
+                || key.contains(":fmt=" + COMPONENT_JSON_FORMAT_V2 + ":")
+                || key.contains(":fmt=" + COMPONENT_JSON_FORMAT_V1 + ":"));
     }
 
     public static String debugKey(String surface, String source) {

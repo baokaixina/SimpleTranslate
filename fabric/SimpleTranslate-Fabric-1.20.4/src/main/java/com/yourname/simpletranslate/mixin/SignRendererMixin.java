@@ -98,4 +98,3 @@ public class SignRendererMixin {
                 pos.getZ() + 0.5D) <= maxDistance * maxDistance;
     }
 }
-

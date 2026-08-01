@@ -1,17 +1,27 @@
-# Build outputs and Gradle state
-**/build/
-**/.gradle/
-**/bin/
-**/out/
+# Product build outputs and Gradle state
+/*/SimpleTranslate-*/build/
+/*/SimpleTranslate-*/.gradle/
+/*/SimpleTranslate-*/bin/
+/*/SimpleTranslate-*/out/
 
-# Runtime and launcher-generated state
-**/run/
-**/logs/
-**/crash-reports/
-**/saves/
-**/run/config/
-**/options.txt
-**/usercache.json
+# Product runtime and launcher-generated state
+/*/SimpleTranslate-*/run/
+/*/SimpleTranslate-*/runs/
+/*/SimpleTranslate-*/logs/
+/*/SimpleTranslate-*/cache/
+/*/SimpleTranslate-*/crash-reports/
+/*/SimpleTranslate-*/saves/
+/*/SimpleTranslate-*/options.txt
+/*/SimpleTranslate-*/usercache.json
+
+# Product IDE state
+/*/SimpleTranslate-*/.idea/
+/*/SimpleTranslate-*/.vscode/
+/*/SimpleTranslate-*/.eclipse/
+/*/SimpleTranslate-*/.settings/
+/*/SimpleTranslate-*/*.iml
+/*/SimpleTranslate-*/.classpath
+/*/SimpleTranslate-*/.project
 
 # Generated artifacts
 *.log
@@ -25,3 +35,6 @@
 _codex_validation_logs/
 mc-screen*.png
 neoforge-*-installer.jar.log
+/*/SimpleTranslate-*/runclient-check.args
+/*/SimpleTranslate-*/runclient-check-screenshot-*.png
+/*/SimpleTranslate-*/_baseline_java_list.txt

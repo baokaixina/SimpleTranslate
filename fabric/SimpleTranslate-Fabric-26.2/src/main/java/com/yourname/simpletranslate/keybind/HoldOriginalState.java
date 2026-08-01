@@ -1,7 +1,5 @@
 package com.yourname.simpletranslate.keybind;
 
-import com.mojang.blaze3d.platform.InputConstants;
-import com.yourname.simpletranslate.compat.ClientGuiCompat;
 import com.yourname.simpletranslate.config.ModConfig;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.minecraft.client.Minecraft;
@@ -50,20 +48,8 @@ public final class HoldOriginalState {
 
     private static void tick(Minecraft mc) {
         boolean enabled = ModConfig.HOLD_ORIGINAL_ENABLED.get();
-        com.mojang.blaze3d.platform.Window window = mc.getWindow();
-
         for (HoldOriginalFeature feature : HoldOriginalFeature.values()) {
-            boolean pressed = false;
-            if (enabled && window != null) {
-                int keyCode = ModConfig.getHoldOriginalKey(feature).get();
-                if (keyCode > InputConstants.UNKNOWN.getValue()) {
-                    try {
-                        pressed = InputConstants.isKeyDown(window, keyCode);
-                    } catch (Exception ignored) {
-                        pressed = false;
-                    }
-                }
-            }
+            boolean pressed = enabled && feature.chord().isDown(mc);
             current.put(feature, pressed);
         }
 
@@ -86,7 +72,7 @@ public final class HoldOriginalState {
             }
             switch (feature) {
                 case CHAT -> {
-                    ChatComponent chat = ClientGuiCompat.chat(mc);
+                    ChatComponent chat = gui.hud.getChat();
                     if (chat instanceof HoldOriginalAware aware) {
                         aware.simple_translate$onHoldOriginalChanged(feature, holding);
                     }

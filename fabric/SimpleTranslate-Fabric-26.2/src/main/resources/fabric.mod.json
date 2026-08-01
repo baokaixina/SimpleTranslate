@@ -16,15 +16,19 @@
     ],
     "client": [
       "com.yourname.simpletranslate.SimpleTranslateMod"
+    ],
+    "modmenu": [
+      "com.yourname.simpletranslate.compat.ModMenuIntegration"
     ]
   },
   "mixins": [
     "simple_translate.mixins.json"
   ],
+  "accessWidener": "simple_translate.accesswidener",
   "depends": {
-    "fabricloader": ">=${loader_version}",
+    "fabricloader": ">=0.16.0",
     "minecraft": ">=${minecraft_version}",
-    "fabric-api": ">=${fabric_version}"
+    "fabric-api": ">=0.145.6+26.2"
   },
   "suggests": {
     "modmenu": "*"

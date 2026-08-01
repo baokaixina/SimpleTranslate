@@ -53,17 +53,18 @@ public final class SharedCacheServer {
             }
         });
 
-        ServerPlayNetworking.registerGlobalReceiver(SharedCachePayload.CHANNEL, (server, player, handler, buffer, responseSender) -> {
-            SharedCachePayload payload;
-            try {
-                payload = SharedCachePayload.read(buffer);
-            } catch (Exception e) {
-                LOGGER.warn("Ignored invalid shared cache payload from {}: {}",
-                        player == null ? "unknown" : player.getScoreboardName(), e.getMessage());
-                return;
-            }
-            server.execute(() -> handlePayload(server, player, payload));
-        });
+        ServerPlayNetworking.registerGlobalReceiver(SharedCachePayload.CHANNEL,
+                (server, player, handler, buffer, responseSender) -> {
+                    SharedCachePayload payload;
+                    try {
+                        payload = SharedCachePayload.read(buffer);
+                    } catch (Exception e) {
+                        LOGGER.warn("Ignored invalid shared cache payload from {}: {}",
+                                player == null ? "unknown" : player.getScoreboardName(), e.getMessage());
+                        return;
+                    }
+                    server.execute(() -> handlePayload(server, player, payload));
+                });
     }
 
     private static void onServerStarted(MinecraftServer server) {

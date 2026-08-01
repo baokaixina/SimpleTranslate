@@ -39,9 +39,8 @@ public class LanguageSettingsScreen extends ScrollableSettingsScreen {
     protected void buildContent() {
         addSectionHeader(text("screen.simple_translate.language_settings.section"));
 
-        CycleButton<String> sourceButton = CycleButton.<String>builder(this::languageLabel)
+        CycleButton<String> sourceButton = CycleButton.<String>builder(this::languageLabel).withInitialValue(this.sourcePreset)
                 .withValues(SOURCE_PRESETS)
-                .withInitialValue(this.sourcePreset)
                 .create(0, 0, this.contentWidth, 20,
                         Component.translatable("screen.simple_translate.language_settings.source"),
                         (button, value) -> {
@@ -55,12 +54,12 @@ public class LanguageSettingsScreen extends ScrollableSettingsScreen {
                 Component.translatable("screen.simple_translate.language_settings.source_custom"));
         this.sourceCustomInput.setMaxLength(48);
         this.sourceCustomInput.setValue(this.sourceCustom);
+        this.sourceCustomInput.setSuggestion(Component.translatable("screen.simple_translate.language_settings.custom_hint").getString());
         withTooltip(this.sourceCustomInput, "screen.simple_translate.language_settings.source_custom.tooltip");
         addEntry(this.sourceCustomInput);
 
-        CycleButton<String> targetButton = CycleButton.<String>builder(this::languageLabel)
+        CycleButton<String> targetButton = CycleButton.<String>builder(this::languageLabel).withInitialValue(this.targetPreset)
                 .withValues(TARGET_PRESETS)
-                .withInitialValue(this.targetPreset)
                 .create(0, 0, this.contentWidth, 20,
                         Component.translatable("screen.simple_translate.language_settings.target"),
                         (button, value) -> {
@@ -74,6 +73,7 @@ public class LanguageSettingsScreen extends ScrollableSettingsScreen {
                 Component.translatable("screen.simple_translate.language_settings.target_custom"));
         this.targetCustomInput.setMaxLength(48);
         this.targetCustomInput.setValue(this.targetCustom);
+        this.targetCustomInput.setSuggestion(Component.translatable("screen.simple_translate.language_settings.custom_hint").getString());
         withTooltip(this.targetCustomInput, "screen.simple_translate.language_settings.target_custom.tooltip");
         addEntry(this.targetCustomInput);
 
@@ -136,5 +136,3 @@ public class LanguageSettingsScreen extends ScrollableSettingsScreen {
     }
 
 }
-
-

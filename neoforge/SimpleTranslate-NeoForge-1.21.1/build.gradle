@@ -58,6 +58,9 @@ neoForge {
 
 dependencies {
     compileOnly "org.jetbrains:annotations:24.1.0"
+    // NeoForge 21.0/21.1 ship MixinExtras only as a runtime jarJar entry; the
+    // compile classpath needs the published artifact for WrapMethod and friends.
+    compileOnly "io.github.llamalad7:mixinextras-neoforge:0.5.3"
 }
 
 configurations.configureEach {

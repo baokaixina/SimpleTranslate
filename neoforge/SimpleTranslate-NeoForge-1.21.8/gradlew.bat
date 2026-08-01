@@ -35,6 +35,16 @@ set APP_HOME=%DIRNAME%
 @rem Resolve any "." and ".." in APP_HOME to make it shorter.
 for %%i in ("%APP_HOME%") do set APP_HOME=%%~fi
 
+@rem BEGIN SimpleTranslate project JDK pin
+set "SIMPLE_TRANSLATE_JAVA_HOME="
+for /f "usebackq tokens=1,* delims==" %%A in ("%APP_HOME%\gradle.properties") do if /I "%%A"=="gradle_java_home" set "SIMPLE_TRANSLATE_JAVA_HOME=%%B"
+if defined SIMPLE_TRANSLATE_JAVA_HOME set "JAVA_HOME=%SIMPLE_TRANSLATE_JAVA_HOME%"
+@rem END SimpleTranslate project JDK pin
+
+
+
+
+
 @rem Add default JVM options here. You can also use JAVA_OPTS and GRADLE_OPTS to pass JVM options to this script.
 set DEFAULT_JVM_OPTS="-Xmx64m" "-Xms64m"
 

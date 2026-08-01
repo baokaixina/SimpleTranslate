@@ -1,5 +1,7 @@
 package com.yourname.simpletranslate.mixin;
 
+import net.neoforged.fml.ModList;
+import net.neoforged.fml.loading.LoadingModList;
 import org.objectweb.asm.tree.ClassNode;
 import org.spongepowered.asm.mixin.extensibility.IMixinConfigPlugin;
 import org.spongepowered.asm.mixin.extensibility.IMixinInfo;
@@ -8,8 +10,7 @@ import java.util.List;
 import java.util.Set;
 
 public class SimpleTranslateMixinPlugin implements IMixinConfigPlugin {
-    private static final String ADVANCEMENT_PLAQUES_TARGET =
-            "com.anthonyhilyard.advancementplaques.ui.render.AdvancementPlaque";
+    private static final String FTB_LIBRARY_MOD_ID = "ftblibrary";
 
     @Override
     public void onLoad(String mixinPackage) {
@@ -22,7 +23,29 @@ public class SimpleTranslateMixinPlugin implements IMixinConfigPlugin {
 
     @Override
     public boolean shouldApplyMixin(String targetClassName, String mixinClassName) {
+        if (mixinClassName.endsWith("FtbScreenWrapperTranslationMixin")) {
+            return isModLoaded(FTB_LIBRARY_MOD_ID);
+        }
+        if (mixinClassName.endsWith("FtbTextFieldTranslationMixin")) {
+            return isModLoaded(FTB_LIBRARY_MOD_ID);
+        }
         return true;
+    }
+
+    private static boolean isModLoaded(String modId) {
+        try {
+            LoadingModList loadingModList = LoadingModList.get();
+            if (loadingModList != null) {
+                return loadingModList.getModFileById(modId) != null;
+            }
+        } catch (Throwable ignored) {
+        }
+        try {
+            ModList modList = ModList.get();
+            return modList != null && modList.isLoaded(modId);
+        } catch (Throwable ignored) {
+            return false;
+        }
     }
 
     @Override
@@ -31,9 +54,6 @@ public class SimpleTranslateMixinPlugin implements IMixinConfigPlugin {
 
     @Override
     public List<String> getMixins() {
-        if (isClassPresent(ADVANCEMENT_PLAQUES_TARGET)) {
-            return List.of("AdvancementPlaquesMixin");
-        }
         return List.of();
     }
 
@@ -43,14 +63,5 @@ public class SimpleTranslateMixinPlugin implements IMixinConfigPlugin {
 
     @Override
     public void postApply(String targetClassName, ClassNode targetClass, String mixinClassName, IMixinInfo mixinInfo) {
-    }
-
-    private static boolean isClassPresent(String className) {
-        try {
-            Class.forName(className, false, SimpleTranslateMixinPlugin.class.getClassLoader());
-            return true;
-        } catch (ClassNotFoundException ignored) {
-            return false;
-        }
     }
 }

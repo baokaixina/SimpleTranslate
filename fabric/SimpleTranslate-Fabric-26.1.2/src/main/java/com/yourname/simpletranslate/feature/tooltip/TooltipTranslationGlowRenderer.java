@@ -39,34 +39,58 @@ public final class TooltipTranslationGlowRenderer {
         Vector2ic position = positioner.positionTooltip(
                 graphics.guiWidth(), graphics.guiHeight(), mouseX, mouseY, width, height);
         renderTooltipBounds(graphics, position.x() - 3, position.y() - 3,
-                position.x() + width + 3, position.y() + height + 3, 500.0F);
+                position.x() + width + 3, position.y() + height + 3, true);
     }
 
     public static void renderPreview(GuiGraphicsExtractor graphics, int left, int top, int right, int bottom) {
         if (ModConfig.TOOLTIP_GLOW_ENABLED.get()) {
-            renderTooltipBounds(graphics, left, top, right, bottom, 5.0F);
+            renderTooltipBounds(graphics, left, top, right, bottom, true);
+        }
+    }
+
+    /**
+     * Reuses the configured pending-translation palette for an already drawn
+     * text region. Unlike tooltip chrome, every spread layer points inward so
+     * Wynn's frame, portrait and neighbouring positioning glyphs are untouched.
+     */
+    public static void renderPendingTextRegion(GuiGraphicsExtractor graphics,
+                                               int left, int top, int right, int bottom) {
+        // Enablement is deliberately owned by the calling surface. Wynn
+        // dialogue has a dedicated switch and must not silently inherit the
+        // unrelated tooltip.glow.enabled value.
+        if (graphics != null && right > left && bottom > top) {
+            renderTooltipBounds(graphics, left, top, right, bottom, false);
         }
     }
 
     private static void renderTooltipBounds(GuiGraphicsExtractor graphics, int left, int top,
-                                            int right, int bottom, float z) {
+                                            int right, int bottom, boolean spreadOutward) {
         int width = Math.max(1, right - left);
         int height = Math.max(1, bottom - top);
         int perimeter = Math.max(1, 2 * (width + height));
         int cycleMillis = Math.max(1, ModConfig.TOOLTIP_GLOW_CYCLE_MS.get());
         double movingPhase = (System.currentTimeMillis() % cycleMillis) / (double) cycleMillis;
+        int lineWidth = ModConfig.TOOLTIP_GLOW_LINE_WIDTH.get();
+        int horizontalSpreadLimit = spreadOutward
+                ? Integer.MAX_VALUE : Math.max(0, height / 2 - lineWidth);
+        int verticalSpreadLimit = spreadOutward
+                ? Integer.MAX_VALUE : Math.max(0, width / 2 - lineWidth);
 
         graphics.pose().pushMatrix();
-        drawHorizontal(graphics, left, right, top, false, 0, perimeter, movingPhase);
-        drawVertical(graphics, right, top, bottom, false, width, perimeter, movingPhase);
-        drawHorizontal(graphics, left, right, bottom, true, width + height, perimeter, movingPhase);
-        drawVertical(graphics, left, top, bottom, true, width + height + width, perimeter, movingPhase);
+        drawHorizontal(graphics, left, right, top, false, 0, perimeter, movingPhase,
+                spreadOutward, horizontalSpreadLimit);
+        drawVertical(graphics, right, top, bottom, false, width, perimeter, movingPhase,
+                spreadOutward, verticalSpreadLimit);
+        drawHorizontal(graphics, left, right, bottom, true, width + height, perimeter, movingPhase,
+                spreadOutward, horizontalSpreadLimit);
+        drawVertical(graphics, left, top, bottom, true, width + height + width, perimeter, movingPhase,
+                spreadOutward, verticalSpreadLimit);
         graphics.pose().popMatrix();
     }
 
     private static void drawHorizontal(GuiGraphicsExtractor graphics, int left, int right, int y,
                                        boolean reverse, int pathOffset, int perimeter,
-                                       double movingPhase) {
+                                       double movingPhase, boolean spreadOutward, int spreadLimit) {
         int length = Math.max(1, right - left);
         int segments = Math.min(96, Math.max(16, length));
         for (int segment = 0; segment < segments; segment++) {
@@ -75,13 +99,14 @@ public final class TooltipTranslationGlowRenderer {
             int x0 = reverse ? right - end : left + start;
             int x1 = reverse ? right - start : left + end;
             double pathPhase = (pathOffset + (start + end) * 0.5D) / perimeter;
-            drawHorizontalSegment(graphics, x0, x1, y, reverse, pathPhase, movingPhase);
+            drawHorizontalSegment(graphics, x0, x1, y, reverse, pathPhase, movingPhase,
+                    spreadOutward, spreadLimit);
         }
     }
 
     private static void drawVertical(GuiGraphicsExtractor graphics, int x, int top, int bottom,
                                      boolean reverse, int pathOffset, int perimeter,
-                                     double movingPhase) {
+                                     double movingPhase, boolean spreadOutward, int spreadLimit) {
         int length = Math.max(1, bottom - top);
         int segments = Math.min(96, Math.max(16, length));
         for (int segment = 0; segment < segments; segment++) {
@@ -90,22 +115,25 @@ public final class TooltipTranslationGlowRenderer {
             int y0 = reverse ? bottom - end : top + start;
             int y1 = reverse ? bottom - start : top + end;
             double pathPhase = (pathOffset + (start + end) * 0.5D) / perimeter;
-            drawVerticalSegment(graphics, x, y0, y1, reverse, pathPhase, movingPhase);
+            drawVerticalSegment(graphics, x, y0, y1, reverse, pathPhase, movingPhase,
+                    spreadOutward, spreadLimit);
         }
     }
 
     private static void drawHorizontalSegment(GuiGraphicsExtractor graphics, int x0, int x1, int y,
                                               boolean bottomEdge, double pathPhase,
-                                              double movingPhase) {
+                                              double movingPhase, boolean spreadOutward, int spreadLimit) {
         int lineWidth = ModConfig.TOOLTIP_GLOW_LINE_WIDTH.get();
-        int spread = ModConfig.TOOLTIP_GLOW_SPREAD.get();
+        int spread = Math.min(ModConfig.TOOLTIP_GLOW_SPREAD.get(), spreadLimit);
         int alpha = animatedAlpha(pathPhase, movingPhase);
         graphics.fill(x0, bottomEdge ? y - lineWidth : y,
                 x1, bottomEdge ? y : y + lineWidth,
                 animatedColor(pathPhase, movingPhase, alpha));
         for (int layer = 1; layer <= spread; layer++) {
             int layerAlpha = glowAlpha(alpha, layer, spread);
-            int glowY = bottomEdge ? y + layer - 1 : y - layer;
+            int glowY = spreadOutward
+                    ? (bottomEdge ? y + layer - 1 : y - layer)
+                    : (bottomEdge ? y - lineWidth - layer + 1 : y + lineWidth + layer - 1);
             graphics.fill(x0, glowY, x1, glowY + 1,
                     animatedColor(pathPhase, movingPhase, layerAlpha));
         }
@@ -113,16 +141,18 @@ public final class TooltipTranslationGlowRenderer {
 
     private static void drawVerticalSegment(GuiGraphicsExtractor graphics, int x, int y0, int y1,
                                             boolean leftEdge, double pathPhase,
-                                            double movingPhase) {
+                                            double movingPhase, boolean spreadOutward, int spreadLimit) {
         int lineWidth = ModConfig.TOOLTIP_GLOW_LINE_WIDTH.get();
-        int spread = ModConfig.TOOLTIP_GLOW_SPREAD.get();
+        int spread = Math.min(ModConfig.TOOLTIP_GLOW_SPREAD.get(), spreadLimit);
         int alpha = animatedAlpha(pathPhase, movingPhase);
         graphics.fill(leftEdge ? x : x - lineWidth, y0,
                 leftEdge ? x + lineWidth : x, y1,
                 animatedColor(pathPhase, movingPhase, alpha));
         for (int layer = 1; layer <= spread; layer++) {
             int layerAlpha = glowAlpha(alpha, layer, spread);
-            int glowX = leftEdge ? x - layer : x + layer - 1;
+            int glowX = spreadOutward
+                    ? (leftEdge ? x - layer : x + layer - 1)
+                    : (leftEdge ? x + lineWidth + layer - 1 : x - lineWidth - layer + 1);
             graphics.fill(glowX, y0, glowX + 1, y1,
                     animatedColor(pathPhase, movingPhase, layerAlpha));
         }

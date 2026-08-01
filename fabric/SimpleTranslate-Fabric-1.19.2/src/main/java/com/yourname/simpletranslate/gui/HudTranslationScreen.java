@@ -1,6 +1,8 @@
 package com.yourname.simpletranslate.gui;
 
 import com.yourname.simpletranslate.config.ModConfig;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.components.CycleButton;
 import net.minecraft.client.gui.components.EditBox;
 import net.minecraft.client.gui.screens.Screen;
@@ -16,6 +18,7 @@ public class HudTranslationScreen extends ScrollableSettingsScreen {
     private boolean bossbarEnabled;
     private boolean titleEnabled;
     private boolean actionbarEnabled;
+    private boolean keepLayoutCriticalOriginal;
     private boolean titleContextEnabled;
     private boolean historyChatEnabled;
     private int batchIntervalMs;
@@ -32,6 +35,7 @@ public class HudTranslationScreen extends ScrollableSettingsScreen {
         this.bossbarEnabled = ModConfig.HUD_BOSSBAR_ENABLED.get();
         this.titleEnabled = ModConfig.HUD_TITLE_ENABLED.get();
         this.actionbarEnabled = ModConfig.HUD_ACTIONBAR_ENABLED.get();
+        this.keepLayoutCriticalOriginal = ModConfig.LAYOUT_CRITICAL_HUD_KEEP_ORIGINAL.get();
         this.titleContextEnabled = ModConfig.HUD_TITLE_CONTEXT_ENABLED.get();
         this.historyChatEnabled = ModConfig.HUD_HISTORY_CHAT_ENABLED.get();
         this.batchIntervalMs = ModConfig.HUD_CAPTION_BATCH_INTERVAL_MS.get();
@@ -72,6 +76,14 @@ public class HudTranslationScreen extends ScrollableSettingsScreen {
         withTooltip(actionbarButton, "screen.simple_translate.hud.actionbar.tooltip");
         addEntry(actionbarButton);
 
+        CycleButton<Boolean> layoutProtectionButton = CycleButton.onOffBuilder(keepLayoutCriticalOriginal)
+                .create(0, 0, contentWidth, 20,
+                        Component.translatable("screen.simple_translate.settings.layout_critical_hud_keep_original"),
+                        (button, value) -> keepLayoutCriticalOriginal = value);
+        withTooltip(layoutProtectionButton,
+                "screen.simple_translate.settings.layout_critical_hud_keep_original.tooltip");
+        addEntry(layoutProtectionButton);
+
         addSectionHeader(text("screen.simple_translate.title.section.history"));
 
         CycleButton<Boolean> titleContextButton = CycleButton.onOffBuilder(titleContextEnabled)
@@ -93,16 +105,16 @@ public class HudTranslationScreen extends ScrollableSettingsScreen {
         this.batchIntervalInput = new EditBox(this.font, 0, 0, contentWidth, 20,
                 Component.translatable("screen.simple_translate.hud.caption_batch_interval"));
         this.batchIntervalInput.setMaxLength(5);
-        this.batchIntervalInput.setFilter(value -> value == null || value.isEmpty() || value.matches("\\d{0,5}"));
         this.batchIntervalInput.setValue(Integer.toString(this.batchIntervalMs));
+        this.batchIntervalInput.setSuggestion(Component.translatable("screen.simple_translate.hud.caption_time_hint").getString());
         withTooltip(this.batchIntervalInput, "screen.simple_translate.hud.caption_batch_interval.tooltip");
         addEntry(this.batchIntervalInput);
 
         this.collectWindowInput = new EditBox(this.font, 0, 0, contentWidth, 20,
                 Component.translatable("screen.simple_translate.hud.caption_collect_window"));
         this.collectWindowInput.setMaxLength(5);
-        this.collectWindowInput.setFilter(value -> value == null || value.isEmpty() || value.matches("\\d{0,5}"));
         this.collectWindowInput.setValue(Integer.toString(this.collectWindowMs));
+        this.collectWindowInput.setSuggestion(Component.translatable("screen.simple_translate.hud.caption_time_hint").getString());
         withTooltip(this.collectWindowInput, "screen.simple_translate.hud.caption_collect_window.tooltip");
         addEntry(this.collectWindowInput);
     }
@@ -113,6 +125,7 @@ public class HudTranslationScreen extends ScrollableSettingsScreen {
         ModConfig.HUD_BOSSBAR_ENABLED.set(bossbarEnabled);
         ModConfig.HUD_TITLE_ENABLED.set(titleEnabled);
         ModConfig.HUD_ACTIONBAR_ENABLED.set(actionbarEnabled);
+        ModConfig.LAYOUT_CRITICAL_HUD_KEEP_ORIGINAL.set(keepLayoutCriticalOriginal);
         ModConfig.HUD_TITLE_CONTEXT_ENABLED.set(titleContextEnabled);
         ModConfig.HUD_HISTORY_CHAT_ENABLED.set(historyChatEnabled);
         ModConfig.HUD_CAPTION_BATCH_INTERVAL_MS.set(parseMillis(batchIntervalInput, batchIntervalMs));
@@ -134,5 +147,3 @@ public class HudTranslationScreen extends ScrollableSettingsScreen {
         }
     }
 }
-
-

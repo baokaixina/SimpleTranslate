@@ -41,6 +41,7 @@ public final class TooltipTranslationController {
     /** Render happens on the client thread only; a simple depth counter suffices. */
 
     private static int renderingTranslatedDepth = 0;
+    private static int itemTooltipSubmissionDepth = 0;
     private static long pendingGlowArmedUntilNanos;
 
 
@@ -109,9 +110,9 @@ public final class TooltipTranslationController {
 
 
 
-    /** Common gate for materialized tooltip lists across all render entries. */
+    /** Gate for capturing an item tooltip into its independently controlled draw frame. */
 
-    public static boolean shouldTranslateRenderedTooltip(List<Component> components) {
+    public static boolean shouldCaptureItemFrame(List<Component> components) {
         if (!ModConfig.GLOBAL_ENABLED.get()) {
             return false;
         }
@@ -141,43 +142,6 @@ public final class TooltipTranslationController {
         }
 
         return isEnabledForContext(resolveRenderContext());
-
-    }
-
-
-
-    /** @deprecated use {@link #shouldTranslateRenderedTooltip(List)} */
-    @Deprecated
-    public static boolean shouldTranslateItemTooltip(List<Component> components) {
-        if (!ModConfig.GLOBAL_ENABLED.get()) {
-            return false;
-        }
-
-        if (isRenderingTranslated() || components == null || components.isEmpty()) {
-
-            return false;
-
-        }
-
-        if (TooltipTranslationHelper.isMarkedTranslatedTooltip(components)) {
-
-            return false;
-
-        }
-
-        if (!TooltipTranslationHelper.anyContainsEnglish(components)) {
-
-            return false;
-
-        }
-
-        if (HoldOriginalState.isHolding(HoldOriginalFeature.TOOLTIP_ITEM)) {
-
-            return false;
-
-        }
-
-        return ModConfig.TOOLTIP_ITEM_ENABLED.get();
 
     }
 
@@ -224,39 +188,23 @@ public final class TooltipTranslationController {
 
 
 
-    public static List<Component> translateForRender(List<Component> components) {
-
-        return translateForRender(components, RenderContext.ITEM);
-
-    }
-
-
-
-    public static List<Component> translateForRender(List<Component> components, RenderContext context) {
-        boolean requestAllowed = TooltipTranslationTriggerState.allowRequest(context, components);
-        return translateForRender(components, context, requestAllowed);
-    }
-
-    public static List<Component> translateForRender(List<Component> components, RenderContext context,
-                                                     boolean requestAllowed) {
-        List<Component> translated = TooltipTranslationHelper.translateRenderedTooltip(
-                components, context, requestAllowed);
-        if (translated == components && shouldRenderPendingOriginal(components, context, requestAllowed)) {
-            armPendingGlow();
-        }
-        return translated;
-
-    }
-
-    public static boolean shouldRenderPendingOriginal(List<Component> components, RenderContext context,
-                                                      boolean requestAllowed) {
-        return requestAllowed || TooltipTranslationHelper.isTranslationPending(components, context);
-    }
-
     public static void armPendingGlowForHover(Component component, boolean requestAllowed) {
-        if (requestAllowed || TooltipTranslationHelper.isHoverTranslationPending(component)) {
+        if (TooltipTranslationHelper.isHoverTranslationPending(component)) {
             armPendingGlow();
         }
+    }
+
+    /** Marks a call that is proven to originate from an ItemStack tooltip. */
+    public static void beginItemTooltipSubmission() {
+        itemTooltipSubmissionDepth++;
+    }
+
+    public static void endItemTooltipSubmission() {
+        itemTooltipSubmissionDepth = Math.max(0, itemTooltipSubmissionDepth - 1);
+    }
+
+    public static boolean isItemTooltipSubmission() {
+        return itemTooltipSubmissionDepth > 0;
     }
 
     private static void armPendingGlow() {
@@ -265,6 +213,13 @@ public final class TooltipTranslationController {
             return;
         }
         pendingGlowArmedUntilNanos = System.nanoTime() + 100_000_000L;
+    }
+
+    /** Shared by generic and Wynn semantic projections on every pending frame. */
+    public static void armPendingGlowIf(boolean pending) {
+        if (pending) {
+            armPendingGlow();
+        }
     }
 
     public static boolean consumePendingGlow() {

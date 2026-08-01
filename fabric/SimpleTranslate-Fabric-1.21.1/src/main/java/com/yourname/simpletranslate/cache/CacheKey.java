@@ -20,11 +20,19 @@ public final class CacheKey {
 
     public static String create(String surface, String source, String context, String layoutSignature,
                                 String format) {
+        return create(surface, source, context, layoutSignature, format,
+                TranslationTextDetector.languagePairKey());
+    }
+
+    public static String create(String surface, String source, String context, String layoutSignature,
+                                String format, String languagePair) {
         return PROTOCOL + ":" + Surface.normalize(surface) + ":" + hash(normalize(source))
                 + ":ctx=" + hash(normalize(context))
                 + ":layout=" + hash(normalize(layoutSignature))
                 + ":fmt=" + normalizeFormat(format)
-                + ":lang=" + hash(TranslationTextDetector.languagePairKey());
+                + ":lang=" + hash(languagePair == null || languagePair.isBlank()
+                ? TranslationTextDetector.languagePairKey()
+                : languagePair);
     }
 
     public static String createLegacy(String surface, String source, String context, String layoutSignature) {
@@ -53,18 +61,21 @@ public final class CacheKey {
                 .replaceAll(" *\\n *", "\n");
     }
 
+    private static final ThreadLocal<MessageDigest> SHA256 = ThreadLocal.withInitial(() -> {
+        try {
+            return MessageDigest.getInstance("SHA-256");
+        } catch (NoSuchAlgorithmException e) {
+            return null;
+        }
+    });
+
     public static String hash(String value) {
         String normalized = normalize(value);
-        try {
-            MessageDigest digest = MessageDigest.getInstance("SHA-256");
-            byte[] bytes = digest.digest(normalized.getBytes(StandardCharsets.UTF_8));
-            StringBuilder result = new StringBuilder(bytes.length * 2);
-            for (byte current : bytes) {
-                result.append(String.format("%02x", current));
-            }
-            return result.toString();
-        } catch (NoSuchAlgorithmException ignored) {
+        MessageDigest digest = SHA256.get();
+        if (digest == null) {
             return Integer.toHexString(normalized.hashCode());
         }
+        return java.util.HexFormat.of().formatHex(
+                digest.digest(normalized.getBytes(StandardCharsets.UTF_8)));
     }
 }

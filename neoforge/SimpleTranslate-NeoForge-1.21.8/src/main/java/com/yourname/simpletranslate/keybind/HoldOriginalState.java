@@ -1,6 +1,5 @@
 package com.yourname.simpletranslate.keybind;
 
-import com.mojang.blaze3d.platform.InputConstants;
 import com.yourname.simpletranslate.config.ModConfig;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Gui;
@@ -17,6 +16,8 @@ public final class HoldOriginalState {
     private static final EnumMap<HoldOriginalFeature, Boolean> previous = new EnumMap<>(HoldOriginalFeature.class);
     private static final Set<HoldOriginalFeature> STATE_SWAP_FEATURES = EnumSet.of(
             HoldOriginalFeature.CHAT,
+            HoldOriginalFeature.TOOLTIP_ITEM,
+            HoldOriginalFeature.TOOLTIP_HOVER,
             HoldOriginalFeature.TITLE,
             HoldOriginalFeature.ACTIONBAR);
     private static boolean registered;
@@ -38,6 +39,10 @@ public final class HoldOriginalState {
         NeoForge.EVENT_BUS.addListener(HoldOriginalState::onClientTick);
     }
 
+    private static void onClientTick(ClientTickEvent.Post event) {
+        tick(Minecraft.getInstance());
+    }
+
     public static boolean isHolding(HoldOriginalFeature feature) {
         if (!ModConfig.HOLD_ORIGINAL_ENABLED.get()) {
             return false;
@@ -46,26 +51,10 @@ public final class HoldOriginalState {
         return v != null && v;
     }
 
-    private static void onClientTick(ClientTickEvent.Post event) {
-        tick(Minecraft.getInstance());
-    }
-
     private static void tick(Minecraft mc) {
         boolean enabled = ModConfig.HOLD_ORIGINAL_ENABLED.get();
-        long window = mc.getWindow() != null ? mc.getWindow().getWindow() : 0L;
-
         for (HoldOriginalFeature feature : HoldOriginalFeature.values()) {
-            boolean pressed = false;
-            if (enabled && window != 0L) {
-                int keyCode = ModConfig.getHoldOriginalKey(feature).get();
-                if (keyCode > InputConstants.UNKNOWN.getValue()) {
-                    try {
-                        pressed = InputConstants.isKeyDown(window, keyCode);
-                    } catch (Exception ignored) {
-                        pressed = false;
-                    }
-                }
-            }
+            boolean pressed = enabled && feature.chord().isDown(mc);
             current.put(feature, pressed);
         }
 
@@ -97,6 +86,11 @@ public final class HoldOriginalState {
                     if (gui instanceof HoldOriginalAware aware) {
                         aware.simple_translate$onHoldOriginalChanged(feature, holding);
                     }
+                }
+                case TOOLTIP_ITEM, TOOLTIP_HOVER -> {
+                    // Holding original is a view-only override. Tooltip render/cache
+                    // state must survive so releasing the key can immediately show
+                    // the cached translation again.
                 }
                 default -> {}
             }

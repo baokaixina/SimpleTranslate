@@ -2,7 +2,6 @@ plugins {
     id "fabric-loom" version "1.13.6"
     id "maven-publish"
 }
-
 version = project.mod_version
 group = project.maven_group
 
@@ -11,6 +10,7 @@ base {
 }
 
 loom {
+    accessWidenerPath = file("src/main/resources/simple_translate.accesswidener")
     mixin {
         useLegacyMixinAp = true
         defaultRefmapName = "simple_translate.refmap.json"
@@ -32,7 +32,21 @@ dependencies {
     modCompileOnly("com.terraformersmc:modmenu:${project.modmenu_version}") {
         transitive = false
     }
-    compileOnly "org.jetbrains:annotations:24.1.0"
+    testImplementation "net.fabricmc:fabric-loader-junit:${project.loader_version}"
+}
+
+def fabricLoaderJUnitPathSupported = !System.getProperty("os.name").toLowerCase().contains("windows")
+        || java.nio.charset.StandardCharsets.US_ASCII.newEncoder().canEncode(project.projectDir.absolutePath)
+
+test {
+    useJUnitPlatform()
+    // Fabric Loader JUnit corrupts Windows class paths containing non-ASCII
+    // characters before it starts the game provider. Keep compilation and all
+    // packaging checks available here; run the loader-backed tests from an
+    // ASCII-only checkout instead.
+    onlyIf("Fabric Loader JUnit requires an ASCII-only project path on Windows") {
+        fabricLoaderJUnitPathSupported
+    }
 }
 
 processResources {

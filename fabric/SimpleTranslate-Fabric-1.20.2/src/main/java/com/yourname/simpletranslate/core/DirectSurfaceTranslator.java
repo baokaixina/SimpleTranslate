@@ -39,9 +39,15 @@ public final class DirectSurfaceTranslator {
 
     public static CompletableFuture<ComponentListTranslationResult> translateComponentsAsync(
             List<Component> components, String surface, String role, boolean fixedLayout, String context) {
+        return translateComponentsAsync(components, surface, role, fixedLayout, context, "", "");
+    }
+
+    public static CompletableFuture<ComponentListTranslationResult> translateComponentsAsync(
+            List<Component> components, String surface, String role, boolean fixedLayout, String context,
+            String sourceLanguage, String targetLanguage) {
         String resolved = directSurface(surface);
         return JsonPassthroughPipeline.translateComponentsAsync(
-                components, resolved, role, fixedLayout, context);
+                components, resolved, role, fixedLayout, context, sourceLanguage, targetLanguage);
     }
 
     public static ComponentListTranslationResult getCachedComponents(

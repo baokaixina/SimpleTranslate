@@ -8,19 +8,29 @@
 
 - Minecraft 1.20.1，Mojmap，Java 17
 - Fabric Loader 0.16.14，Fabric API 0.83.0+1.20.1
-- 128 个 Java 文件，23 个 GUI 类，16 个启用的客户端 Mixin
-- 中英文语言文件各 406 个键且键集合一致
+- 162 个 Java 文件，26 个 GUI 类，27 个启用的客户端 Mixin
+- 中英文语言文件各 502 个键且键集合一致
 - 所有游戏文本统一使用 Minecraft Component JSON 数组请求/响应；不再存在编号 wire、标签恢复、样式猜位或纯文本降级
 - 普通 Component JSON 请求会先剥离隐藏 `hoverEvent` 内容，返回后再原样贴回原组件；聊天悬浮/物品悬浮文本只由专门的 hover/tooltip 路径翻译，不能作为可见聊天/HUD 翻译的副作用提前翻译
 - 自动聊天只保留 Component JSON collect-window 调度；旧 PendingEntry 聊天批队列、逻辑块检测器和纯文本 mapping wrapper 已删除
 - `stx2` 仅保留为持久化命名空间；新缓存格式为 `component_json_v1`，旧 `json.<surface>` 缓存按命中惰性迁移
 - 正式翻译和模型诊断均使用 `HttpClient.sendAsync`；请求队列跟踪真实 HTTP future，保留去重、优先级、分 lane、取消与重试语义
-- `TitleOverlayMixin` 当前 68 行；动态 actionbar 数值模板和技术性 HUD 判断由功能辅助类负责
+- `TitleOverlayMixin` 当前 189 行；动态 actionbar 数值模板和技术性 HUD 判断由功能辅助类负责
 - 经典分区式设置主页、可滚动即时保存子页面、固定返回栏
 - 客户端与服务端入口，支持可选共享缓存
 - OCR 功能及其源码、配置、按键、缓存通道、Mixin、语言和测试代码已全部删除
 
 源码和基线验证脚本高于本文档及本地技能；发现冲突时先校正文档和技能，再开始目标版本同步。
+
+## 1.21.11 Fabric 当前状态：核心运行验证通过，兼容项同步未完成
+
+- 目标：Minecraft 1.21.11、Fabric Loader 0.16.14、Fabric API 0.141.4+1.21.11、Java 21，产物版本 2.1.22。
+- 目标当前保留 157 个 Java 文件和 24 个已配置客户端 Mixin。FTB、Tips、Better Advancements、Iceberg 与 Advancement Plaques 的精确 1.21.11 JAR/源码尚未下载核验，因此这些基线兼容项仍属未完成，不能视为已经同步。
+- 已按 1.21.11 原始字节码适配 GUI 终端绘制、矩阵栈、按键事件、字体回退、实体渲染状态、告示牌提交、共享缓存 CustomPayload，以及 `ComponentSerialization.CODEC`。
+- 已验证的通用入口覆盖标准 Component/String/FormattedCharSequence GUI 和 tooltip 路径；HUD 标题、Boss 栏、计分板、文本展示与 tab 页保留基线的上下文、锚点、缓存失效和原文保护行为。
+- 静态验证：`clean build --no-build-cache -x test`、逻辑检查、Component JSON 夹具、精确 Mixin 分析与编译后 handler 描述符审计通过。
+- 2026-07-13 已修复两项只能由真实客户端触发的问题：`FontManagerMixin` 不再捕获包私有 `FontManager.Preparation` 参数；`TitleOverlayMixin` 按原始字节码分别覆盖 `renderTitle` 的 title/subtitle 两处调用和 `renderOverlayMessage` 的 actionbar 一处调用。
+- 已将 2.1.22 部署到 `<designated-test-client>\versions\Wynn高桶出击！`，通过正常初始化和单人世界进入检查。该整合包自带的 `translate-all-in-one 3.2.1` 有独立的 1.21.11 `InGameHudMixin` 注入失败；隔离验证时临时禁用并在结束后恢复，不能把它的崩溃归因于 SimpleTranslate。
 
 ## 同步原则
 
@@ -70,7 +80,7 @@
 4. 恢复并校正目标版本的 Loader/API 适配，并逐项说明目标独有文件的必要性。
 5. 对照目标 Minecraft 源码逐个审计启用 Mixin。
 6. 运行逻辑检查、翻译夹具和干净构建。
-7. 部署非 sources JAR，最小化后台入世，检查日志和崩溃报告。
+7. 部署非 sources JAR 到相同目标版本的专用测试客户端，最小化/后台启动并进入可用测试世界，检查 `latest.log` 和崩溃报告。
 8. 比较基线/目标产品文件清单，确认无未说明的额外业务文件，并扫描成品 JAR 中是否残留已删除类。
 9. 扫描源码、资源、脚本和成品 JAR，OCR 命中必须为零。
 10. 记录构建产物、验证结果、已清理内容和剩余风险，等待下一目标授权。
@@ -80,9 +90,10 @@
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\scripts\run-logic-checks.ps1 -ProjectDir .
 powershell -ExecutionPolicy Bypass -File .\scripts\run-translation-fixtures.ps1 -ProjectDir .
-$env:JAVA_HOME = "C:\Program Files\Zulu\zulu-21"
+$env:JAVA_HOME = "<jdk-21>"
 .\gradlew.bat clean build --no-daemon -x test
 powershell -ExecutionPolicy Bypass -File .\scripts\run-client-check.ps1 -ProjectDir . -EnterWorld -WindowStyle Minimized
+# 除非用户单独要求，不启动专用服务器。
 ```
 
 脚本不能替代真实 API 质量、LAN 多客户端共享缓存和全部视觉交互验收；这些风险必须单独报告。

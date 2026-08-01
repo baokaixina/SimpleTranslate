@@ -28,30 +28,31 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 public class SignRendererMixin {
 
     @Inject(
-            method = "submitSignText(Lnet/minecraft/client/renderer/blockentity/state/SignRenderState;Lcom/mojang/blaze3d/vertex/PoseStack;Lnet/minecraft/client/renderer/SubmitNodeCollector;Lnet/minecraft/world/level/block/entity/SignText;)V",
+            method = "submitSignText(Lnet/minecraft/client/renderer/blockentity/state/SignRenderState;Lcom/mojang/blaze3d/vertex/PoseStack;Lnet/minecraft/client/renderer/SubmitNodeCollector;Z)V",
             at = @At("HEAD"),
             require = 0)
     private void simple_translate$onSubmitSignText(SignRenderState renderState, PoseStack poseStack,
-            SubmitNodeCollector collector, SignText signText, CallbackInfo ci) {
+            SubmitNodeCollector collector, boolean front, CallbackInfo ci) {
         MixinRuntimeProbe.matched("SignRendererMixin#submitSignText");
-        boolean front = signText == renderState.frontText || signText != renderState.backText;
+        SignText signText = front ? renderState.frontText : renderState.backText;
         simple_translate$registerRenderedText(
                 renderState.blockPos, signText, front, renderState.maxTextLineWidth);
     }
 
     @Inject(
-            method = "submitSignText(Lnet/minecraft/client/renderer/blockentity/state/SignRenderState;Lcom/mojang/blaze3d/vertex/PoseStack;Lnet/minecraft/client/renderer/SubmitNodeCollector;Lnet/minecraft/world/level/block/entity/SignText;)V",
+            method = "submitSignText(Lnet/minecraft/client/renderer/blockentity/state/SignRenderState;Lcom/mojang/blaze3d/vertex/PoseStack;Lnet/minecraft/client/renderer/SubmitNodeCollector;Z)V",
             at = @At(
                     value = "INVOKE",
                     target = "Lnet/minecraft/client/renderer/blockentity/AbstractSignRenderer;getDarkColor(Lnet/minecraft/world/level/block/entity/SignText;)I",
                     shift = At.Shift.BEFORE),
             require = 0)
     private void simple_translate$scaleTranslatedText(SignRenderState renderState, PoseStack poseStack,
-            SubmitNodeCollector collector, SignText signText, CallbackInfo ci) {
+            SubmitNodeCollector collector, boolean front, CallbackInfo ci) {
         if (!ModConfig.CONTENT_SIGN_ENABLED.get()
                 || HoldOriginalState.isHolding(HoldOriginalFeature.SIGN)) {
             return;
         }
+        SignText signText = front ? renderState.frontText : renderState.backText;
         SignTranslationHelper.SignTextIdentityData data = SignTranslationHelper.getSignTextData(signText);
         if (data == null || data.isTranslating || data.renderLines == null) {
             return;

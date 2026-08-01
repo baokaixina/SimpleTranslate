@@ -2,7 +2,10 @@ package com.yourname.simpletranslate.mixin;
 
 import com.mojang.blaze3d.vertex.PoseStack;
 import com.yourname.simpletranslate.config.ModConfig;
-import com.yourname.simpletranslate.util.SignTranslationHelper;
+import com.yourname.simpletranslate.core.MixinRuntimeProbe;
+import com.yourname.simpletranslate.feature.sign.SignTranslationHelper;
+import com.yourname.simpletranslate.keybind.HoldOriginalFeature;
+import com.yourname.simpletranslate.keybind.HoldOriginalState;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.renderer.MultiBufferSource;
 import net.minecraft.client.renderer.blockentity.SignRenderer;
@@ -18,6 +21,10 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 /**
  * Register translated sign text at the inner text-rendering step so mods like
  * Enhanced Block Entities can replace the outer renderer without bypassing us.
+ *
+ * <p>Minecraft 1.21.3 has no AbstractSignRenderer: {@code SignRenderer} draws
+ * sign text directly through its package-private {@code renderSignText} helper
+ * (verified against the 1.21.3 mojmap bytecode).</p>
  */
 @Mixin(SignRenderer.class)
 public class SignRendererMixin {
@@ -25,10 +32,37 @@ public class SignRendererMixin {
     @Inject(
             method = "renderSignText(Lnet/minecraft/core/BlockPos;Lnet/minecraft/world/level/block/entity/SignText;Lcom/mojang/blaze3d/vertex/PoseStack;Lnet/minecraft/client/renderer/MultiBufferSource;IIIZ)V",
             at = @At("HEAD"),
-            require = 1)
+            require = 0)
     private void simple_translate$onRenderSignText(BlockPos pos, SignText signText, PoseStack poseStack,
             MultiBufferSource buffer, int packedLight, int lineHeight, int maxTextLineWidth, boolean front, CallbackInfo ci) {
+        MixinRuntimeProbe.matched("SignRendererMixin#renderSignText");
         simple_translate$registerRenderedText(pos, signText, front, maxTextLineWidth);
+    }
+
+    @Inject(
+            method = "renderSignText(Lnet/minecraft/core/BlockPos;Lnet/minecraft/world/level/block/entity/SignText;Lcom/mojang/blaze3d/vertex/PoseStack;Lnet/minecraft/client/renderer/MultiBufferSource;IIIZ)V",
+            at = @At(
+                    value = "INVOKE",
+                    target = "Lnet/minecraft/client/renderer/blockentity/SignRenderer;getDarkColor(Lnet/minecraft/world/level/block/entity/SignText;)I",
+                    shift = At.Shift.BEFORE),
+            require = 0)
+    private void simple_translate$scaleTranslatedText(BlockPos pos, SignText signText, PoseStack poseStack,
+            MultiBufferSource buffer, int packedLight, int lineHeight, int maxTextLineWidth, boolean front, CallbackInfo ci) {
+        if (!ModConfig.CONTENT_SIGN_ENABLED.get()
+                || HoldOriginalState.isHolding(HoldOriginalFeature.SIGN)) {
+            return;
+        }
+        SignTranslationHelper.SignTextIdentityData data = SignTranslationHelper.getSignTextData(signText);
+        if (data == null || data.isTranslating || data.renderLines == null) {
+            return;
+        }
+        float scale = data.renderScale;
+        if (Float.isFinite(scale) && scale > 0.0F && scale < 1.0F) {
+            float verticalCenter = -lineHeight / 2.0F;
+            poseStack.translate(0.0F, verticalCenter, 0.0F);
+            poseStack.scale(scale, scale, scale);
+            poseStack.translate(0.0F, -verticalCenter, 0.0F);
+        }
     }
 
     @Unique
@@ -50,8 +84,8 @@ public class SignRendererMixin {
                 || simple_translate$isWithinAutoScanRange(mc, pos);
         SignTranslationHelper.TranslationResult result =
                 SignTranslationHelper.getTranslatedLinesWithState(sign, front, mc.level, allowAutoRequest);
-        SignTranslationHelper.registerSignTextByIdentity(
-                System.identityHashCode(signText), pos, front, result.lines, result.components,
+        SignTranslationHelper.registerSignText(
+                signText, pos, front, result.lines, result.components,
                 result.isTranslating, maxTextLineWidth);
     }
 
@@ -68,4 +102,3 @@ public class SignRendererMixin {
                 pos.getZ() + 0.5D) <= maxDistance * maxDistance;
     }
 }
-

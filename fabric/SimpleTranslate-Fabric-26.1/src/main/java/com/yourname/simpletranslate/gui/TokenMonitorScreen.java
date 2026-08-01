@@ -99,6 +99,7 @@ public class TokenMonitorScreen extends ScrollableSettingsScreen {
                         })
                 .bounds(0, 0, contentWidth, 20)
                 .build();
+        withTooltip(clearButton, "screen.simple_translate.token_monitor.clear.tooltip");
         addEntry(clearButton);
     }
 

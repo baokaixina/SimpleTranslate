@@ -21,6 +21,10 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 /**
  * Register translated sign text at the inner text-rendering step so mods like
  * Enhanced Block Entities can replace the outer renderer without bypassing us.
+ *
+ * <p>Minecraft 1.21.3 has no AbstractSignRenderer: {@code SignRenderer} draws
+ * sign text directly through its package-private {@code renderSignText} helper
+ * (verified against the 1.21.3 mojmap bytecode).</p>
  */
 @Mixin(SignRenderer.class)
 public class SignRendererMixin {
@@ -98,4 +102,3 @@ public class SignRendererMixin {
                 pos.getZ() + 0.5D) <= maxDistance * maxDistance;
     }
 }
-

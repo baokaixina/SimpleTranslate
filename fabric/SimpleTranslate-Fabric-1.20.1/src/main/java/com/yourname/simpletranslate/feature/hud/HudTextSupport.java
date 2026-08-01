@@ -2,53 +2,58 @@ package com.yourname.simpletranslate.feature.hud;
 
 import com.yourname.simpletranslate.core.DynamicTextTemplate;
 import com.yourname.simpletranslate.core.ComponentSegmentHelper;
+import com.yourname.simpletranslate.core.ComponentVisualProjection;
 import com.yourname.simpletranslate.core.TextSegmentInfo;
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.chat.MutableComponent;
 import net.minecraft.network.chat.Style;
 import org.jetbrains.annotations.Nullable;
 
+import java.util.regex.Pattern;
+
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /** Pure HUD text templating and signature helpers, independent of the GUI mixin. */
 public final class HudTextSupport {
-    private static final Pattern DYNAMIC_VALUE_PATTERN =
-            Pattern.compile("\\(?[+-]?\\d+(?:\\.\\d+)?(?:/[+-]?\\d+(?:\\.\\d+)?)*%?\\)?");
-    private static final String TECHNICAL_TOKEN_BODY =
-            "(?:NE|NW|SE|SW|N|S|E|W|HP|MP|XP|ATK|DEF|SPD|DPS|DOT|HPS|LVL|LV)";
-    private static final Pattern BRACKETED_TECHNICAL_TOKEN_PATTERN =
-            Pattern.compile("\\[" + TECHNICAL_TOKEN_BODY + "]", Pattern.CASE_INSENSITIVE);
-    private static final Pattern TECHNICAL_TOKEN_PATTERN =
-            Pattern.compile(TECHNICAL_TOKEN_BODY, Pattern.CASE_INSENSITIVE);
+    private static final Pattern COORDINATE_VALUE_PATTERN = Pattern.compile(
+            "\\[\\s*[+-]?\\d+(?:[.,:]\\d+)*(?:\\s*,\\s*[+-]?\\d+(?:[.,:]\\d+)*){1,2}\\s*\\]");
+    private static final Pattern DYNAMIC_VALUE_PATTERN = Pattern.compile(
+            "\\(?[+-]?\\d+(?:[.,:]\\d+)*(?:\\s*/\\s*[+-]?\\d+(?:[.,:]\\d+)*)?%?\\)?");
+    /** Existing actionbar/template markers are local migration data, never model input. */
+    private static final Pattern LOCAL_LAYOUT_TOKEN_PATTERN =
+            Pattern.compile("\\u27E6[^\\u27E6\\u27E7]*\\u27E7");
     private static final Pattern PLACEHOLDER_PATTERN = Pattern.compile("⟦(1\\d{3})⟧");
     private static final int MAX_ACTIONBAR_PLACEHOLDERS = 1000;
+    private static final int NO_ACTIONBAR_VARIABLE = -1;
 
     private HudTextSupport() {
     }
 
     public static ActionbarTemplate actionbarTemplate(@Nullable Component original) {
         if (original == null) {
-            return new ActionbarTemplate(Component.empty(), List.of());
+            return new ActionbarTemplate(Component.empty(), List.of(), List.of());
         }
         List<TextSegmentInfo> segments = new ArrayList<>();
         ComponentSegmentHelper.extractSegments(original, segments, Style.EMPTY, false);
         MutableComponent normalized = Component.empty();
         List<ActionbarVariable> variables = new ArrayList<>();
+        List<ActionbarLeaf> leaves = new ArrayList<>();
         if (segments.isEmpty()) {
-            appendTemplateText(normalized, original.getString(), Style.EMPTY, variables);
+            appendTemplateText(normalized, original.getString(), Style.EMPTY, variables, leaves);
         } else {
             for (TextSegmentInfo segment : segments) {
                 if (segment == null || segment.text == null || segment.text.isEmpty()) {
                     continue;
                 }
                 appendTemplateText(normalized, segment.text,
-                        segment.style == null ? Style.EMPTY : segment.style, variables);
+                        segment.style == null ? Style.EMPTY : segment.style, variables, leaves);
             }
         }
-        return new ActionbarTemplate(normalized, List.copyOf(variables));
+        return new ActionbarTemplate(normalized, List.copyOf(variables), List.copyOf(leaves));
     }
 
     @Nullable
@@ -112,39 +117,51 @@ public final class HudTextSupport {
         return signature.toString();
     }
 
+    private static final Pattern WHITESPACE = Pattern.compile("\\s+");
+
     public static String cleanText(String text) {
-        return text == null ? "" : text.replace('\r', ' ').replace('\n', ' ').trim().replaceAll("\\s+", " ");
+        return text == null ? "" : WHITESPACE.matcher(text.replace('\r', ' ').replace('\n', ' ').trim()).replaceAll(" ");
     }
 
     public static boolean isTechnicalText(String text) {
         if (text == null || text.isBlank()) {
             return true;
         }
-        String withoutSymbols = text.replaceAll("[\\p{Punct}\\s\\u00A7§※✥✦✧❤♥☼☽☾◆◇■□▶▷◀◁|/\\\\]+", "");
-        if (withoutSymbols.isEmpty()) {
-            return true;
-        }
-        String words = withoutSymbols.replaceAll("[0-9]+", "");
-        if (words.matches("(?i)^(N|S|E|W|NE|NW|SE|SW|HP|MP|XP|ATK|DEF|SPD|DPS|DOT|HPS|LV|LVL)+$")) {
-            return true;
-        }
-        String[] tokens = text.replaceAll("[^A-Za-z0-9/]+", " ").trim().split("\\s+");
-        int meaningfulWords = 0;
-        int technicalWords = 0;
-        for (String token : tokens) {
-            if (token == null || token.isBlank() || token.matches("[0-9/]+")) {
+        boolean hasDigit = text.codePoints().anyMatch(Character::isDigit);
+        StringBuilder letters = new StringBuilder();
+        for (int index = 0; index < text.length(); ) {
+            int protectedEnd = protectedActionbarTokenEnd(text, index);
+            if (protectedEnd > index) {
+                letters.append(' ');
+                index = protectedEnd;
                 continue;
             }
-            meaningfulWords++;
-            if (token.matches("(?i)N|S|E|W|NE|NW|SE|SW|HP|MP|XP|ATK|DEF|SPD|DPS|DOT|HPS|LV|LVL")) {
-                technicalWords++;
+            int cp = text.codePointAt(index);
+            letters.append(Character.isLetter(cp) ? new String(Character.toChars(cp)) : " ");
+            index += Character.charCount(cp);
+        }
+        String value = letters.toString().trim();
+        if (value.isEmpty()) {
+            return true;
+        }
+        String[] tokens = value.split("\\s+");
+        for (String token : tokens) {
+            if (token.isBlank()) {
+                continue;
+            }
+            int length = token.codePointCount(0, token.length());
+            boolean shortUppercase = length <= 3
+                    && token.equals(token.toUpperCase(Locale.ROOT));
+            boolean shortUnitBesideValue = hasDigit && length <= 2;
+            if (!shortUppercase && !shortUnitBesideValue) {
+                return false;
             }
         }
-        return meaningfulWords > 0 && technicalWords >= meaningfulWords && meaningfulWords <= 2;
+        return true;
     }
 
     private static void appendTemplateText(MutableComponent target, String text, Style style,
-            List<ActionbarVariable> variables) {
+            List<ActionbarVariable> variables, List<ActionbarLeaf> leaves) {
         if (target == null || text == null || text.isEmpty()) {
             return;
         }
@@ -153,7 +170,7 @@ public final class HudTextSupport {
         while (cursor < text.length()) {
             int protectedEnd = protectedActionbarTokenEnd(text, cursor);
             if (protectedEnd > cursor) {
-                appendProtectedToken(target, text.substring(cursor, protectedEnd), effectiveStyle, variables);
+                appendProtectedToken(target, text.substring(cursor, protectedEnd), effectiveStyle, variables, leaves);
                 cursor = protectedEnd;
                 continue;
             }
@@ -162,7 +179,9 @@ public final class HudTextSupport {
             while (next < text.length() && protectedActionbarTokenEnd(text, next) <= next) {
                 next += Character.charCount(text.codePointAt(next));
             }
-            target.append(Component.literal(text.substring(cursor, next)).withStyle(effectiveStyle));
+            String literal = text.substring(cursor, next);
+            target.append(Component.literal(literal).withStyle(effectiveStyle));
+            leaves.add(new ActionbarLeaf(literal, literal, effectiveStyle, NO_ACTIONBAR_VARIABLE));
             cursor = next;
         }
     }
@@ -171,23 +190,23 @@ public final class HudTextSupport {
         if (text == null || index < 0 || index >= text.length()) {
             return index;
         }
-        Matcher matcher = DYNAMIC_VALUE_PATTERN.matcher(text);
-        matcher.region(index, text.length());
-        if (matcher.lookingAt()) {
-            return matcher.end();
-        }
-
-        int bracketedTechnicalEnd = matchedTechnicalTokenEnd(
-                BRACKETED_TECHNICAL_TOKEN_PATTERN, text, index, false);
-        if (bracketedTechnicalEnd > index) {
-            return bracketedTechnicalEnd;
-        }
-        int technicalEnd = matchedTechnicalTokenEnd(TECHNICAL_TOKEN_PATTERN, text, index, true);
-        if (technicalEnd > index) {
-            return technicalEnd;
+        for (Pattern pattern : List.of(LOCAL_LAYOUT_TOKEN_PATTERN,
+                COORDINATE_VALUE_PATTERN, DYNAMIC_VALUE_PATTERN)) {
+            Matcher matcher = pattern.matcher(text);
+            matcher.region(index, text.length());
+            if (matcher.lookingAt()) {
+                return matcher.end();
+            }
         }
 
         int codePoint = text.codePointAt(index);
+        if (codePoint == '§' && index + 1 < text.length()) {
+            int valueIndex = index + 1;
+            return valueIndex + Character.charCount(text.codePointAt(valueIndex));
+        }
+        if (ComponentVisualProjection.isOpaqueCodepoint(codePoint)) {
+            return index + Character.charCount(codePoint);
+        }
         if (isBracketBoundary(codePoint)) {
             return index + Character.charCount(codePoint);
         }
@@ -211,22 +230,6 @@ public final class HudTextSupport {
         return index;
     }
 
-    private static int matchedTechnicalTokenEnd(Pattern pattern, String text, int index, boolean requireBoundary) {
-        if (requireBoundary && index > 0 && Character.isLetterOrDigit(text.codePointBefore(index))) {
-            return index;
-        }
-        Matcher matcher = pattern.matcher(text);
-        matcher.region(index, text.length());
-        if (!matcher.lookingAt()) {
-            return index;
-        }
-        int end = matcher.end();
-        if (requireBoundary && end < text.length() && Character.isLetterOrDigit(text.codePointAt(end))) {
-            return index;
-        }
-        return end;
-    }
-
     private static int consumeActionbarSeparatorRun(String text, int index) {
         int cursor = index;
         while (cursor < text.length()) {
@@ -245,28 +248,33 @@ public final class HudTextSupport {
     }
 
     private static boolean isActionbarSeparator(int codePoint) {
-        return switch (codePoint) {
-            case '|', '/', '\\', ':', ';', ',', '\uFF0C', '\u3001', '\uFF1A', '\uFF1B',
-                    '\u203B', '\u2725', '\u2726', '\u2727', '\u2764', '\u2665',
-                    '\u263C', '\u263D', '\u263E', '\u25C6', '\u25C7', '\u25A0',
-                    '\u25A1', '\u25B6', '\u25B7', '\u25C0', '\u25C1', '\u2022',
-                    '\u00B7', '-', '\u2013', '\u2014', '+' -> true;
+        if (ComponentVisualProjection.isOpaqueCodepoint(codePoint)) {
+            return true;
+        }
+        return switch (Character.getType(codePoint)) {
+            case Character.CONNECTOR_PUNCTUATION, Character.DASH_PUNCTUATION,
+                    Character.START_PUNCTUATION, Character.END_PUNCTUATION,
+                    Character.INITIAL_QUOTE_PUNCTUATION, Character.FINAL_QUOTE_PUNCTUATION,
+                    Character.OTHER_PUNCTUATION -> true;
             default -> false;
         };
     }
 
     private static void appendProtectedToken(MutableComponent target, String value, Style style,
-            List<ActionbarVariable> variables) {
+            List<ActionbarVariable> variables, List<ActionbarLeaf> leaves) {
         if (value == null || value.isEmpty()) {
             return;
         }
         if (variables.size() >= MAX_ACTIONBAR_PLACEHOLDERS) {
             target.append(Component.literal(value).withStyle(style));
+            leaves.add(new ActionbarLeaf(value, value, style, NO_ACTIONBAR_VARIABLE));
             return;
         }
-        String placeholder = DynamicTextTemplate.marker(1000 + variables.size());
+        int variableIndex = variables.size();
+        String placeholder = DynamicTextTemplate.marker(1000 + variableIndex);
         variables.add(new ActionbarVariable(value, style));
         target.append(Component.literal(placeholder).withStyle(style));
+        leaves.add(new ActionbarLeaf(placeholder, value, style, variableIndex));
     }
 
     @Nullable
@@ -290,9 +298,34 @@ public final class HudTextSupport {
                 + ";o=" + effective.isObfuscated();
     }
 
-    public record ActionbarTemplate(Component component, List<ActionbarVariable> variables) {
+    public record ActionbarTemplate(Component component, List<ActionbarVariable> variables,
+                                    List<ActionbarLeaf> leaves) {
+        public ActionbarTemplate {
+            variables = variables == null ? List.of() : List.copyOf(variables);
+            leaves = leaves == null ? List.of() : List.copyOf(leaves);
+        }
+
+        public ActionbarTemplate(Component component, List<ActionbarVariable> variables) {
+            this(component, variables, List.of());
+        }
     }
 
     public record ActionbarVariable(String value, Style style) {
+    }
+
+    /**
+     * One literal leaf emitted into the actionbar translation template, in render order.
+     * A non-negative {@code variableIndex} points at {@link ActionbarTemplate#variables()}.
+     */
+    public record ActionbarLeaf(String templateText, String sourceText, Style style, int variableIndex) {
+        public ActionbarLeaf {
+            templateText = templateText == null ? "" : templateText;
+            sourceText = sourceText == null ? "" : sourceText;
+            style = style == null ? Style.EMPTY : style;
+        }
+
+        public boolean isVariable() {
+            return variableIndex >= 0;
+        }
     }
 }

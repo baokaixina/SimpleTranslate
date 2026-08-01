@@ -7,6 +7,9 @@ import net.minecraft.network.chat.Component;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.regex.Pattern;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -27,6 +30,8 @@ public final class HudTranslationHistory {
     private static final long FAILED_RETRY_MS = 6_000L;
 
     private static final List<EntryState> ENTRIES = new ArrayList<>();
+    private static final Map<String, EntryState> ENTRY_INDEX = new HashMap<>();
+    private static final Pattern WHITESPACE = Pattern.compile("\\s+");
     private static long nextSequence = 1L;
     private static long nextBatchId = 1L;
     private static final List<InFlightBatch> IN_FLIGHT_BATCHES = new ArrayList<>();
@@ -38,6 +43,7 @@ public final class HudTranslationHistory {
 
     public static synchronized void clear() {
         ENTRIES.clear();
+        ENTRY_INDEX.clear();
         nextSequence = 1L;
         nextBatchId = 1L;
         IN_FLIGHT_BATCHES.clear();
@@ -67,10 +73,9 @@ public final class HudTranslationHistory {
             return null;
         }
         String key = cleanKey(historyKey, type.name() + "\u0000" + originalText);
-        for (EntryState existing : ENTRIES) {
-            if (existing.historyKey.equals(key)) {
-                return existing.snapshot();
-            }
+        EntryState existingEntry = ENTRY_INDEX.get(key);
+        if (existingEntry != null) {
+            return existingEntry.snapshot();
         }
 
         long now = System.currentTimeMillis();
@@ -89,6 +94,7 @@ public final class HudTranslationHistory {
                 0L,
                 0);
         ENTRIES.add(entry);
+        ENTRY_INDEX.put(entry.historyKey, entry);
         trimEntries();
         if (nextBatchAllowedAtMillis <= now) {
             nextBatchAllowedAtMillis = now + batchIntervalMs();
@@ -101,7 +107,7 @@ public final class HudTranslationHistory {
         EntryState entry = findEntry(historyKey);
         return entry == null || entry.status != Status.DONE || entry.translatedDisplayComponent == null
                 ? null
-                : entry.translatedDisplayComponent.copy();
+                : entry.translatedDisplayComponent;
     }
 
     @Nullable
@@ -438,17 +444,13 @@ public final class HudTranslationHistory {
         if (key.isBlank()) {
             return null;
         }
-        for (EntryState entry : ENTRIES) {
-            if (entry.historyKey.equals(key)) {
-                return entry;
-            }
-        }
-        return null;
+        return ENTRY_INDEX.get(key);
     }
 
     private static void trimEntries() {
         while (ENTRIES.size() > MAX_HISTORY_ENTRIES) {
-            ENTRIES.remove(0);
+            EntryState removed = ENTRIES.remove(0);
+            ENTRY_INDEX.remove(removed.historyKey);
         }
     }
 
@@ -464,7 +466,7 @@ public final class HudTranslationHistory {
     }
 
     private static String clean(String text) {
-        return text == null ? "" : text.replace('\r', ' ').replace('\n', ' ').trim().replaceAll("\\s+", " ");
+        return text == null ? "" : WHITESPACE.matcher(text.replace('\r', ' ').replace('\n', ' ').trim()).replaceAll(" ");
     }
 
     private static String cleanKey(String key, String fallback) {

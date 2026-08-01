@@ -1,10 +1,9 @@
 package com.yourname.simpletranslate.gui;
 
-import com.mojang.blaze3d.vertex.PoseStack;
-
 import com.yourname.simpletranslate.config.ModConfig;
 import com.yourname.simpletranslate.feature.tooltip.TooltipTranslationGlowRenderer;
-import com.yourname.simpletranslate.compat.GuiGraphics;
+import com.mojang.blaze3d.vertex.PoseStack;
+import com.yourname.simpletranslate.core.render.GuiGraphics;
 import net.minecraft.client.gui.components.AbstractSliderButton;
 import net.minecraft.client.gui.components.AbstractWidget;
 import net.minecraft.client.gui.components.CycleButton;
@@ -53,9 +52,8 @@ public class TooltipGlowSettingsScreen extends ScrollableSettingsScreen {
 
         CycleButton<ModConfig.TooltipGlowTheme> theme = CycleButton
                 .<ModConfig.TooltipGlowTheme>builder(value -> Component.translatable(
-                        "screen.simple_translate.tooltip_glow.theme." + value.name().toLowerCase(Locale.ROOT)))
+                        "screen.simple_translate.tooltip_glow.theme." + value.name().toLowerCase(Locale.ROOT))).withInitialValue(ModConfig.TOOLTIP_GLOW_THEME.get())
                 .withValues(ModConfig.TooltipGlowTheme.values())
-                .withInitialValue(ModConfig.TOOLTIP_GLOW_THEME.get())
                 .create(0, 0, this.contentWidth, 20,
                         Component.translatable("screen.simple_translate.tooltip_glow.theme"),
                         (button, value) -> {
@@ -94,7 +92,7 @@ public class TooltipGlowSettingsScreen extends ScrollableSettingsScreen {
 
         @Override
         public void renderButton(PoseStack poseStack, int mouseX, int mouseY, float partialTick) {
-            GuiGraphics graphics = new GuiGraphics(poseStack);
+            GuiGraphics graphics = GuiGraphics.wrap(poseStack);
             int left = getX() + 10;
             int top = getY() + 9;
             int right = getX() + getWidth() - 10;
@@ -112,6 +110,7 @@ public class TooltipGlowSettingsScreen extends ScrollableSettingsScreen {
                     left + 8, top + 38, 0x999999);
         }
 
+        @Override
         protected void updateWidgetNarration(NarrationElementOutput output) {
             defaultButtonNarrationText(output);
         }

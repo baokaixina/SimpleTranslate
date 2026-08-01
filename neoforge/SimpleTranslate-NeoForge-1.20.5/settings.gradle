@@ -1,0 +1,88 @@
+pluginManagement {
+    repositories {
+        mavenLocal()
+        maven {
+            name = 'SimpleTranslate Local Maven'
+            url = file('.gradle/local-maven')
+            metadataSources {
+                gradleMetadata()
+                mavenPom()
+                artifact()
+            }
+        }
+        ivy {
+            name = 'SimpleTranslate NeoForge Dummy'
+            url = file('.gradle/repositories/ng_dummy_ng')
+            patternLayout {
+                artifact '[organisation]/[module]/[revision]/[artifact]-[revision](-[classifier]).[ext]'
+                ivy '[organisation]/[module]/[revision]/ivy-[revision]-ng2.xml'
+            }
+            metadataSources {
+                ivyDescriptor()
+                artifact()
+            }
+        }
+        gradlePluginPortal()
+        // maven.neoforged.net is unreachable from this network; BMCLAPI mirrors the full tree.
+        maven { url = 'https://bmclapi2.bangbang93.com/maven' }
+        maven { url = 'https://maven.neoforged.net/releases' }
+        mavenCentral()
+    }
+}
+
+plugins {
+    id 'org.gradle.toolchains.foojay-resolver-convention' version '1.0.0'
+}
+
+dependencyResolutionManagement {
+    repositoriesMode.set(RepositoriesMode.PREFER_SETTINGS)
+    repositories {
+        ivy {
+            name = 'SimpleTranslate NeoForge Dummy'
+            url = file('.gradle/repositories/ng_dummy_ng')
+            patternLayout {
+                artifact '[organisation]/[module]/[revision]/[artifact]-[revision](-[classifier]).[ext]'
+                ivy '[organisation]/[module]/[revision]/ivy-[revision]-ng2.xml'
+            }
+            metadataSources {
+                ivyDescriptor()
+                artifact()
+            }
+        }
+        maven {
+            name = 'SimpleTranslate Local Maven'
+            url = file('.gradle/local-maven')
+            // The vendored poms lack the published-with-gradle-metadata marker,
+            // so the default marker-based discovery never fetches the sibling
+            // .module; force explicit gradle metadata lookup (needed for the
+            // neoforge moddev-bundle capability variants).
+            metadataSources {
+                gradleMetadata()
+                mavenPom()
+                artifact()
+            }
+        }
+        maven {
+            name = 'Mojang Minecraft Libraries'
+            url = 'https://libraries.minecraft.net/'
+            metadataSources {
+                mavenPom()
+                artifact()
+            }
+        }
+        // maven.neoforged.net (mojang-meta and releases) is unreachable from this
+        // network; net.neoforged:* resolves through the BMCLAPI mirror below and
+        // net.neoforged:minecraft-dependencies is vendored under .gradle/local-maven.
+        maven {
+            name = 'NeoForged Releases (BMCLAPI mirror)'
+            url = 'https://bmclapi2.bangbang93.com/maven/'
+        }
+        // Forge/Fabric mavens are directly reachable and authoritative for
+        // cpw.mods:*, net.minecraftforge:* and net.fabricmc:* (BMCLAPI lacks their poms).
+        maven { url = 'https://maven.minecraftforge.net/' }
+        maven { url = 'https://maven.fabricmc.net/' }
+        mavenCentral()
+    }
+}
+
+rootProject.name = 'SimpleTranslate-NeoForge-1.20.5'

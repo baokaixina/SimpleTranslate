@@ -80,7 +80,7 @@
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\scripts\run-logic-checks.ps1 -ProjectDir .
 powershell -ExecutionPolicy Bypass -File .\scripts\run-translation-fixtures.ps1 -ProjectDir .
-$env:JAVA_HOME = "C:\Program Files\Zulu\zulu-21"
+$env:JAVA_HOME = "<jdk-21>"
 .\gradlew.bat clean build --no-daemon -x test
 powershell -ExecutionPolicy Bypass -File .\scripts\run-client-check.ps1 -ProjectDir . -EnterWorld -WindowStyle Minimized
 ```

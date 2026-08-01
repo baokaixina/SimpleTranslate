@@ -1,40 +1,51 @@
 package com.yourname.simpletranslate;
 
-import com.mojang.logging.LogUtils;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
+import com.mojang.logging.LogUtils;
 import com.yourname.simpletranslate.cache.TermDictionary;
 import com.yourname.simpletranslate.cache.TranslationBlacklist;
+import com.yourname.simpletranslate.cache.LineTranslationMemory;
 import com.yourname.simpletranslate.cache.TranslationCache;
-import com.yourname.simpletranslate.chat.ChatContextBatchTranslator;
-import com.yourname.simpletranslate.chat.ChatTranslationController;
+import com.yourname.simpletranslate.feature.chat.ChatTranslationController;
+import com.yourname.simpletranslate.feature.chat.ChatMessageStore;
+import com.yourname.simpletranslate.feature.chat.ChatContextBatchTranslator;
 import com.yourname.simpletranslate.config.ModConfig;
 import com.yourname.simpletranslate.keybind.HoldOriginalState;
 import com.yourname.simpletranslate.keybind.ModKeyBindings;
-import com.yourname.simpletranslate.network.SharedCacheClient;
-import com.yourname.simpletranslate.network.SharedCacheNetworking;
-import com.yourname.simpletranslate.network.SharedCacheServer;
-import com.yourname.simpletranslate.translation.TranslationManager;
-import com.yourname.simpletranslate.translation.TranslationRequestQueue;
-import com.yourname.simpletranslate.util.AdvancementTranslationHelper;
-import com.yourname.simpletranslate.util.BlacklistRefreshAware;
-import com.yourname.simpletranslate.util.BookTranslationHelper;
-import com.yourname.simpletranslate.util.HudTranslationHistory;
-import com.yourname.simpletranslate.util.ScoreboardTranslationHelper;
-import com.yourname.simpletranslate.util.SignContextSelectionManager;
-import com.yourname.simpletranslate.util.SignSelectionHighlighter;
-import com.yourname.simpletranslate.util.SignTranslationHelper;
-import com.yourname.simpletranslate.util.TooltipTranslationHelper;
-import com.yourname.simpletranslate.util.TranslationLanes;
+import com.yourname.simpletranslate.cache.SharedCacheClient;
+import com.yourname.simpletranslate.cache.SharedCacheNetworking;
+import com.yourname.simpletranslate.cache.SharedCacheServer;
+import com.yourname.simpletranslate.transport.TranslationManager;
+import com.yourname.simpletranslate.transport.TranslationRequestQueue;
+import com.yourname.simpletranslate.core.BlacklistRefreshAware;
+import com.yourname.simpletranslate.feature.book.BookTranslationHelper;
+import com.yourname.simpletranslate.feature.hud.HudTranslationHistory;
+import com.yourname.simpletranslate.feature.hud.ScoreboardTranslationHelper;
+import com.yourname.simpletranslate.feature.gui.GuiTranslationHelper;
+import com.yourname.simpletranslate.feature.sign.SignContextSelectionManager;
+import com.yourname.simpletranslate.feature.sign.SignSelectionHighlighter;
+import com.yourname.simpletranslate.feature.sign.SignTranslationHelper;
+import com.yourname.simpletranslate.feature.tooltip.TooltipTranslationHelper;
+import com.yourname.simpletranslate.feature.tooltip.TooltipTranslationTriggerState;
+import com.yourname.simpletranslate.core.JsonPassthroughPipeline;
+import com.yourname.simpletranslate.core.TextContextMemory;
+import com.yourname.simpletranslate.transport.TranslationLanes;
+import com.yourname.simpletranslate.transport.TokenUsageMonitor;
+import com.yourname.simpletranslate.gui.SimpleTranslateScreen;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.multiplayer.ServerData;
 import net.minecraftforge.client.event.ClientPlayerNetworkEvent;
+import net.minecraftforge.client.ConfigScreenHandler;
 import net.minecraftforge.common.MinecraftForge;
+import net.minecraftforge.event.TickEvent;
 import net.minecraftforge.fml.common.Mod;
+import net.minecraftforge.fml.event.lifecycle.FMLClientSetupEvent;
 import net.minecraftforge.fml.javafmlmod.FMLJavaModLoadingContext;
 import net.minecraftforge.fml.loading.FMLPaths;
+import net.minecraftforge.fml.ModLoadingContext;
 import net.minecraftforge.eventbus.api.IEventBus;
 import org.slf4j.Logger;
 
@@ -42,9 +53,12 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
+import java.util.Comparator;
 import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Locale;
 import java.util.Set;
+import java.util.regex.Pattern;
 
 import net.minecraft.world.level.storage.LevelResource;
 
@@ -56,62 +70,106 @@ public class SimpleTranslateMod {
     private static final String GLOBAL_CACHE_SCOPE = "global";
     private static final String CACHE_SETTINGS_FILE = "cache_settings.json";
 
-    private static TranslationCache translationCache;
-    private static TermDictionary termDictionary;
+    private static volatile TranslationCache translationCache;
+    private static volatile LineTranslationMemory lineTranslationMemory;
+    private static volatile TermDictionary termDictionary;
     private static TranslationBlacklist translationBlacklist;
     private static TranslationManager translationManager;
     private static Path configDir;
-    private static String currentWorldId = null;
+    private static volatile String currentWorldId = null;
     private static Set<String> lastLegacyLocalWorldIds = Set.of();
     private static volatile long runtimeRevision = 0L;
     private static long blacklistRevision = 0L;
     private static boolean currentCacheServerShareEnabled = false;
+    private static boolean firstRunHintShown = false;
 
     public SimpleTranslateMod() {
         IEventBus modEventBus = FMLJavaModLoadingContext.get().getModEventBus();
-        initializeClient(modEventBus);
+        modEventBus.addListener(this::onClientSetup);
+        modEventBus.addListener(ModKeyBindings::registerKeyMappings);
+        // BiFunction ctor: the only ConfigScreenFactory ctor on the declared
+        // Forge floor (javap-verified: the Function overload is absent in
+        // 47.0.0 and only appears in later 47.x builds).
+        ModLoadingContext.get().registerExtensionPoint(
+                ConfigScreenHandler.ConfigScreenFactory.class,
+                () -> new ConfigScreenHandler.ConfigScreenFactory(
+                        (minecraft, parent) -> new SimpleTranslateScreen(parent)));
+        SharedCacheNetworking.registerPayloadTypes();
+        SharedCacheServer.register();
     }
 
-    private void initializeClient(IEventBus modEventBus) {
+    private void onClientSetup(FMLClientSetupEvent event) {
+        event.enqueueWork(this::initializeClient);
+    }
+
+    private void initializeClient() {
         configDir = FMLPaths.CONFIGDIR.get().resolve(MODID);
         ModConfig.init(configDir);
 
         translationCache = new TranslationCache(configDir.resolve("cache.json"));
         translationCache.load();
+        lineTranslationMemory = new LineTranslationMemory(configDir.resolve("line_memory.json"));
+        lineTranslationMemory.load();
         loadCacheScopeSettings(null);
         translationBlacklist = new TranslationBlacklist(configDir.resolve("blacklist.json"));
         translationBlacklist.load();
         termDictionary = null;
         translationManager = new TranslationManager();
 
-        ModKeyBindings.register(modEventBus);
+        ModKeyBindings.register();
         ChatContextBatchTranslator.register();
         HoldOriginalState.register();
         SignSelectionHighlighter.register();
-        SharedCacheNetworking.register();
         SharedCacheClient.register();
-        SharedCacheServer.register();
 
+        MinecraftForge.EVENT_BUS.addListener(this::onClientTick);
         MinecraftForge.EVENT_BUS.addListener(this::onClientLoggingIn);
         MinecraftForge.EVENT_BUS.addListener(this::onClientLoggingOut);
+
+        com.yourname.simpletranslate.compat.IcebergTooltipGatherCompat.registerIfPresent();
+
+        // Forge 1.20.1 has no client-stopping event; flush through a JVM hook
+        // so hard window closes persist the same state Fabric's
+        // ClientLifecycleEvents.CLIENT_STOPPING persists.
+        Runtime.getRuntime().addShutdownHook(new Thread(
+                SimpleTranslateMod::shutdown, "simple_translate-shutdown"));
 
         LOGGER.info("Simple Translate Forge mod initialized");
     }
 
-    private void onClientLoggingIn(ClientPlayerNetworkEvent.LoggingIn event) {
-        String worldId = getWorldIdentifier();
-        if (worldId != null && !worldId.equals(currentWorldId)) {
-            resetTranslationRuntime("world-switch:" + (currentWorldId == null ? "none" : currentWorldId) + "->" + worldId);
-            currentWorldId = worldId;
-            switchWorldData(worldId);
-            SharedCacheClient.onJoinedWorld();
-            LOGGER.debug("Switched to world data for: {}", worldId);
+    private void onClientTick(TickEvent.ClientTickEvent event) {
+        if (event.phase == TickEvent.Phase.END) {
+            ChatContextBatchTranslator.tickAllCollectors();
         }
+    }
+
+    private void onClientLoggingIn(ClientPlayerNetworkEvent.LoggingIn event) {
+        Minecraft client = Minecraft.getInstance();
+        try {
+            String worldId = getWorldIdentifier();
+            if (worldId != null && !worldId.equals(currentWorldId)) {
+                resetTranslationRuntime("world-switch:" + (currentWorldId == null ? "none" : currentWorldId) + "->" + worldId);
+                currentWorldId = worldId;
+                switchWorldData(worldId);
+                LOGGER.debug("Switched to world data for: {}", worldId);
+            }
+        } catch (Throwable error) {
+            LOGGER.error("SimpleTranslate failed to switch world data on join; continuing with current state", error);
+        }
+        try {
+            SharedCacheClient.onJoinedWorld();
+        } catch (Throwable error) {
+            LOGGER.error("SimpleTranslate shared-cache join failed; continuing", error);
+        }
+        showFirstRunHintIfNeeded(client);
     }
 
     private void onClientLoggingOut(ClientPlayerNetworkEvent.LoggingOut event) {
         if (translationCache != null) {
             translationCache.flush();
+        }
+        if (lineTranslationMemory != null) {
+            lineTranslationMemory.flush();
         }
         if (termDictionary != null) {
             termDictionary.save();
@@ -120,11 +178,49 @@ public class SimpleTranslateMod {
             translationBlacklist.save();
         }
         resetTranslationRuntime("disconnect");
-        SharedCacheClient.onDisconnected();
         termDictionary = null;
         currentWorldId = null;
         lastLegacyLocalWorldIds = Set.of();
+        firstRunHintShown = false;
+        SharedCacheClient.onDisconnected();
         switchGlobalData();
+    }
+
+    private static void shutdown() {
+        if (translationCache != null) {
+            translationCache.flush();
+        }
+        if (lineTranslationMemory != null) {
+            lineTranslationMemory.flush();
+        }
+        if (termDictionary != null) {
+            termDictionary.save();
+        }
+        if (translationBlacklist != null) {
+            translationBlacklist.save();
+        }
+        TranslationRequestQueue.shutdown();
+        JsonPassthroughPipeline.shutdown();
+        if (translationManager != null) {
+            translationManager.shutdown();
+        }
+        TranslationCache.shutdownExecutor();
+    }
+
+    private static void showFirstRunHintIfNeeded(Minecraft client) {
+        if (firstRunHintShown) {
+            return;
+        }
+        firstRunHintShown = true;
+        var manager = getTranslationManager();
+        if (manager != null && manager.isReady()) {
+            return;
+        }
+        if (client == null || client.player == null) {
+            return;
+        }
+        client.player.displayClientMessage(
+                net.minecraft.network.chat.Component.translatable("chat.simple_translate.first_run_hint"), true);
     }
 
     private static String getWorldIdentifier() {
@@ -141,17 +237,26 @@ public class SimpleTranslateMod {
             Set<String> legacyIds = new LinkedHashSet<>();
             legacyIds.add(sanitizeFilename("local_" + levelName));
             legacyIds.add(sanitizeFilename("local_" + stripMinecraftFormatting(levelName)));
-            lastLegacyLocalWorldIds = legacyIds;
             try {
                 Path worldPath = mc.getSingleplayerServer().getWorldPath(LevelResource.ROOT)
                         .toAbsolutePath()
                         .normalize();
                 String folderName = worldPath.getFileName() == null ? levelName : worldPath.getFileName().toString();
-                String pathHash = Integer.toHexString(worldPath.toString().toLowerCase(Locale.ROOT).hashCode());
-                return sanitizeFilename("local_" + folderName + "_" + pathHash);
+                String stableWorldId = sanitizeFilename("local_" + folderName);
+                String pathWorldId = sanitizeFilename("local_" + folderName + "_"
+                        + Integer.toHexString(worldPath.toString().toLowerCase(Locale.ROOT).hashCode()));
+                legacyIds.add(pathWorldId);
+                legacyIds.addAll(discoverHashedLocalWorldIds(stableWorldId));
+                legacyIds.remove(stableWorldId);
+                lastLegacyLocalWorldIds = Set.copyOf(legacyIds);
+                return stableWorldId;
             } catch (Exception e) {
-                LOGGER.debug("Falling back to legacy local world id for {}", levelName, e);
-                return legacyIds.iterator().next();
+                String stableWorldId = sanitizeFilename("local_" + stripMinecraftFormatting(levelName));
+                legacyIds.addAll(discoverHashedLocalWorldIds(stableWorldId));
+                legacyIds.remove(stableWorldId);
+                lastLegacyLocalWorldIds = Set.copyOf(legacyIds);
+                LOGGER.debug("Falling back to stable local world id for {}", levelName, e);
+                return stableWorldId;
             }
         }
 
@@ -160,7 +265,7 @@ public class SimpleTranslateMod {
     }
 
     private static String sanitizeFilename(String name) {
-        return name.replaceAll("[^a-zA-Z0-9._-]", "_").toLowerCase();
+        return name.replaceAll("[^a-zA-Z0-9._-]", "_").toLowerCase(java.util.Locale.ROOT);
     }
 
     private static String stripMinecraftFormatting(String name) {
@@ -170,9 +275,37 @@ public class SimpleTranslateMod {
         return name.replaceAll("(?i)[§&][0-9a-fk-or]", "");
     }
 
+    private static Set<String> discoverHashedLocalWorldIds(String stableWorldId) {
+        Set<String> discovered = new LinkedHashSet<>();
+        if (configDir == null || stableWorldId == null || stableWorldId.isBlank()) {
+            return discovered;
+        }
+        Pattern hashedScope = Pattern.compile(Pattern.quote(stableWorldId) + "_[0-9a-f]{1,8}");
+        discoverMatchingScopeDirectories(configDir.resolve("cache"), hashedScope, discovered);
+        discoverMatchingScopeDirectories(configDir.resolve("terms"), hashedScope, discovered);
+        return discovered;
+    }
+
+    private static void discoverMatchingScopeDirectories(Path root, Pattern pattern, Set<String> target) {
+        if (root == null || pattern == null || target == null || !Files.isDirectory(root)) {
+            return;
+        }
+        try (var stream = Files.list(root)) {
+            stream.filter(Files::isDirectory)
+                    .map(path -> path.getFileName() == null ? "" : path.getFileName().toString())
+                    .filter(name -> pattern.matcher(name).matches())
+                    .forEach(target::add);
+        } catch (IOException e) {
+            LOGGER.debug("Unable to discover legacy cache scopes under {}", root, e);
+        }
+    }
+
     private static void switchWorldData(String worldId) {
         if (translationCache != null) {
             translationCache.flush();
+        }
+        if (lineTranslationMemory != null) {
+            lineTranslationMemory.flush();
         }
         if (termDictionary != null) {
             termDictionary.save();
@@ -183,6 +316,9 @@ public class SimpleTranslateMod {
         Path worldCacheDir = configDir.resolve("cache").resolve(worldId);
         translationCache = new TranslationCache(worldCacheDir.resolve("translations.json"));
         translationCache.load();
+        GuiTranslationHelper.migrateLegacyHudFrameActivation(translationCache);
+        lineTranslationMemory = new LineTranslationMemory(worldCacheDir.resolve("line_memory.json"));
+        lineTranslationMemory.load();
         loadCacheScopeSettings(worldId);
 
         Path worldTermsDir = configDir.resolve("terms").resolve(worldId);
@@ -212,6 +348,8 @@ public class SimpleTranslateMod {
         }
         translationCache = new TranslationCache(configDir.resolve("cache.json"));
         translationCache.load();
+        lineTranslationMemory = new LineTranslationMemory(configDir.resolve("line_memory.json"));
+        lineTranslationMemory.load();
         loadCacheScopeSettings(null);
     }
 
@@ -224,14 +362,20 @@ public class SimpleTranslateMod {
         Path targetCacheDir = configDir.resolve("cache").resolve(worldId);
         Path targetTermsDir = configDir.resolve("terms").resolve(worldId);
         Path targetTermsFile = targetTermsDir.resolve("terms.json");
-        for (String legacyWorldId : legacyWorldIds) {
-            if (legacyWorldId == null || legacyWorldId.isBlank() || legacyWorldId.equals(worldId)) {
-                continue;
-            }
-
+        TranslationCache mergedCache = new TranslationCache(targetCacheDir.resolve("translations.json"));
+        mergedCache.load();
+        LineTranslationMemory mergedLineMemory =
+                new LineTranslationMemory(targetCacheDir.resolve("line_memory.json"));
+        mergedLineMemory.load();
+        List<String> orderedLegacyWorldIds = legacyWorldIds.stream()
+                .filter(id -> id != null && !id.isBlank() && !id.equals(worldId))
+                .sorted(Comparator.comparingLong(SimpleTranslateMod::legacyScopeModifiedTime).reversed())
+                .toList();
+        for (String legacyWorldId : orderedLegacyWorldIds) {
             Path legacyCacheDir = configDir.resolve("cache").resolve(legacyWorldId);
-            if (Files.exists(legacyCacheDir) && shouldMigrateCacheDirectory(targetCacheDir)) {
-                copyDirectoryFiles(legacyCacheDir, targetCacheDir, "cache", legacyWorldId, worldId);
+            if (Files.isDirectory(legacyCacheDir)) {
+                mergeLegacyTranslationCache(mergedCache, legacyCacheDir, legacyWorldId, worldId);
+                mergedLineMemory.mergeFrom(legacyCacheDir.resolve("line_memory.json"));
             }
 
             Path legacyTermsFile = configDir.resolve("terms").resolve(legacyWorldId).resolve("terms.json");
@@ -245,46 +389,56 @@ public class SimpleTranslateMod {
                 }
             }
         }
+        mergedCache.flush();
+        mergedLineMemory.flush();
     }
 
-    private static boolean shouldMigrateCacheDirectory(Path targetCacheDir) {
-        if (!Files.exists(targetCacheDir)) {
-            return true;
+    private static long legacyScopeModifiedTime(String worldId) {
+        if (configDir == null || worldId == null || worldId.isBlank()) {
+            return Long.MIN_VALUE;
         }
-        try (var stream = Files.list(targetCacheDir)) {
-            return stream.noneMatch(path -> Files.isRegularFile(path)
-                    && path.getFileName() != null
-                    && path.getFileName().toString().endsWith(".json"));
-        } catch (IOException e) {
-            LOGGER.debug("Unable to inspect target cache directory {}", targetCacheDir, e);
-            return false;
-        }
-    }
-
-    private static void copyDirectoryFiles(Path sourceDir, Path targetDir, String label, String fromWorldId,
-                                           String toWorldId) {
+        Path cacheDir = configDir.resolve("cache").resolve(worldId);
         try {
-            Files.createDirectories(targetDir);
-            try (var stream = Files.list(sourceDir)) {
-                stream.filter(Files::isRegularFile)
-                        .forEach(source -> {
-                            try {
-                                Files.copy(source, targetDir.resolve(source.getFileName()),
-                                        StandardCopyOption.COPY_ATTRIBUTES);
-                            } catch (IOException e) {
-                                LOGGER.warn("Failed to migrate {} file {} from {} to {}",
-                                        label, source.getFileName(), fromWorldId, toWorldId, e);
-                            }
-                        });
-            }
-            LOGGER.info("Migrated legacy world {} from {} to {}", label, fromWorldId, toWorldId);
+            return Files.exists(cacheDir)
+                    ? Files.getLastModifiedTime(cacheDir).toMillis()
+                    : Long.MIN_VALUE;
         } catch (IOException e) {
-            LOGGER.warn("Failed to migrate legacy world {} from {} to {}", label, fromWorldId, toWorldId, e);
+            return Long.MIN_VALUE;
+        }
+    }
+
+    private static void mergeLegacyTranslationCache(TranslationCache targetCache, Path sourceDir,
+                                                    String fromWorldId, String toWorldId) {
+        if (targetCache == null || sourceDir == null || !Files.isDirectory(sourceDir)) {
+            return;
+        }
+        int imported = 0;
+        try (var stream = Files.list(sourceDir)) {
+            for (Path source : stream.filter(Files::isRegularFile).toList()) {
+                String name = source.getFileName() == null
+                        ? "" : source.getFileName().toString().toLowerCase(java.util.Locale.ROOT);
+                if (!name.endsWith(".json")
+                        || "line_memory.json".equals(name)
+                        || CACHE_SETTINGS_FILE.equals(name)) {
+                    continue;
+                }
+                imported += targetCache.importFromFile(source, true).imported();
+            }
+            if (imported > 0) {
+                LOGGER.info("Merged {} cached translations from legacy world scope {} into {}",
+                        imported, fromWorldId, toWorldId);
+            }
+        } catch (IOException e) {
+            LOGGER.warn("Failed to merge legacy world cache from {} to {}", fromWorldId, toWorldId, e);
         }
     }
 
     public static TranslationCache getTranslationCache() {
         return translationCache;
+    }
+
+    public static LineTranslationMemory getLineTranslationMemory() {
+        return lineTranslationMemory;
     }
 
     public static TermDictionary getTermDictionary() {
@@ -342,39 +496,68 @@ public class SimpleTranslateMod {
         resetTranslationRuntime("language-settings");
     }
 
-    public static void onStyleSettingsChanged() {
-        resetTranslationRuntime("style-settings");
-    }
-
     public static void onTranslationCacheEdited() {
         resetTranslationRuntime("cache-edit");
+    }
+
+    public static void onTranslationProfileChanged() {
+        resetTranslationRuntime("translation-profile");
+    }
+
+    public static void onTextContextSettingsChanged() {
+        TextContextMemory.settingsChanged();
+        resetTranslationRuntime("text-context-settings");
+    }
+
+    public static void onTermDictionaryChanged() {
+        resetTranslationRuntime("term-dictionary");
+    }
+
+    public static void onGlobalTranslationSettingChanged(boolean enabled) {
+        if (!enabled) {
+            ChatContextBatchTranslator.restoreVisibleOriginalMessages();
+        }
+        resetTranslationRuntime("global-translation:" + (enabled ? "enabled" : "disabled"));
     }
 
     public static void onSharedTranslationCacheImported() {
         refreshCacheBackedRenderState("shared-cache-import");
     }
 
+    /**
+     * Clears every in-memory translation surface that can retain stale results
+     * across world switches, language changes, blacklist edits, or global toggle.
+     *
+     * <p>Keep this list complete when adding a new surface with static/session
+     * caches. HudFeature instances clear themselves on the next render via
+     * {@link #getRuntimeRevision()} rather than a static registry.</p>
+     */
     private static synchronized void resetTranslationRuntime(String reason) {
         runtimeRevision++;
+        // chat AUTO/BUTTON + message store + peer identity maps
         ChatTranslationController.clearRuntimeState();
         ChatContextBatchTranslator.clear();
+        // request lanes, JSON batcher, recovery freezes
         TranslationLanes.clearAll();
         TranslationRequestQueue.clear();
+        // feature session caches
+        TooltipTranslationTriggerState.clearShortcutRequest();
         TooltipTranslationHelper.clearPendingCache();
-        AdvancementTranslationHelper.clearCache();
         BookTranslationHelper.clearCache();
         HudTranslationHistory.clear();
         ScoreboardTranslationHelper.clearLocalCache();
+        GuiTranslationHelper.clearLocalState();
         SignTranslationHelper.clearAllCache();
         SignContextSelectionManager.clearAll();
+        TokenUsageMonitor.clear();
         LOGGER.debug("Reset SimpleTranslate runtime state: {} (revision={})", reason, runtimeRevision);
     }
 
     private static synchronized void refreshCacheBackedRenderState(String reason) {
         TooltipTranslationHelper.clearPendingCache();
-        AdvancementTranslationHelper.clearCache();
         BookTranslationHelper.clearCache();
         ScoreboardTranslationHelper.clearLocalCache();
+        GuiTranslationHelper.clearLocalState();
         SignTranslationHelper.clearAllCache();
         LOGGER.debug("Refreshed SimpleTranslate cache-backed render state: {}", reason);
     }
@@ -437,7 +620,7 @@ public class SimpleTranslateMod {
             Files.createDirectories(file.getParent());
             CacheScopeSettings settings = new CacheScopeSettings();
             settings.serverShareEnabled = currentCacheServerShareEnabled;
-            Files.writeString(file, GSON.toJson(settings));
+            com.yourname.simpletranslate.core.AtomicFiles.writeString(file, GSON.toJson(settings));
         } catch (IOException e) {
             LOGGER.warn("Failed to save cache scope settings {}", file, e);
         }
@@ -447,4 +630,3 @@ public class SimpleTranslateMod {
         boolean serverShareEnabled;
     }
 }
-

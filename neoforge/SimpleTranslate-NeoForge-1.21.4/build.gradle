@@ -55,10 +55,17 @@ neoForge {
             sourceSet(sourceSets.main)
         }
     }
+
+    unitTest {
+        enable()
+        testedMod = mods."${mod_id}"
+    }
 }
 
 dependencies {
     compileOnly "org.jetbrains:annotations:24.1.0"
+    testImplementation "org.junit.jupiter:junit-jupiter:5.11.4"
+    testRuntimeOnly "org.junit.platform:junit-platform-launcher:1.11.4"
 }
 
 configurations.configureEach {
@@ -97,6 +104,19 @@ neoForge.ideSyncTask generateModMetadata
 tasks.withType(JavaCompile).configureEach {
     options.release = Integer.parseInt(java_version)
     options.encoding = 'UTF-8'
+}
+
+def neoForgeUnitTestPathSupported = !System.getProperty("os.name").toLowerCase().contains("windows")
+        || java.nio.charset.StandardCharsets.US_ASCII.newEncoder().canEncode(project.projectDir.absolutePath)
+
+test {
+    useJUnitPlatform()
+    // NeoForge's unit-test bootstrap corrupts Windows non-ASCII project paths
+    // before it resolves the generated Minecraft test classpath. Compilation
+    // still runs here; execute this suite from an ASCII-only checkout/junction.
+    onlyIf("NeoForge unit tests require an ASCII-only project path on Windows") {
+        neoForgeUnitTestPathSupported
+    }
 }
 
 jar {

@@ -1,15 +1,19 @@
 package com.yourname.simpletranslate.mixin;
 
+import com.mojang.blaze3d.vertex.PoseStack;
 import com.yourname.simpletranslate.config.ModConfig;
-import com.yourname.simpletranslate.util.SignTranslationHelper;
+import com.yourname.simpletranslate.core.MixinRuntimeProbe;
+import com.yourname.simpletranslate.feature.sign.SignTranslationHelper;
+import com.yourname.simpletranslate.keybind.HoldOriginalFeature;
+import com.yourname.simpletranslate.keybind.HoldOriginalState;
 import net.minecraft.client.Minecraft;
+import net.minecraft.client.renderer.SubmitNodeCollector;
 import net.minecraft.client.renderer.blockentity.AbstractSignRenderer;
 import net.minecraft.client.renderer.blockentity.state.SignRenderState;
-import net.minecraft.client.renderer.feature.ModelFeatureRenderer;
 import net.minecraft.core.BlockPos;
 import net.minecraft.world.level.block.entity.SignBlockEntity;
 import net.minecraft.world.level.block.entity.SignText;
-import net.minecraft.world.phys.Vec3;
+import com.yourname.simpletranslate.feature.sign.SignSelectionHighlighter;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Unique;
 import org.spongepowered.asm.mixin.injection.At;
@@ -24,21 +28,56 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 public class SignRendererMixin {
 
     @Inject(
-            method = "extractRenderState(Lnet/minecraft/world/level/block/entity/SignBlockEntity;Lnet/minecraft/client/renderer/blockentity/state/SignRenderState;FLnet/minecraft/world/phys/Vec3;Lnet/minecraft/client/renderer/feature/ModelFeatureRenderer$CrumblingOverlay;)V",
-            at = @At("TAIL"),
-            require = 1)
-    private void simple_translate$onExtractRenderState(SignBlockEntity sign, SignRenderState state, float partialTick,
-            Vec3 cameraPos, ModelFeatureRenderer.CrumblingOverlay crumblingOverlay, CallbackInfo ci) {
-        if (sign == null || state == null) {
+            method = "submitSignText(Lnet/minecraft/client/renderer/blockentity/state/SignRenderState;Lcom/mojang/blaze3d/vertex/PoseStack;Lnet/minecraft/client/renderer/SubmitNodeCollector;Z)V",
+            at = @At("HEAD"),
+            require = 0)
+    private void simple_translate$onSubmitSignText(SignRenderState renderState, PoseStack poseStack,
+            SubmitNodeCollector collector, boolean front, CallbackInfo ci) {
+        MixinRuntimeProbe.matched("SignRendererMixin#submitSignText");
+        SignText signText = front ? renderState.frontText : renderState.backText;
+        simple_translate$registerRenderedText(
+                renderState.blockPos, signText, front, renderState.maxTextLineWidth);
+    }
+
+    @Inject(
+            method = "submitSignText(Lnet/minecraft/client/renderer/blockentity/state/SignRenderState;Lcom/mojang/blaze3d/vertex/PoseStack;Lnet/minecraft/client/renderer/SubmitNodeCollector;Z)V",
+            at = @At(
+                    value = "INVOKE",
+                    target = "Lnet/minecraft/client/renderer/blockentity/AbstractSignRenderer;getDarkColor(Lnet/minecraft/world/level/block/entity/SignText;)I",
+                    shift = At.Shift.BEFORE),
+            require = 0)
+    private void simple_translate$scaleTranslatedText(SignRenderState renderState, PoseStack poseStack,
+            SubmitNodeCollector collector, boolean front, CallbackInfo ci) {
+        if (!ModConfig.CONTENT_SIGN_ENABLED.get()
+                || HoldOriginalState.isHolding(HoldOriginalFeature.SIGN)) {
             return;
         }
-        simple_translate$registerRenderedText(sign, state.frontText, true, state.maxTextLineWidth);
-        simple_translate$registerRenderedText(sign, state.backText, false, state.maxTextLineWidth);
+        SignText signText = front ? renderState.frontText : renderState.backText;
+        SignTranslationHelper.SignTextIdentityData data = SignTranslationHelper.getSignTextData(signText);
+        if (data == null || data.isTranslating || data.renderLines == null) {
+            return;
+        }
+        float scale = data.renderScale;
+        if (Float.isFinite(scale) && scale > 0.0F && scale < 1.0F) {
+            float verticalCenter = -renderState.textLineHeight / 2.0F;
+            poseStack.translate(0.0F, verticalCenter, 0.0F);
+            poseStack.scale(scale, scale, scale);
+            poseStack.translate(0.0F, -verticalCenter, 0.0F);
+        }
+    }
+
+    @Inject(
+            method = "submit(Lnet/minecraft/client/renderer/blockentity/state/SignRenderState;Lcom/mojang/blaze3d/vertex/PoseStack;Lnet/minecraft/client/renderer/SubmitNodeCollector;Lnet/minecraft/client/renderer/state/CameraRenderState;)V",
+            at = @At("HEAD"),
+            require = 0)
+    private void simple_translate$submitSelectionOutline(SignRenderState renderState, PoseStack poseStack,
+            SubmitNodeCollector collector, net.minecraft.client.renderer.state.CameraRenderState cameraState,
+            CallbackInfo ci) {
+        SignSelectionHighlighter.submitSelectionOutline(renderState, poseStack, collector);
     }
 
     @Unique
-    private void simple_translate$registerRenderedText(SignBlockEntity sign, SignText signText, boolean front, int maxTextLineWidth) {
-        BlockPos pos = sign == null ? null : sign.getBlockPos();
+    private void simple_translate$registerRenderedText(BlockPos pos, SignText signText, boolean front, int maxTextLineWidth) {
         if (!ModConfig.CONTENT_SIGN_ENABLED.get() || pos == null || signText == null) {
             return;
         }
@@ -48,12 +87,16 @@ public class SignRendererMixin {
             return;
         }
 
+        if (!(mc.level.getBlockEntity(pos) instanceof SignBlockEntity sign)) {
+            return;
+        }
+
         boolean allowAutoRequest = ModConfig.CONTENT_SIGN_CONTEXT_MODE.get() != ModConfig.SignContextMode.AUTO
                 || simple_translate$isWithinAutoScanRange(mc, pos);
         SignTranslationHelper.TranslationResult result =
                 SignTranslationHelper.getTranslatedLinesWithState(sign, front, mc.level, allowAutoRequest);
-        SignTranslationHelper.registerSignTextByIdentity(
-                System.identityHashCode(signText), pos, front, result.lines, result.components,
+        SignTranslationHelper.registerSignText(
+                signText, pos, front, result.lines, result.components,
                 result.isTranslating, maxTextLineWidth);
     }
 

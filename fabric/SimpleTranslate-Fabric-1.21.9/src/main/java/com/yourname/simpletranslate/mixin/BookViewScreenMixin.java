@@ -83,7 +83,7 @@ public abstract class BookViewScreenMixin extends Screen {
         simple_translate$restoreBookAccessAfterRender();
     }
 
-    @Redirect(method = "visitText",
+    @Redirect(method = "render",
             at = @At(value = "INVOKE",
                     target = "Lnet/minecraft/client/gui/screens/inventory/BookViewScreen$BookAccess;getPage(I)Lnet/minecraft/network/chat/Component;"),
             require = 0)

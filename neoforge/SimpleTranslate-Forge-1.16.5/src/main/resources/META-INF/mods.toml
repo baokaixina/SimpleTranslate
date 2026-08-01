@@ -1,0 +1,32 @@
+modLoader="javafml"
+loaderVersion="[36,)"
+license="${mod_license}"
+clientSideOnly=false
+showAsResourcePack=false
+
+[[mods]]
+modId="${mod_id}"
+version="${version}"
+displayName="${mod_name}"
+authors="${mod_authors}"
+# 1.16.5 ModListScreen resolves logoFile as a jar-root resource and throws
+# "Root resources can only be filenames, not paths" for any '/' (crash
+# reproduced live 2026-07-27 when selecting the mod in the Mod list). The
+# build copies the icon to the jar root under this name.
+logoFile="simple_translate_logo.png"
+description='''${mod_description}'''
+
+[[dependencies.${mod_id}]]
+modId="forge"
+mandatory=true
+# Minimum compatible Forge floor for MC 1.16.5 (36.x era), not the build version.
+versionRange="[36,)"
+ordering="NONE"
+side="BOTH"
+
+[[dependencies.${mod_id}]]
+modId="minecraft"
+mandatory=true
+versionRange="[1.16.5,1.17)"
+ordering="NONE"
+side="BOTH"

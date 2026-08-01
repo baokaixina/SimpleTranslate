@@ -1,13 +1,11 @@
 package com.yourname.simpletranslate.mixin;
 
-import com.yourname.simpletranslate.util.ChatButtonClickHandler;
-import net.minecraft.client.Minecraft;
-import net.minecraft.client.gui.components.ChatComponent;
+import com.yourname.simpletranslate.feature.chat.ChatTranslationController;
+import net.minecraft.client.gui.components.EditBox;
 import net.minecraft.client.gui.screens.ChatScreen;
-import net.minecraft.network.chat.ClickEvent;
-import net.minecraft.network.chat.Style;
+import net.minecraft.client.gui.screens.Screen;
 import org.spongepowered.asm.mixin.Mixin;
-import org.spongepowered.asm.mixin.Unique;
+import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
@@ -15,38 +13,21 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 @Mixin(ChatScreen.class)
 public class ChatScreenMixin {
 
-    @Unique
-    private static final String SIMPLE_TRANSLATE_CLICK_PREFIX = "simple_translate:";
+    @Shadow
+    protected EditBox input;
 
-    @Inject(method = "mouseClicked", at = @At("HEAD"), cancellable = true)
-    private void simple_translate$onMouseClicked(double mouseX, double mouseY, int button, CallbackInfoReturnable<Boolean> cir) {
-        if (button != 0) {
+    @Inject(method = "keyPressed", at = @At("HEAD"), cancellable = true)
+    private void simple_translate$onKeyPressed(
+            int keyCode, int scanCode, int modifiers, CallbackInfoReturnable<Boolean> cir) {
+        // GLFW_KEY_ENTER (257) and GLFW_KEY_KP_ENTER (335) are the chat
+        // confirmation keys; KeyEvent.isConfirmation() is 1.21.9-only.
+        if ((keyCode != 257 && keyCode != 335) || !Screen.hasControlDown()) {
             return;
         }
 
-        Minecraft minecraft = Minecraft.getInstance();
-        if (minecraft == null || minecraft.gui == null) {
-            return;
-        }
-
-        ChatComponent chatComponent = minecraft.gui.getChat();
-        Style style = chatComponent.getClickedComponentStyleAt(mouseX, mouseY);
-        if (style == null || style.getClickEvent() == null) {
-            return;
-        }
-
-        ClickEvent clickEvent = style.getClickEvent();
-        if (clickEvent.getAction() != ClickEvent.Action.SUGGEST_COMMAND) {
-            return;
-        }
-
-        String value = clickEvent.getValue();
-        if (value == null || !value.startsWith(SIMPLE_TRANSLATE_CLICK_PREFIX)) {
-            return;
-        }
-
-        if (chatComponent instanceof ChatButtonClickHandler handler
-                && handler.simple_translate$handleButtonClickEvent(value)) {
+        ChatScreen screen = (ChatScreen) (Object) this;
+        if (ChatTranslationController.tryTranslateOutgoingMessage(
+                screen, this.input.getValue(), () -> this.input.getValue())) {
             cir.setReturnValue(true);
             cir.cancel();
         }

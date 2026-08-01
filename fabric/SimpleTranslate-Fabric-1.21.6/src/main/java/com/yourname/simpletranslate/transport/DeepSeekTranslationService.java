@@ -71,7 +71,6 @@ public class DeepSeekTranslationService implements TranslationService {
     });
     private final HttpClient httpClient;
     private final Gson gson;
-    private volatile ApiRequestProfile lastSuccessfulProfile;
 
     private enum EndpointKind {
         CHAT_COMPLETIONS,
@@ -101,15 +100,21 @@ public class DeepSeekTranslationService implements TranslationService {
         if (!isReady()) {
             return CompletableFuture.completedFuture(new TranslationResult.Failed("api-key-not-configured"));
         }
-        String sourceLanguage = ModConfig.SOURCE_LANGUAGE.get();
-        String targetLanguage = ModConfig.TARGET_LANGUAGE.get();
+        String sourceLanguage = effectiveSourceLanguage(request);
+        String targetLanguage = effectiveTargetLanguage(request);
         String source = String.join("\n", request.lines());
         if (!isJsonArrayPayload(source)) {
             return CompletableFuture.completedFuture(
                     new TranslationResult.Failed("component-json-required"));
         }
         String systemPrompt = JsonPassthroughPrompts.buildSystemPrompt(
-                sourceLanguage, targetLanguage, request.terms(), request.surface());
+                sourceLanguage, targetLanguage, request.terms(), request.surface(), request.promptContext());
+        int exactTopLevelCount = countJsonArrayElements(source);
+        if (exactTopLevelCount >= 0) {
+            systemPrompt += "\nTHIS REQUEST CONTAINS EXACTLY " + exactTopLevelCount
+                    + " TOP-LEVEL ARRAY ELEMENTS. RETURN EXACTLY " + exactTopLevelCount
+                    + " TOP-LEVEL ARRAY ELEMENTS IN THE SAME ORDER.";
+        }
         CompletableFuture<String> future = sendRequest(systemPrompt, source,
                 estimateDirectMaxTokens(source, request.maxTokenMultiplier()), request.surface());
         return future.handle((payload, error) -> {
@@ -133,7 +138,17 @@ public class DeepSeekTranslationService implements TranslationService {
         return trimmed.startsWith("[") && trimmed.endsWith("]");
     }
 
-    /** Output budget follows the Component JSON array, not the optional context preface. */
+    private static String effectiveSourceLanguage(TranslationRequest request) {
+        String value = request == null ? "" : request.sourceLanguage();
+        return value == null || value.isBlank() ? ModConfig.SOURCE_LANGUAGE.get() : value;
+    }
+
+    private static String effectiveTargetLanguage(TranslationRequest request) {
+        String value = request == null ? "" : request.targetLanguage();
+        return value == null || value.isBlank() ? ModConfig.TARGET_LANGUAGE.get() : value;
+    }
+
+    /** Output budget follows only the top-level user array; context is carried in the system prompt. */
     private static int estimateDirectMaxTokens(String document) {
         return estimateDirectMaxTokens(document, 1);
     }
@@ -141,10 +156,6 @@ public class DeepSeekTranslationService implements TranslationService {
     /** Multiplier is retained for callers that submit unusually large JSON arrays. */
     static int estimateDirectMaxTokens(String document, int multiplier) {
         String body = document == null ? "" : document;
-        int contextEnd = body.indexOf("[/CONTEXT]");
-        if (contextEnd >= 0) {
-            body = body.substring(contextEnd + "[/CONTEXT]".length()).trim();
-        }
         int elementCount = countJsonArrayElements(body);
         int charEstimate = (int) (body.length() * 2.4) + 512;
         int elementEstimate = elementCount * 192 + 384;
@@ -241,7 +252,6 @@ public class DeepSeekTranslationService implements TranslationService {
         SimpleTranslateMod.getLogger().debug("Sending translation request to {} with model {} format {}", apiUrl, model, apiFormat);
         SimpleTranslateMod.getLogger().debug("Text to translate: {}", userPrompt);
         List<ApiRequestProfile> profiles = buildRequestProfiles(apiUrl, apiFormat, model);
-
         String queueKey = buildQueueKey(apiUrl, model, apiFormat.name(), systemPrompt, userPrompt, maxTokens);
         return TranslationRequestQueue.submit(queueKey, surface, priorityForSurface(surface), MAX_REQUEST_ATTEMPTS,
                 () -> sendRequestAsync(profiles, apiKey, model, apiFormat.name(), surface,
@@ -267,7 +277,6 @@ public class DeepSeekTranslationService implements TranslationService {
                         systemPrompt, userPrompt, maxTokens)
                 .thenCompose(translated -> {
                     if (translated != null && !translated.isBlank()) {
-                        lastSuccessfulProfile = profile;
                         return CompletableFuture.completedFuture(translated);
                     }
                     return sendRequestAsync(profiles, index + 1, apiKey, model, apiFormat, surface,
@@ -333,9 +342,8 @@ public class DeepSeekTranslationService implements TranslationService {
                     recordTokenUsage(apiFormat, model, startedAtMs, surface, parsed.usage());
                     return result;
                 }
-                SimpleTranslateMod.getLogger().debug(
-                        "Translation API returned no assistant text; skipping identical automatic retry");
-                return null;
+                throw new TranslationRequestQueue.RetryableTranslationException(
+                        "API response did not contain assistant text output");
             }
 
             String errorBody = readErrorBody(response.body());
@@ -368,6 +376,14 @@ public class DeepSeekTranslationService implements TranslationService {
         if (cause instanceof InvalidApiResponseException invalid) {
             SimpleTranslateMod.getLogger().warn("Translation API returned an unusable response: {}",
                     invalid.getMessage());
+            if ("API response did not contain assistant text output".equals(invalid.getMessage())) {
+                // A successful HTTP response with no assistant payload is a
+                // transient provider completion failure, not a valid empty
+                // translation. Let the bounded request queue retry it instead
+                // of freezing every tooltip/HUD cache key on the first blank.
+                throw new TranslationRequestQueue.RetryableTranslationException(
+                        invalid.getMessage(), invalid);
+            }
             return null;
         }
         if (cause instanceof java.util.concurrent.CancellationException canceled) {
@@ -648,13 +664,13 @@ public class DeepSeekTranslationService implements TranslationService {
             usageHolder[0] = usage;
         }
         if (chunk.has("delta") && !chunk.get("delta").isJsonNull()) {
-            result.append(chunk.get("delta").getAsString());
-            return;
-        }
-        if (chunk.has("type") && !chunk.get("type").isJsonNull()
-                && "response.output_text.delta".equals(chunk.get("type").getAsString())
-                && chunk.has("delta") && !chunk.get("delta").isJsonNull()) {
-            result.append(chunk.get("delta").getAsString());
+            // Only plain text deltas are translation output; reasoning or
+            // refusal deltas and other typed events must never be appended.
+            String type = chunk.has("type") && !chunk.get("type").isJsonNull()
+                    ? chunk.get("type").getAsString() : "";
+            if (type.isBlank() || "response.output_text.delta".equals(type)) {
+                result.append(chunk.get("delta").getAsString());
+            }
             return;
         }
         JsonArray choices = chunk.getAsJsonArray("choices");
@@ -803,7 +819,6 @@ public class DeepSeekTranslationService implements TranslationService {
                 if (response.statusCode() == 200) {
                     String translated = parseResponse(body);
                     if (isValidModelAccessProbeResponse(translated)) {
-                        lastSuccessfulProfile = profile;
                         return new TranslationDiagnostics.ModelAccess(true, modelId, response.statusCode(),
                                 "Model verified");
                     }
@@ -848,7 +863,7 @@ public class DeepSeekTranslationService implements TranslationService {
         if (value == null) {
             return false;
         }
-        String trimmed = value.stripLeading().toLowerCase();
+        String trimmed = value.stripLeading().toLowerCase(java.util.Locale.ROOT);
         return trimmed.startsWith("<!doctype html")
                 || trimmed.startsWith("<html")
                 || trimmed.contains("<title")
@@ -908,7 +923,7 @@ public class DeepSeekTranslationService implements TranslationService {
         return switch (format) {
             case DEEPSEEK_CHAT -> List.of(new ApiRequestProfile(base, resolveChatEndpoint(base),
                     EndpointKind.CHAT_COMPLETIONS, true));
-            case OPENAI_CHAT_COMPAT -> List.of(new ApiRequestProfile(base, resolveChatEndpoint(base),
+            case OPENAI_CHAT_COMPAT, LOCAL_OLLAMA -> List.of(new ApiRequestProfile(base, resolveChatEndpoint(base),
                     EndpointKind.CHAT_COMPLETIONS,
                     isOfficialDeepSeekEndpoint(base) || isDeepSeekReasoningModel(model)));
             case OPENAI_RESPONSES -> List.of(new ApiRequestProfile(base, resolveResponsesEndpoint(base),
@@ -1349,7 +1364,10 @@ public class DeepSeekTranslationService implements TranslationService {
 
     public boolean isReady() {
         String apiKey = sanitizeApiKey(ModConfig.DEEPSEEK_API_KEY.get());
-        return apiKey != null && !apiKey.isEmpty();
+        if (apiKey != null && !apiKey.isEmpty()) {
+            return true;
+        }
+        return ModConfig.API_FORMAT.get() == ModConfig.ApiFormat.LOCAL_OLLAMA;
     }
 
     public String getServiceName() {

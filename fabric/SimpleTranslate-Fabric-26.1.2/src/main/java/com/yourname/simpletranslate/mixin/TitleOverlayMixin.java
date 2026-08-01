@@ -1,14 +1,20 @@
 package com.yourname.simpletranslate.mixin;
 
+import com.llamalad7.mixinextras.injector.wrapoperation.Operation;
+import com.llamalad7.mixinextras.injector.wrapoperation.WrapOperation;
+import com.llamalad7.mixinextras.injector.wrapmethod.WrapMethod;
 import com.yourname.simpletranslate.feature.hud.HudFeature;
 import com.yourname.simpletranslate.keybind.HoldOriginalAware;
 import com.yourname.simpletranslate.keybind.HoldOriginalFeature;
 import com.yourname.simpletranslate.core.BlacklistRefreshAware;
 import com.yourname.simpletranslate.core.SafeTranslate;
+import com.yourname.simpletranslate.feature.gui.GuiTranslationHelper;
 import net.minecraft.client.DeltaTracker;
+import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.Gui;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.network.chat.Component;
+import net.minecraft.network.chat.FormattedText;
 import org.jetbrains.annotations.Nullable;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
@@ -40,22 +46,24 @@ public abstract class TitleOverlayMixin implements HoldOriginalAware, BlacklistR
     @Unique
     private final HudFeature simple_translate$hud = new HudFeature();
 
-    @Inject(method = "setTitle", at = @At("TAIL"))
+    @Inject(method = "setTitle(Lnet/minecraft/network/chat/Component;)V", at = @At("TAIL"))
     private void simple_translate$onSetTitle(Component title, CallbackInfo ci) {
         SafeTranslate.guard(() -> simple_translate$hud.onSetTitle(title), "title.onSetTitle");
     }
 
-    @Inject(method = "setSubtitle", at = @At("TAIL"))
+    @Inject(method = "setSubtitle(Lnet/minecraft/network/chat/Component;)V", at = @At("TAIL"))
     private void simple_translate$onSetSubtitle(Component subtitle, CallbackInfo ci) {
         SafeTranslate.guard(() -> simple_translate$hud.onSetSubtitle(subtitle), "title.onSetSubtitle");
     }
 
-    @Inject(method = "setOverlayMessage", at = @At("TAIL"))
+    @Inject(method = "setOverlayMessage(Lnet/minecraft/network/chat/Component;Z)V", at = @At("TAIL"))
     private void simple_translate$onSetOverlayMessage(Component component, boolean animateColor, CallbackInfo ci) {
         SafeTranslate.guard(() -> simple_translate$hud.onSetOverlayMessage(component), "title.onSetOverlayMessage");
     }
 
-    @Inject(method = "extractRenderState", at = @At("HEAD"))
+    @Inject(
+            method = "extractRenderState(Lnet/minecraft/client/gui/GuiGraphicsExtractor;Lnet/minecraft/client/DeltaTracker;)V",
+            at = @At("HEAD"), order = 900)
     private void simple_translate$onRender(GuiGraphicsExtractor graphics, DeltaTracker tickCounter, CallbackInfo ci) {
         SafeTranslate.guard(() -> {
             simple_translate$hud.onRender();
@@ -63,9 +71,106 @@ public abstract class TitleOverlayMixin implements HoldOriginalAware, BlacklistR
             this.subtitle = simple_translate$hud.renderSubtitle();
             this.overlayMessageString = simple_translate$hud.renderOverlay();
         }, "title.onRender");
+        SafeTranslate.guard(GuiTranslationHelper::beginHudFrame, "gui.hudFrame.begin");
     }
 
-    @Inject(method = "clearTitles", at = @At("TAIL"))
+    @Inject(
+            method = "extractRenderState(Lnet/minecraft/client/gui/GuiGraphicsExtractor;Lnet/minecraft/client/DeltaTracker;)V",
+            // Wynntils draws GUI_POST overlays from its default-order RETURN
+            // callback. Close the ordinary K/HUD frame afterwards; the exact
+            // Wynntils manager window owns or suppresses its independent frame.
+            at = @At("RETURN"), order = 1100)
+    private void simple_translate$endHudFrame(GuiGraphicsExtractor graphics, DeltaTracker tickCounter, CallbackInfo ci) {
+        SafeTranslate.guard(() -> GuiTranslationHelper.endHudFrame(graphics), "gui.hudFrame.end");
+    }
+
+    /**
+     * Chat, boss bars, scoreboard, tab list, titles and actionbars all have
+     * dedicated translation owners. Keep the whole-HUD K frame outside these
+     * render windows even when an individual owner is disabled; otherwise K
+     * can translate the same source or destroy Wynn's event-scoped glyph mask.
+     */
+    @WrapMethod(
+            method = {
+                    "extractBossOverlay(Lnet/minecraft/client/gui/GuiGraphicsExtractor;Lnet/minecraft/client/DeltaTracker;)V",
+                    "extractChat(Lnet/minecraft/client/gui/GuiGraphicsExtractor;Lnet/minecraft/client/DeltaTracker;)V",
+                    "extractScoreboardSidebar(Lnet/minecraft/client/gui/GuiGraphicsExtractor;Lnet/minecraft/client/DeltaTracker;)V",
+                    "extractTabList(Lnet/minecraft/client/gui/GuiGraphicsExtractor;Lnet/minecraft/client/DeltaTracker;)V",
+                    "extractOverlayMessage(Lnet/minecraft/client/gui/GuiGraphicsExtractor;Lnet/minecraft/client/DeltaTracker;)V",
+                    "extractTitle(Lnet/minecraft/client/gui/GuiGraphicsExtractor;Lnet/minecraft/client/DeltaTracker;)V"
+            }, require = 6)
+    private void simple_translate$renderDedicatedHudSurface(
+            GuiGraphicsExtractor graphics, DeltaTracker tickCounter, Operation<Void> original) {
+        GuiTranslationHelper.beginCaptureSuppression();
+        try {
+            original.call(graphics, tickCounter);
+        } finally {
+            GuiTranslationHelper.endCaptureSuppression();
+        }
+    }
+
+    /**
+     * Vanilla centers the actionbar from this width. Both the generic fixed
+     * layout plan and the Wynn glyph-overlay plan must retain the untouched
+     * source width so their PUA coordinate stream starts at the vanilla x.
+     */
+    @WrapOperation(
+            method = "extractOverlayMessage(Lnet/minecraft/client/gui/GuiGraphicsExtractor;Lnet/minecraft/client/DeltaTracker;)V",
+            at = @At(value = "INVOKE", target = "Lnet/minecraft/client/gui/Font;width(Lnet/minecraft/network/chat/FormattedText;)I"),
+            require = 1
+    )
+    private int simple_translate$preserveLayoutActionbarWidth(
+            Font font, FormattedText rendered, Operation<Integer> original) {
+        if (rendered instanceof Component component) {
+            Component source = simple_translate$hud.layoutActionbarSource(component);
+            if (source != null) {
+                return original.call(font, source);
+            }
+        }
+        return original.call(font, rendered);
+    }
+
+    /**
+     * Draw a verified layout plan. The Wynn path lets vanilla consume one
+     * masked copy of its complete original glyph stream and then overlays
+     * Chinese; the generic path may draw fixed-anchor spans. Normal actionbars
+     * continue through vanilla unchanged, and every unsafe plan falls back to
+     * the untouched source component.
+     */
+    @WrapOperation(
+            method = "extractOverlayMessage(Lnet/minecraft/client/gui/GuiGraphicsExtractor;Lnet/minecraft/client/DeltaTracker;)V",
+            at = @At(value = "INVOKE", target = "Lnet/minecraft/client/gui/GuiGraphicsExtractor;textWithBackdrop(Lnet/minecraft/client/gui/Font;Lnet/minecraft/network/chat/Component;IIII)V"),
+            require = 1
+    )
+    private void simple_translate$renderLayoutActionbar(
+            GuiGraphicsExtractor graphics, Font font, Component rendered,
+            int x, int y, int width, int color, Operation<Void> original) {
+        Component source = simple_translate$hud.layoutActionbarSource(rendered);
+        if (source == null) {
+            try {
+                // Queue the pending effect before vanilla's text call so the
+                // untouched Wynn glyphs stay crisp above the inward-only glow.
+                simple_translate$hud.renderWynnDialoguePendingEffect(
+                        graphics, font, rendered, x, y, width);
+            } catch (Throwable error) {
+                SafeTranslate.logLimited("title.wynnDialoguePendingEffect", error);
+            }
+            original.call(graphics, font, rendered, x, y, width, color);
+            return;
+        }
+        try {
+            if (simple_translate$hud.renderLayoutActionbar(graphics, font, rendered, x, y, width, color)) {
+                return;
+            }
+        } catch (Throwable error) {
+            // Rendering must be no-risk: a resource-pack font or deferred GUI
+            // extractor failure still leaves the original actionbar visible.
+            SafeTranslate.logLimited("title.layoutActionbarRender", error);
+        }
+        original.call(graphics, font, source, x, y, width, color);
+    }
+
+    @Inject(method = "clearTitles()V", at = @At("TAIL"))
     private void simple_translate$onClear(CallbackInfo ci) {
         simple_translate$hud.onClear();
     }

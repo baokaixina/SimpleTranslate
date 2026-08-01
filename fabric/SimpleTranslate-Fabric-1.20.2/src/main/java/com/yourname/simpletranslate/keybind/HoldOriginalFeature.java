@@ -14,7 +14,8 @@ public enum HoldOriginalFeature {
     SCOREBOARD("screen.simple_translate.hold_original.feature.scoreboard"),
     BOSSBAR("screen.simple_translate.hold_original.feature.bossbar"),
     TITLE("screen.simple_translate.hold_original.feature.title"),
-    ACTIONBAR("screen.simple_translate.hold_original.feature.actionbar");
+    ACTIONBAR("screen.simple_translate.hold_original.feature.actionbar"),
+    GUI("screen.simple_translate.hold_original.feature.gui");
 
     private final String translationKey;
 
@@ -26,7 +27,11 @@ public enum HoldOriginalFeature {
         return translationKey;
     }
 
-    public ModConfig.IntValue getKeyConfig() {
-        return ModConfig.getHoldOriginalKey(this);
+    public ModConfig.ConfigValue<String> getChordConfig() {
+        return ModConfig.getHoldOriginalChord(this);
+    }
+
+    public KeyChord chord() {
+        return KeyChord.parse(getChordConfig().get(), KeyChord.NONE);
     }
 }

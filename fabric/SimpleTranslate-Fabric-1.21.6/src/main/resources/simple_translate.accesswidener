@@ -1,0 +1,10 @@
+accessWidener	v2	named
+
+# Font.PreparedTextBuilder is private in 1.21.8; the Wynn glyph-mask hook's
+# WrapOperation handler names it as the receiver type (GlyphInstance itself is
+# already public).
+accessible	class	net/minecraft/client/gui/Font$PreparedTextBuilder
+
+# Minecraft 1.21.8 has no FontSet$SelectedGlyphs: FontSet#getGlyph/getGlyphInfo
+# are public and FontSetMixin/FontSetAccessor cover the remaining private
+# missingGlyph member, so no FontSet entries are required on this version.

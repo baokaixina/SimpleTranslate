@@ -3,42 +3,43 @@ package com.yourname.simpletranslate.gui;
 import com.yourname.simpletranslate.SimpleTranslateMod;
 import com.yourname.simpletranslate.config.ModConfig;
 import net.minecraft.client.Minecraft;
-import com.yourname.simpletranslate.compat.GuiGraphics;
-import net.minecraft.client.gui.components.*;
+import com.mojang.blaze3d.vertex.PoseStack;
+import com.yourname.simpletranslate.core.render.GuiGraphics;
+import net.minecraft.client.gui.components.AbstractWidget;
+import net.minecraft.client.gui.components.Button;
+import net.minecraft.client.gui.components.CycleButton;
+import net.minecraft.client.gui.narration.NarrationElementOutput;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.Component;
+import net.minecraft.network.chat.MutableComponent;
 
 import java.util.ArrayList;
+import java.util.EnumMap;
 import java.util.List;
+import java.util.Map;
 
-/**
- * Main settings screen for Simple Translate
- *
- * 闁伙絽鐭傚鎵磼閹惧鈧垶鏁?
- * - API閻犱礁澧介悿?(API Key, Model)
- * - 闁告梻鍠曢崗妯何熼垾铏仴闁稿繈鍎辫ぐ?(闁煎崬锕ら妵澶岀礄閺勫繒妲柕鍡曟閸旂喓鐚惧鍥╁€抽悹鍥ㄥ灟閳ь兛鑳舵晶鍧楀传娴ｇ懓绲圭紒鈧搹鍦€抽悹鍥ㄥ灟閳ь兛绗璘D缂傚牊妲掗惁?
- * - 缂佺媴绱曢幃濠囧箰婢舵劖灏?(闁哄牜鍨甸銏㈢不閿涘嫭鍊為柕鍡曡兌缁憋妇鈧稒顭囬鎼佹偠?
- */
+/** Main settings menu grouped by player-facing purpose. */
 public class SimpleTranslateScreen extends BaseSimpleTranslateScreen {
+    private static final int VIEWPORT_TOP = 45;
+    private static final int BOTTOM_BAR_HEIGHT = 35;
+    private static final int BUTTON_HEIGHT = 20;
+    private static final int SPACING = 26;
+    private static final Map<Section, Boolean> EXPANDED = new EnumMap<>(Section.class);
+
+    static {
+        for (Section section : Section.values()) {
+            EXPANDED.put(section, section == Section.ACCESS);
+        }
+    }
 
     private final Screen parent;
-
-    // UI Components
-    private Button modelSettingsButton;
-
-    // Scroll state
-    private double scrollOffset = 0;
-    private int contentHeight = 0;
-    private final int viewportTop = 35;
-    private final int viewportBottom = 5;
-
-    // Scrollable widgets list
     private final List<AbstractWidget> scrollableWidgets = new ArrayList<>();
     private final List<Integer> widgetBaseY = new ArrayList<>();
+    private final List<SectionLabel> sectionLabels = new ArrayList<>();
 
-    // Fixed bottom buttons (not scrollable)
-    private Button saveButton;
-    private Button cancelButton;
+    private double scrollOffset;
+    private int contentHeight;
+    private Button backButton;
 
     public SimpleTranslateScreen(Screen parent) {
         super(Component.translatable("screen.simple_translate.settings"));
@@ -47,405 +48,269 @@ public class SimpleTranslateScreen extends BaseSimpleTranslateScreen {
 
     @Override
     protected void init() {
+        double restoreScroll = this.scrollOffset;
         super.init();
-        scrollOffset = 0;
-        scrollableWidgets.clear();
-        widgetBaseY.clear();
+        this.scrollableWidgets.clear();
+        this.widgetBaseY.clear();
+        this.sectionLabels.clear();
 
-        int centerX = this.width / 2;
-        int startY = 50;
-        int buttonWidth = 220;
-        int buttonHeight = 20;
-        int spacing = 26;
+        int buttonWidth = Math.max(200, Math.min(300, this.width - 40));
+        int y = VIEWPORT_TOP + 3;
 
-        // ==================== API Settings Section ====================
+        y = addSectionHeader(y, buttonWidth, Section.GENERAL);
+        if (isExpanded(Section.GENERAL)) {
+            CycleButton<Boolean> globalButton = CycleButton.onOffBuilder(ModConfig.GLOBAL_ENABLED.get())
+                    .create(this.width / 2 - buttonWidth / 2, y, buttonWidth, BUTTON_HEIGHT,
+                            Component.translatable("screen.simple_translate.settings.global_enabled"),
+                            (button, enabled) -> {
+                                ModConfig.GLOBAL_ENABLED.set(enabled);
+                                SimpleTranslateMod.onGlobalTranslationSettingChanged(enabled);
+                                ModConfig.save();
+                            });
+            withTooltip(globalButton, "screen.simple_translate.settings.global_enabled.tooltip");
+            addScrollable(globalButton, y);
+            y += SPACING;
+        }
+        y += 8;
 
-        this.modelSettingsButton = UiCompat.buttonBuilder(
-                Component.translatable("screen.simple_translate.model_settings"),
-                button -> openModelSettings())
-                .bounds(centerX - buttonWidth / 2, startY, buttonWidth, buttonHeight)
-                .build();
-        withTooltip(this.modelSettingsButton, "screen.simple_translate.model_settings.tooltip");
-        addScrollableWidget(this.modelSettingsButton, startY);
+        y = addSectionHeader(y, buttonWidth, Section.ACCESS);
+        if (isExpanded(Section.ACCESS)) {
+            y = addPageButton(y, buttonWidth, "screen.simple_translate.main.translation_api",
+                    "screen.simple_translate.model_settings.tooltip", () -> new ModelSettingsScreen(this));
+            y = addPageButton(y, buttonWidth, "screen.simple_translate.main.language",
+                    "screen.simple_translate.language_settings.tooltip", () -> new LanguageSettingsScreen(this));
+        }
+        y += 8;
 
-        startY += spacing;
+        y = addSectionHeader(y, buttonWidth, Section.SCOPE);
+        if (isExpanded(Section.SCOPE)) {
+            y = addSubgroup(y, "screen.simple_translate.main.group.chat_reading");
+            y = addPageButton(y, buttonWidth, "screen.simple_translate.main.chat",
+                    "screen.simple_translate.chat_translation.tooltip", () -> new ChatTranslationScreen(this));
+            y = addPageButton(y, buttonWidth, "screen.simple_translate.main.book",
+                    "screen.simple_translate.book_translation.tooltip", () -> new BookTranslationScreen(this));
 
-        Button ocrButton = UiCompat.buttonBuilder(
-                Component.translatable("screen.simple_translate.ocr_settings"),
-                button -> openOcrSettings())
-                .bounds(centerX - buttonWidth / 2, startY, buttonWidth, buttonHeight)
-                .build();
-        withTooltip(ocrButton, "screen.simple_translate.ocr_settings.tooltip");
-        addScrollableWidget(ocrButton, startY);
+            y = addSubgroup(y, "screen.simple_translate.main.group.items_menus");
+            y = addPageButton(y, buttonWidth, "screen.simple_translate.main.item_tooltip",
+                    "screen.simple_translate.item_tooltip_translation.tooltip", () -> new ItemTooltipScreen(this),
+                    shortcutHint(net.minecraft.ChatFormatting.GRAY,
+                            com.yourname.simpletranslate.keybind.ShortcutAction.TRANSLATE_TOOLTIP));
+            y = addPageButton(y, buttonWidth, "screen.simple_translate.main.gui",
+                    "screen.simple_translate.gui_translation.tooltip", () -> new GuiTranslationScreen(this),
+                    shortcutHint(net.minecraft.ChatFormatting.GRAY,
+                            com.yourname.simpletranslate.keybind.ShortcutAction.TRANSLATE_GUI));
+            y = addPageButton(y, buttonWidth, "screen.simple_translate.main.advancement",
+                    "screen.simple_translate.advancement_translation.tooltip",
+                    () -> new AdvancementTranslationScreen(this));
 
-        startY += spacing;
+            y = addSubgroup(y, "screen.simple_translate.main.group.screen");
+            y = addPageButton(y, buttonWidth, "screen.simple_translate.main.hud",
+                    "screen.simple_translate.hud_translation.tooltip", () -> new HudTranslationScreen(this));
 
-        Button languageButton = UiCompat.buttonBuilder(
-                Component.translatable("screen.simple_translate.language_settings"),
-                button -> openLanguageSettings())
-                .bounds(centerX - buttonWidth / 2, startY, buttonWidth, buttonHeight)
-                .build();
-        withTooltip(languageButton, "screen.simple_translate.language_settings.tooltip");
-        addScrollableWidget(languageButton, startY);
+            y = addSubgroup(y, "screen.simple_translate.main.group.world_text");
+            y = addPageButton(y, buttonWidth, "screen.simple_translate.main.sign",
+                    "screen.simple_translate.sign_translation.tooltip", () -> new SignTranslationScreen(this),
+                    shortcutHint(net.minecraft.ChatFormatting.GRAY,
+                            com.yourname.simpletranslate.keybind.ShortcutAction.SIGN_SELECT,
+                            com.yourname.simpletranslate.keybind.ShortcutAction.SIGN_SUBMIT));
+            y = addPageButton(y, buttonWidth, "screen.simple_translate.main.entity",
+                    "screen.simple_translate.entity_translation.tooltip", () -> new EntityNameTranslationScreen(this));
+            y = addPageButton(y, buttonWidth, "screen.simple_translate.main.text_display",
+                    "screen.simple_translate.text_display_translation.tooltip",
+                    () -> new TextDisplayTranslationScreen(this));
+        }
+        y += 8;
 
-        startY += spacing + 20;
+        y = addSectionHeader(y, buttonWidth, Section.PROMPTS);
+        if (isExpanded(Section.PROMPTS)) {
+            y = addPageButton(y, buttonWidth, "screen.simple_translate.main.reference_prompt",
+                    "screen.simple_translate.translation_profile.tooltip", () -> new TranslationProfileScreen(this));
+            y = addPageButton(y, buttonWidth, "screen.simple_translate.main.terms",
+                    "screen.simple_translate.term_manager.tooltip", () -> new TermManagerScreen(this));
+            y = addPageButton(y, buttonWidth, "screen.simple_translate.main.blacklist",
+                    "screen.simple_translate.blacklist_manager.tooltip", () -> new BlacklistManagerScreen(this));
+            y = addPageButton(y, buttonWidth, "screen.simple_translate.main.history",
+                    "screen.simple_translate.text_context.tooltip", () -> new TextContextSettingsScreen(this));
+            y = addPageButton(y, buttonWidth, "screen.simple_translate.main.cache",
+                    "screen.simple_translate.cache_manager.tooltip", () -> new CacheManagerScreen(this));
+        }
+        y += 8;
 
-        // ==================== Translation Features Section ====================
+        y = addSectionHeader(y, buttonWidth, Section.OPERATION);
+        if (isExpanded(Section.OPERATION)) {
+            y = addPageButton(y, buttonWidth, "screen.simple_translate.main.shortcuts",
+                    "screen.simple_translate.shortcuts.tooltip", () -> new ShortcutSettingsScreen(this));
+            y = addPageButton(y, buttonWidth, "screen.simple_translate.main.glow",
+                    "screen.simple_translate.tooltip_glow.feature.tooltip", () -> new TooltipGlowSettingsScreen(this));
+        }
+        y += 8;
 
-        // 闁煎崬锕ら妵澶岀礄閺勫繒妲?
-        Button chatButton = UiCompat.buttonBuilder(
-                Component.translatable("screen.simple_translate.chat_translation"),
-                button -> openChatSettings())
-                .bounds(centerX - buttonWidth / 2, startY, buttonWidth, buttonHeight)
-                .build();
-        withTooltip(chatButton, "screen.simple_translate.chat_translation.tooltip");
-        addScrollableWidget(chatButton, startY);
+        y = addSectionHeader(y, buttonWidth, Section.ADVANCED);
+        if (isExpanded(Section.ADVANCED)) {
+            y = addPageButton(y, buttonWidth, "screen.simple_translate.main.speed",
+                    "screen.simple_translate.translation_speed.tooltip", () -> new TranslationSpeedScreen(this));
+            y = addPageButton(y, buttonWidth, "screen.simple_translate.main.display_compatibility",
+                    "screen.simple_translate.display_compatibility.tooltip",
+                    () -> new DisplayCompatibilityScreen(this));
+            y = addPageButton(y, buttonWidth, "screen.simple_translate.main.usage",
+                    "screen.simple_translate.token_monitor.tooltip", () -> new TokenMonitorScreen(this));
+        }
 
-        startY += spacing;
-
-        // 濞戞棑濡囬惈鍕礄閺勫繒妲?
-        Button bookButton = UiCompat.buttonBuilder(
-                Component.translatable("screen.simple_translate.book_translation"),
-                button -> openBookSettings())
-                .bounds(centerX - buttonWidth / 2, startY, buttonWidth, buttonHeight)
-                .build();
-        withTooltip(bookButton, "screen.simple_translate.book_translation.tooltip");
-        addScrollableWidget(bookButton, startY);
-
-        startY += spacing;
-
-        // 闁绘せ鏅涢幖褔骞撻幇顔轰粵缂傚牊妲掗惁?
-        Button itemButton = UiCompat.buttonBuilder(
-                Component.translatable("screen.simple_translate.item_tooltip_translation"),
-                button -> openItemTooltipSettings())
-                .bounds(centerX - buttonWidth / 2, startY, buttonWidth, buttonHeight)
-                .build();
-        withTooltip(itemButton, "screen.simple_translate.item_tooltip_translation.tooltip");
-        addScrollableWidget(itemButton, startY);
-
-        startY += spacing;
-
-        Button titleButton = UiCompat.buttonBuilder(
-                Component.translatable("screen.simple_translate.title_translation"),
-                button -> openTitleSettings())
-                .bounds(centerX - buttonWidth / 2, startY, buttonWidth, buttonHeight)
-                .build();
-        withTooltip(titleButton, "screen.simple_translate.title_translation.tooltip");
-        addScrollableWidget(titleButton, startY);
-
-        startY += spacing;
-
-        // HUD缂傚牊妲掗惁?
-        Button hudButton = UiCompat.buttonBuilder(
-                Component.translatable("screen.simple_translate.hud_translation"),
-                button -> openHudSettings())
-                .bounds(centerX - buttonWidth / 2, startY, buttonWidth, buttonHeight)
-                .build();
-        withTooltip(hudButton, "screen.simple_translate.hud_translation.tooltip");
-        addScrollableWidget(hudButton, startY);
-
-        startY += spacing;
-
-        // 闁告稑锕﹂妵姘舵偋瀹€鈧悙鏇犳嫚?
-        Button signButton = UiCompat.buttonBuilder(
-                Component.translatable("screen.simple_translate.sign_translation"),
-                button -> openSignSettings())
-                .bounds(centerX - buttonWidth / 2, startY, buttonWidth, buttonHeight)
-                .build();
-        withTooltip(signButton, "screen.simple_translate.sign_translation.tooltip");
-        addScrollableWidget(signButton, startY);
-
-        startY += spacing;
-
-        // 闁瑰瓨鍔曞銊х礄閺勫繒妲?
-        Button advancementButton = UiCompat.buttonBuilder(
-                Component.translatable("screen.simple_translate.advancement_translation"),
-                button -> openAdvancementSettings())
-                .bounds(centerX - buttonWidth / 2, startY, buttonWidth, buttonHeight)
-                .build();
-        withTooltip(advancementButton, "screen.simple_translate.advancement_translation.tooltip");
-        addScrollableWidget(advancementButton, startY);
-
-        startY += spacing;
-
-        // 閻庡湱鍋樼紞瀣触瀹ュ泦鐐电礄閺勫繒妲?
-        Button entityButton = UiCompat.buttonBuilder(
-                Component.translatable("screen.simple_translate.entity_translation"),
-                button -> openEntityNameSettings())
-                .bounds(centerX - buttonWidth / 2, startY, buttonWidth, buttonHeight)
-                .build();
-        withTooltip(entityButton, "screen.simple_translate.entity_translation.tooltip");
-        addScrollableWidget(entityButton, startY);
-
-        startY += spacing + 20;
-
-        // ==================== Management Section
-        // ======================================
-        int halfWidth = (buttonWidth - 10) / 2;
-
-        // 闁哄牜鍨甸銏㈢不閿涘嫭鍊?
-        Button termButton = UiCompat.buttonBuilder(
-                Component.translatable("screen.simple_translate.term_manager"),
-                button -> openTermManager())
-                .bounds(centerX - buttonWidth / 2, startY, halfWidth, buttonHeight)
-                .build();
-        withTooltip(termButton, "screen.simple_translate.term_manager.tooltip");
-        addScrollableWidget(termButton, startY);
-
-        // 缂傚倹鎸搁悺銊х不閿涘嫭鍊?
-        Button cacheButton = UiCompat.buttonBuilder(
-                Component.translatable("screen.simple_translate.cache_manager"),
-                button -> openCacheManager())
-                .bounds(centerX + 5, startY, halfWidth, buttonHeight)
-                .build();
-        withTooltip(cacheButton, "screen.simple_translate.cache_manager.tooltip");
-        addScrollableWidget(cacheButton, startY);
-
-        startY += spacing;
-
-        Button blacklistButton = UiCompat.buttonBuilder(
-                Component.translatable("screen.simple_translate.blacklist_manager"),
-                button -> openBlacklistManager())
-                .bounds(centerX - buttonWidth / 2, startY, buttonWidth, buttonHeight)
-                .build();
-        withTooltip(blacklistButton, "screen.simple_translate.blacklist_manager.tooltip");
-        addScrollableWidget(blacklistButton, startY);
-
-        startY += spacing;
-
-        // 按住显示原文
-        Button holdOriginalButton = UiCompat.buttonBuilder(
-                Component.translatable("screen.simple_translate.hold_original"),
-                button -> openHoldOriginalSettings())
-                .bounds(centerX - buttonWidth / 2, startY, buttonWidth, buttonHeight)
-                .build();
-        withTooltip(holdOriginalButton, "screen.simple_translate.hold_original.tooltip");
-        addScrollableWidget(holdOriginalButton, startY);
-
-        startY += spacing;
-
-        contentHeight = startY + 10;
-
-        // ==================== Fixed Save/Cancel Section (at bottom)
-        // ====================
-        int bottomY = Math.max(2, this.height - 28);
-
-        this.saveButton = UiCompat.buttonBuilder(
-                Component.translatable("screen.simple_translate.save"),
-                button -> saveAndClose())
-                .bounds(centerX - buttonWidth / 2, bottomY, halfWidth, buttonHeight)
-                .build();
-        withTooltip(this.saveButton, "screen.simple_translate.save.tooltip");
-        this.addRenderableWidget(this.saveButton);
-
-        this.cancelButton = UiCompat.buttonBuilder(
-                Component.translatable("screen.simple_translate.cancel"),
-                button -> this.onClose())
-                .bounds(centerX + 5, bottomY, halfWidth, buttonHeight)
-                .build();
-        withTooltip(this.cancelButton, "screen.simple_translate.cancel.tooltip");
-        this.addRenderableWidget(this.cancelButton);
-
-        // Initial positioning
+        this.contentHeight = y + 12;
+        this.scrollOffset = Math.max(0, Math.min(maxScroll(), restoreScroll));
+        this.backButton = new HoverHighlightButton(this.width / 2 - buttonWidth / 2, this.height - 25,
+                buttonWidth, BUTTON_HEIGHT, Component.translatable("screen.simple_translate.back"),
+                button -> onClose());
+        withTooltip(this.backButton, "screen.simple_translate.back.tooltip");
+        this.addRenderableWidget(this.backButton);
         repositionWidgets();
     }
 
-    private void addScrollableWidget(AbstractWidget widget, int baseY) {
-        scrollableWidgets.add(widget);
-        widgetBaseY.add(baseY);
+    private int addSectionHeader(int y, int width, Section section) {
+        SectionHeaderWidget header = new SectionHeaderWidget(section, width);
+        addScrollable(header, y);
+        return y + 22;
+    }
+
+    private int addSubgroup(int y, String key) {
+        this.sectionLabels.add(new SectionLabel(y, key));
+        return y + 16;
+    }
+
+    private int addPageButton(int y, int width, String labelKey, String tooltipKey, ScreenFactory factory) {
+        return addPageButton(y, width, labelKey, tooltipKey, factory, null);
+    }
+
+    private int addPageButton(int y, int width, String labelKey, String tooltipKey,
+                              ScreenFactory factory, Component shortcutSuffix) {
+        Button button = new HoverHighlightButton(this.width / 2 - width / 2, y, width, BUTTON_HEIGHT,
+                Component.translatable(labelKey), ignored -> Minecraft.getInstance().setScreen(factory.create()));
+        if (shortcutSuffix == null) {
+            withTooltip(button, tooltipKey);
+        } else {
+            withTooltip(button, Component.translatable(tooltipKey)
+                    .append(Component.literal("\n")).append(shortcutSuffix));
+        }
+        addScrollable(button, y);
+        return y + SPACING;
+    }
+
+    private static Component shortcutHint(net.minecraft.ChatFormatting formatting,
+                                          com.yourname.simpletranslate.keybind.ShortcutAction... actions) {
+        MutableComponent hint = Component.translatable("screen.simple_translate.shortcuts.hint_prefix")
+                .withStyle(formatting);
+        for (int index = 0; index < actions.length; index++) {
+            if (index > 0) {
+                hint.append(Component.literal("/").withStyle(formatting));
+            }
+            hint.append(actions[index].chord().displayName());
+        }
+        return hint;
+    }
+
+    private void addScrollable(AbstractWidget widget, int baseY) {
+        this.scrollableWidgets.add(widget);
+        this.widgetBaseY.add(baseY);
         this.addRenderableWidget(widget);
     }
 
+    private void toggleSection(Section section) {
+        EXPANDED.put(section, !isExpanded(section));
+        this.rebuildWidgets();
+    }
+
+    private static boolean isExpanded(Section section) {
+        return EXPANDED.getOrDefault(section, true);
+    }
+
     private void repositionWidgets() {
-        int viewportHeight = getViewportHeight();
-
-        for (int i = 0; i < scrollableWidgets.size(); i++) {
-            AbstractWidget widget = scrollableWidgets.get(i);
-            int baseY = widgetBaseY.get(i);
-            int newY = baseY - (int) scrollOffset;
-
-            UiCompat.setY(widget, newY);
-
-            // Hide widgets outside viewport
-            boolean visible = newY >= viewportTop - 10 && newY < this.height - viewportBottom - 35;
+        int bottom = contentBottom();
+        for (int i = 0; i < this.scrollableWidgets.size(); i++) {
+            AbstractWidget widget = this.scrollableWidgets.get(i);
+            int y = this.widgetBaseY.get(i) - (int) this.scrollOffset;
+            widget.y = y;
+            boolean visible = y >= VIEWPORT_TOP && y + widget.getHeight() <= bottom;
             widget.visible = visible;
             widget.active = visible;
         }
     }
 
-    private int getViewportHeight() {
-        return this.height - viewportTop - viewportBottom - 35;
-    }
-
-    private int getMaxScroll() {
-        int viewportHeight = getViewportHeight();
-        return Math.max(0, contentHeight - viewportHeight);
-    }
-
     @Override
-    public void render(GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
+    public void render(PoseStack poseStack, int mouseX, int mouseY, float partialTick) {
+        GuiGraphics graphics = GuiGraphics.wrap(poseStack);
         ScreenBackgrounds.renderPlain(graphics, this.width, this.height);
+        graphics.drawCenteredString(this.font, this.title, this.width / 2, 8, 0xFFFFFFFF);
+        graphics.drawCenteredString(this.font,
+                Component.translatable("screen.simple_translate.main.subtitle"),
+                this.width / 2, 24, 0xFFAAAAAA);
 
-        // Draw title
-        graphics.drawCenteredString(this.font, this.title, this.width / 2, 12, 0xFFFFFF);
-
-        // Draw status indicator
-        boolean isReady = SimpleTranslateMod.getTranslationManager() != null
+        boolean ready = SimpleTranslateMod.getTranslationManager() != null
                 && SimpleTranslateMod.getTranslationManager().isReady();
-        String status = isReady ? "[已就绪]" : "[未配置]";
-        int statusColor = isReady ? 0x55FF55 : 0xFF5555;
-        graphics.drawString(this.font, status, this.width / 2 + 80, 12, statusColor);
+        Component statusText = Component.translatable(ready
+                ? "screen.simple_translate.status.ready"
+                : "screen.simple_translate.status.not_configured");
+        graphics.drawString(this.font, statusText,
+                Math.max(4, this.width - this.font.width(statusText) - 8), 8,
+                ready ? 0xFF55FF55 : 0xFFFF5555);
 
-        // Enable scissor to clip scrollable area
-        int clipBottom = this.height - viewportBottom - 35;
-        graphics.enableScissor(0, viewportTop, this.width, clipBottom);
-
-        // Draw section labels (offset by scroll)
-        int labelX = this.width / 2 - 110;
-        int apiLabelY = 38 - (int) scrollOffset;
-        int featLabelY = 136 - (int) scrollOffset;
-        int mgmtLabelY = 390 - (int) scrollOffset;
-
-        if (apiLabelY >= viewportTop - 10 && apiLabelY < clipBottom) {
-            graphics.drawString(this.font, "=== 接口设置 ===", labelX, apiLabelY, 0x888888);
-        }
-        if (featLabelY >= viewportTop - 10 && featLabelY < clipBottom) {
-            graphics.drawString(this.font, "=== 功能设置 ===", labelX, featLabelY, 0x888888);
-        }
-        if (mgmtLabelY >= viewportTop - 10 && mgmtLabelY < clipBottom) {
-            graphics.drawString(this.font, "=== 管理工具 ===", labelX, mgmtLabelY, 0x888888);
+        String recentError = com.yourname.simpletranslate.transport.TranslationRequestQueue.getRecentErrorStatus();
+        if (recentError != null) {
+            Component error = Component.translatable("screen.simple_translate.status.api_error");
+            graphics.drawString(this.font, error,
+                    Math.max(4, this.width - this.font.width(error) - 8), 21, 0xFFFFAA00);
         }
 
+        graphics.enableScissor(0, VIEWPORT_TOP, this.width, contentBottom());
+        for (SectionLabel label : this.sectionLabels) {
+            int y = label.baseY - (int) this.scrollOffset;
+            if (y >= VIEWPORT_TOP - 10 && y < contentBottom()) {
+                graphics.drawCenteredString(this.font, Component.translatable(label.key),
+                        this.width / 2, y + 3, 0xFF888888);
+            }
+        }
         graphics.disableScissor();
 
-        // Draw scroll indicator if needed
-        if (getMaxScroll() > 0) {
+        if (maxScroll() > 0) {
             drawScrollBar(graphics);
         }
-
-        drawBottomActionMask(graphics);
-        super.render(graphics, mouseX, mouseY, partialTick);
+        drawBottomBar(graphics);
+        super.render(poseStack, mouseX, mouseY, partialTick);
     }
 
-    private void drawBottomActionMask(GuiGraphics graphics) {
-        int top = this.height - 35;
-        int left = Math.max(0, this.width / 2 - 118);
-        int right = Math.min(this.width, this.width / 2 + 118);
-        graphics.fill(left, top, right, this.height - 2, 0xAA101010);
-        graphics.fill(left, top, right, top + 1, 0x55FFFFFF);
+    private void drawBottomBar(GuiGraphics graphics) {
+        int width = Math.max(200, Math.min(300, this.width - 40));
+        int left = this.width / 2 - width / 2 - 8;
+        int right = this.width / 2 + width / 2 + 8;
+        graphics.fill(left, contentBottom(), right, this.height - 2, 0xAA101010);
+        graphics.fill(left, contentBottom(), right, contentBottom() + 1, 0x55FFFFFF);
     }
 
     private void drawScrollBar(GuiGraphics graphics) {
-        int scrollBarX = this.width / 2 + 120;
-        int scrollBarWidth = 4;
-        int scrollBarTop = viewportTop;
-        int scrollBarHeight = this.height - viewportTop - viewportBottom - 35;
-
-        // Background
-        graphics.fill(scrollBarX, scrollBarTop, scrollBarX + scrollBarWidth, scrollBarTop + scrollBarHeight,
-                0x33FFFFFF);
-
-        // Handle
-        int maxScroll = getMaxScroll();
-        if (maxScroll > 0) {
-            double scrollRatio = scrollOffset / maxScroll;
-            int handleHeight = Math.max(20, (int) ((double) scrollBarHeight * scrollBarHeight / contentHeight));
-            int handleY = scrollBarTop + (int) ((scrollBarHeight - handleHeight) * scrollRatio);
-
-            graphics.fill(scrollBarX, handleY, scrollBarX + scrollBarWidth, handleY + handleHeight, 0xAAFFFFFF);
-        }
+        int width = Math.max(200, Math.min(300, this.width - 40));
+        int x = Math.min(this.width - 6, this.width / 2 + width / 2 + 8);
+        int height = contentBottom() - VIEWPORT_TOP;
+        graphics.fill(x, VIEWPORT_TOP, x + 4, contentBottom(), 0x33FFFFFF);
+        int handleHeight = Math.max(20, height * height / Math.max(height, this.contentHeight));
+        int handleY = VIEWPORT_TOP + (int) ((height - handleHeight) * (this.scrollOffset / maxScroll()));
+        graphics.fill(x, handleY, x + 4, handleY + handleHeight, 0xAAFFFFFF);
     }
 
     @Override
     public boolean mouseScrolled(double mouseX, double mouseY, double delta) {
-        int maxScroll = getMaxScroll();
-        if (maxScroll > 0) {
-            scrollOffset -= delta * 25;
-            scrollOffset = Math.max(0, Math.min(scrollOffset, maxScroll));
+        if (maxScroll() > 0 && mouseY < contentBottom()) {
+            this.scrollOffset = Math.max(0, Math.min(maxScroll(), this.scrollOffset - delta * 24));
             repositionWidgets();
             return true;
         }
         return super.mouseScrolled(mouseX, mouseY, delta);
     }
 
-    @Override
-    public boolean mouseDragged(double mouseX, double mouseY, int button, double dragX, double dragY) {
-        int scrollBarX = this.width / 2 + 120;
-        int maxScroll = getMaxScroll();
-
-        if (button == 0 && maxScroll > 0 && mouseX >= scrollBarX - 5 && mouseX <= scrollBarX + 10) {
-            int scrollBarHeight = this.height - viewportTop - viewportBottom - 35;
-            double dragRatio = dragY / scrollBarHeight;
-            scrollOffset += dragRatio * maxScroll;
-            scrollOffset = Math.max(0, Math.min(scrollOffset, maxScroll));
-            repositionWidgets();
-            return true;
-        }
-        return super.mouseDragged(mouseX, mouseY, button, dragX, dragY);
+    private int contentBottom() {
+        return this.height - BOTTOM_BAR_HEIGHT;
     }
 
-    private void saveAndClose() {
-        SimpleTranslateMod.getLogger().info("Settings saved");
-        ModConfig.save();
-        this.onClose();
-    }
-
-    private void openModelSettings() {
-        Minecraft.getInstance().setScreen(new ModelSettingsScreen(this));
-    }
-
-    private void openLanguageSettings() {
-        Minecraft.getInstance().setScreen(new LanguageSettingsScreen(this));
-    }
-
-    private void openChatSettings() {
-        Minecraft.getInstance().setScreen(new ChatTranslationScreen(this));
-    }
-
-    private void openBookSettings() {
-        Minecraft.getInstance().setScreen(new BookTranslationScreen(this));
-    }
-
-    private void openItemTooltipSettings() {
-        Minecraft.getInstance().setScreen(new ItemTooltipScreen(this));
-    }
-
-    private void openHudSettings() {
-        Minecraft.getInstance().setScreen(new HudTranslationScreen(this));
-    }
-
-    private void openTitleSettings() {
-        Minecraft.getInstance().setScreen(new TitleTranslationScreen(this));
-    }
-
-    private void openSignSettings() {
-        Minecraft.getInstance().setScreen(new SignTranslationScreen(this));
-    }
-
-    private void openAdvancementSettings() {
-        Minecraft.getInstance().setScreen(new AdvancementTranslationScreen(this));
-    }
-
-    private void openEntityNameSettings() {
-        Minecraft.getInstance().setScreen(new EntityNameTranslationScreen(this));
-    }
-
-    private void openTermManager() {
-        Minecraft.getInstance().setScreen(new TermManagerScreen(this));
-    }
-    private void openOcrSettings() {
-        Minecraft.getInstance().setScreen(new OcrTranslationScreen(this));
-    }
-    private void openCacheManager() {
-        Minecraft.getInstance().setScreen(new CacheManagerScreen(this));
-    }
-
-    private void openBlacklistManager() {
-        Minecraft.getInstance().setScreen(new BlacklistManagerScreen(this));
-    }
-
-    private void openHoldOriginalSettings() {
-        Minecraft.getInstance().setScreen(new HoldOriginalScreen(this));
+    private int maxScroll() {
+        return Math.max(0, this.contentHeight - (contentBottom() - VIEWPORT_TOP));
     }
 
     @Override
@@ -457,6 +322,59 @@ public class SimpleTranslateScreen extends BaseSimpleTranslateScreen {
     public boolean isPauseScreen() {
         return false;
     }
+
+    private final class SectionHeaderWidget extends AbstractWidget {
+        private final Section section;
+
+        private SectionHeaderWidget(Section section, int width) {
+            super(SimpleTranslateScreen.this.width / 2 - width / 2, 0, width, 18,
+                    Component.translatable(section.labelKey));
+            this.section = section;
+        }
+
+        @Override
+        public void renderButton(PoseStack poseStack, int mouseX, int mouseY, float partialTick) {
+            GuiGraphics graphics = GuiGraphics.wrap(poseStack);
+            if (isHoveredOrFocused()) {
+                graphics.fill(x, y, x + this.width, y + this.height, 0x33111111);
+            }
+            Component arrow = Component.literal(isExpanded(this.section) ? "\u25be " : "\u25b8 ");
+            Component line = arrow.copy().append(getMessage());
+            graphics.drawString(SimpleTranslateScreen.this.font, line,
+                    x + 4, y + 5, isHoveredOrFocused() ? 0xFFFFFFFF : 0xFFE0E0E0, false);
+        }
+
+        @Override
+        public void onClick(double mouseX, double mouseY) {
+            SimpleTranslateScreen.this.toggleSection(this.section);
+        }
+
+        @Override
+        public void updateNarration(NarrationElementOutput output) {
+            defaultButtonNarrationText(output);
+        }
+    }
+
+    private enum Section {
+        GENERAL("screen.simple_translate.main.section.general"),
+        ACCESS("screen.simple_translate.main.section.access"),
+        SCOPE("screen.simple_translate.main.section.scope"),
+        PROMPTS("screen.simple_translate.main.section.prompts"),
+        OPERATION("screen.simple_translate.main.section.operation"),
+        ADVANCED("screen.simple_translate.main.section.advanced");
+
+        private final String labelKey;
+
+        Section(String labelKey) {
+            this.labelKey = labelKey;
+        }
+    }
+
+    private record SectionLabel(int baseY, String key) {
+    }
+
+    @FunctionalInterface
+    private interface ScreenFactory {
+        Screen create();
+    }
 }
-
-

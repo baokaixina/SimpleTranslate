@@ -2,13 +2,18 @@ package com.yourname.simpletranslate.mixin;
 
 import com.mojang.blaze3d.vertex.PoseStack;
 import com.yourname.simpletranslate.config.ModConfig;
-import com.yourname.simpletranslate.util.SignTranslationHelper;
+import com.yourname.simpletranslate.core.MixinRuntimeProbe;
+import com.yourname.simpletranslate.feature.sign.SignTranslationHelper;
+import com.yourname.simpletranslate.keybind.HoldOriginalFeature;
+import com.yourname.simpletranslate.keybind.HoldOriginalState;
 import net.minecraft.client.Minecraft;
-import net.minecraft.client.renderer.MultiBufferSource;
+import net.minecraft.client.renderer.SubmitNodeCollector;
 import net.minecraft.client.renderer.blockentity.AbstractSignRenderer;
+import net.minecraft.client.renderer.blockentity.state.SignRenderState;
 import net.minecraft.core.BlockPos;
 import net.minecraft.world.level.block.entity.SignBlockEntity;
 import net.minecraft.world.level.block.entity.SignText;
+import com.yourname.simpletranslate.feature.sign.SignSelectionHighlighter;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Unique;
 import org.spongepowered.asm.mixin.injection.At;
@@ -23,12 +28,52 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 public class SignRendererMixin {
 
     @Inject(
-            method = "renderSignText(Lnet/minecraft/core/BlockPos;Lnet/minecraft/world/level/block/entity/SignText;Lcom/mojang/blaze3d/vertex/PoseStack;Lnet/minecraft/client/renderer/MultiBufferSource;IIIZ)V",
+            method = "submitSignText(Lnet/minecraft/client/renderer/blockentity/state/SignRenderState;Lcom/mojang/blaze3d/vertex/PoseStack;Lnet/minecraft/client/renderer/SubmitNodeCollector;Z)V",
             at = @At("HEAD"),
-            require = 1)
-    private void simple_translate$onRenderSignText(BlockPos pos, SignText signText, PoseStack poseStack,
-            MultiBufferSource buffer, int packedLight, int lineHeight, int maxTextLineWidth, boolean front, CallbackInfo ci) {
-        simple_translate$registerRenderedText(pos, signText, front, maxTextLineWidth);
+            require = 0)
+    private void simple_translate$onSubmitSignText(SignRenderState renderState, PoseStack poseStack,
+            SubmitNodeCollector collector, boolean front, CallbackInfo ci) {
+        MixinRuntimeProbe.matched("SignRendererMixin#submitSignText");
+        SignText signText = front ? renderState.frontText : renderState.backText;
+        simple_translate$registerRenderedText(
+                renderState.blockPos, signText, front, renderState.maxTextLineWidth);
+    }
+
+    @Inject(
+            method = "submitSignText(Lnet/minecraft/client/renderer/blockentity/state/SignRenderState;Lcom/mojang/blaze3d/vertex/PoseStack;Lnet/minecraft/client/renderer/SubmitNodeCollector;Z)V",
+            at = @At(
+                    value = "INVOKE",
+                    target = "Lnet/minecraft/client/renderer/blockentity/AbstractSignRenderer;getDarkColor(Lnet/minecraft/world/level/block/entity/SignText;)I",
+                    shift = At.Shift.BEFORE),
+            require = 0)
+    private void simple_translate$scaleTranslatedText(SignRenderState renderState, PoseStack poseStack,
+            SubmitNodeCollector collector, boolean front, CallbackInfo ci) {
+        if (!ModConfig.CONTENT_SIGN_ENABLED.get()
+                || HoldOriginalState.isHolding(HoldOriginalFeature.SIGN)) {
+            return;
+        }
+        SignText signText = front ? renderState.frontText : renderState.backText;
+        SignTranslationHelper.SignTextIdentityData data = SignTranslationHelper.getSignTextData(signText);
+        if (data == null || data.isTranslating || data.renderLines == null) {
+            return;
+        }
+        float scale = data.renderScale;
+        if (Float.isFinite(scale) && scale > 0.0F && scale < 1.0F) {
+            float verticalCenter = -renderState.textLineHeight / 2.0F;
+            poseStack.translate(0.0F, verticalCenter, 0.0F);
+            poseStack.scale(scale, scale, scale);
+            poseStack.translate(0.0F, -verticalCenter, 0.0F);
+        }
+    }
+
+    @Inject(
+            method = "submit(Lnet/minecraft/client/renderer/blockentity/state/SignRenderState;Lcom/mojang/blaze3d/vertex/PoseStack;Lnet/minecraft/client/renderer/SubmitNodeCollector;Lnet/minecraft/client/renderer/state/CameraRenderState;)V",
+            at = @At("HEAD"),
+            require = 0)
+    private void simple_translate$submitSelectionOutline(SignRenderState renderState, PoseStack poseStack,
+            SubmitNodeCollector collector, net.minecraft.client.renderer.state.CameraRenderState cameraState,
+            CallbackInfo ci) {
+        SignSelectionHighlighter.submitSelectionOutline(renderState, poseStack, collector);
     }
 
     @Unique
@@ -50,8 +95,8 @@ public class SignRendererMixin {
                 || simple_translate$isWithinAutoScanRange(mc, pos);
         SignTranslationHelper.TranslationResult result =
                 SignTranslationHelper.getTranslatedLinesWithState(sign, front, mc.level, allowAutoRequest);
-        SignTranslationHelper.registerSignTextByIdentity(
-                System.identityHashCode(signText), pos, front, result.lines, result.components,
+        SignTranslationHelper.registerSignText(
+                signText, pos, front, result.lines, result.components,
                 result.isTranslating, maxTextLineWidth);
     }
 

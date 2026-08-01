@@ -2,7 +2,7 @@ package com.yourname.simpletranslate.gui;
 
 import com.yourname.simpletranslate.SimpleTranslateMod;
 import com.yourname.simpletranslate.config.ModConfig;
-import com.yourname.simpletranslate.util.TranslationTextDetector;
+import com.yourname.simpletranslate.core.TranslationTextDetector;
 import net.minecraft.client.gui.components.CycleButton;
 import net.minecraft.client.gui.components.EditBox;
 import net.minecraft.client.gui.screens.Screen;
@@ -21,10 +21,8 @@ public class LanguageSettingsScreen extends ScrollableSettingsScreen {
     private String targetPreset;
     private String sourceCustom;
     private String targetCustom;
-    private String stylePrompt;
     private EditBox sourceCustomInput;
     private EditBox targetCustomInput;
-    private EditBox stylePromptInput;
 
     public LanguageSettingsScreen(Screen parent) {
         super(Component.translatable("screen.simple_translate.language_settings"), parent);
@@ -34,10 +32,6 @@ public class LanguageSettingsScreen extends ScrollableSettingsScreen {
         this.targetPreset = TARGET_PRESETS.contains(target) ? target : CUSTOM;
         this.sourceCustom = CUSTOM.equals(this.sourcePreset) ? source : "";
         this.targetCustom = CUSTOM.equals(this.targetPreset) ? target : "";
-        this.stylePrompt = ModConfig.TRANSLATION_STYLE_PROMPT.get();
-        if (this.stylePrompt == null) {
-            this.stylePrompt = "";
-        }
         this.contentWidth = 300;
     }
 
@@ -45,9 +39,8 @@ public class LanguageSettingsScreen extends ScrollableSettingsScreen {
     protected void buildContent() {
         addSectionHeader(text("screen.simple_translate.language_settings.section"));
 
-        CycleButton<String> sourceButton = CycleButton.<String>builder(this::languageLabel)
+        CycleButton<String> sourceButton = CycleButton.<String>builder(this::languageLabel).withInitialValue(this.sourcePreset)
                 .withValues(SOURCE_PRESETS)
-                .withInitialValue(this.sourcePreset)
                 .create(0, 0, this.contentWidth, 20,
                         Component.translatable("screen.simple_translate.language_settings.source"),
                         (button, value) -> {
@@ -65,9 +58,8 @@ public class LanguageSettingsScreen extends ScrollableSettingsScreen {
         withTooltip(this.sourceCustomInput, "screen.simple_translate.language_settings.source_custom.tooltip");
         addEntry(this.sourceCustomInput);
 
-        CycleButton<String> targetButton = CycleButton.<String>builder(this::languageLabel)
+        CycleButton<String> targetButton = CycleButton.<String>builder(this::languageLabel).withInitialValue(this.targetPreset)
                 .withValues(TARGET_PRESETS)
-                .withInitialValue(this.targetPreset)
                 .create(0, 0, this.contentWidth, 20,
                         Component.translatable("screen.simple_translate.language_settings.target"),
                         (button, value) -> {
@@ -85,14 +77,6 @@ public class LanguageSettingsScreen extends ScrollableSettingsScreen {
         withTooltip(this.targetCustomInput, "screen.simple_translate.language_settings.target_custom.tooltip");
         addEntry(this.targetCustomInput);
 
-        addSectionHeader(text("screen.simple_translate.language_settings.section.style"));
-        this.stylePromptInput = new EditBox(this.font, 0, 0, this.contentWidth, 20,
-                Component.translatable("screen.simple_translate.translation_style"));
-        this.stylePromptInput.setMaxLength(300);
-        this.stylePromptInput.setValue(this.stylePrompt);
-        this.stylePromptInput.setHint(Component.translatable("screen.simple_translate.translation_style_hint"));
-        withTooltip(this.stylePromptInput, "screen.simple_translate.translation_style.tooltip");
-        addEntry(this.stylePromptInput);
     }
 
     @Override
@@ -120,24 +104,18 @@ public class LanguageSettingsScreen extends ScrollableSettingsScreen {
     protected void saveSettings() {
         String oldSource = TranslationTextDetector.canonicalLanguageCode(ModConfig.SOURCE_LANGUAGE.get());
         String oldTarget = TranslationTextDetector.canonicalLanguageCode(ModConfig.TARGET_LANGUAGE.get());
-        String oldStylePrompt = ModConfig.TRANSLATION_STYLE_PROMPT.get();
         String newSource = effectiveCode(this.sourcePreset, this.sourceCustomInput, "auto");
         String newTarget = effectiveCode(this.targetPreset, this.targetCustomInput, "zh_cn");
-        String newStylePrompt = this.stylePromptInput == null ? "" : this.stylePromptInput.getValue();
         if ("auto".equals(newTarget)) {
             newTarget = "zh_cn";
         }
         ModConfig.SOURCE_LANGUAGE.set(newSource);
         ModConfig.TARGET_LANGUAGE.set(newTarget);
-        ModConfig.TRANSLATION_STYLE_PROMPT.set(newStylePrompt);
         boolean languageChanged = !oldSource.equals(newSource) || !oldTarget.equals(newTarget);
-        boolean styleChanged = !normalizeStylePrompt(oldStylePrompt).equals(normalizeStylePrompt(newStylePrompt));
         if (languageChanged) {
             SimpleTranslateMod.onLanguageSettingsChanged();
             SimpleTranslateMod.getLogger().info("Language settings changed {} -> {}",
                     oldSource + "->" + oldTarget, newSource + "->" + newTarget);
-        } else if (styleChanged) {
-            SimpleTranslateMod.onStyleSettingsChanged();
         }
     }
 
@@ -157,7 +135,4 @@ public class LanguageSettingsScreen extends ScrollableSettingsScreen {
         return Component.translatable(key, args).getString();
     }
 
-    private static String normalizeStylePrompt(String value) {
-        return value == null ? "" : value.trim().replaceAll("\\s+", " ");
-    }
 }

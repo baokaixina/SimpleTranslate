@@ -38,20 +38,16 @@ public class SignTranslationScreen extends ScrollableSettingsScreen {
         withTooltip(signButton, "screen.simple_translate.sign.enabled.tooltip");
         addEntry(signButton);
 
-        CycleButton<ModConfig.SignContextMode> contextModeButton = CycleButton.<ModConfig.SignContextMode>builder(
-                        mode -> Component.translatable("screen.simple_translate.sign.context_mode." + mode.name().toLowerCase()))
+        CycleButton<ModConfig.SignContextMode> contextModeButton = CycleButton.<ModConfig.SignContextMode>builder(mode -> Component.translatable("screen.simple_translate.sign.context_mode." + mode.name().toLowerCase())).withInitialValue(signContextMode)
                 .withValues(ModConfig.SignContextMode.values())
-                .withInitialValue(signContextMode)
                 .create(0, 0, contentWidth, 20,
                         Component.translatable("screen.simple_translate.sign.context_mode"),
                         (button, value) -> signContextMode = value);
         withTooltip(contextModeButton, "screen.simple_translate.sign.context_mode.tooltip");
         addEntry(contextModeButton);
 
-        CycleButton<Integer> radiusButton = CycleButton.<Integer>builder(
-                        value -> Component.translatable("screen.simple_translate.radius.blocks", value))
+        CycleButton<Integer> radiusButton = CycleButton.<Integer>builder(value -> Component.translatable("screen.simple_translate.radius.blocks", value)).withInitialValue(signRadius)
                 .withValues(IntStream.rangeClosed(1, 32).boxed().toList())
-                .withInitialValue(signRadius)
                 .create(0, 0, contentWidth, 20,
                         Component.translatable("screen.simple_translate.sign.radius"),
                         (button, value) -> signRadius = value);

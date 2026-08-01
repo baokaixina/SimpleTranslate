@@ -2,12 +2,12 @@ package com.yourname.simpletranslate.feature.sign;
 import com.yourname.simpletranslate.core.SafeTranslate;
 
 import com.mojang.blaze3d.vertex.PoseStack;
+import com.mojang.blaze3d.vertex.VertexConsumer;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.renderer.RenderType;
-import net.minecraft.client.renderer.ShapeRenderer;
 import net.minecraft.client.renderer.SubmitNodeCollector;
 import net.minecraft.client.renderer.blockentity.state.SignRenderState;
-import net.minecraft.world.phys.AABB;
+import org.joml.Vector3f;
 
 public final class SignSelectionHighlighter {
     private static boolean registered;
@@ -46,14 +46,61 @@ public final class SignSelectionHighlighter {
                 continue;
             }
             float[] color = colorFor(selection.state());
-            AABB box = new AABB(0.0D, 0.0D, 0.0D, 1.0D, 1.0D, 1.0D).inflate(0.04D);
+            int argb = argb(color[0], color[1], color[2], 1.0F);
             collector.submitCustomGeometry(
                     poseStack,
                     RenderType.lines(),
-                    (pose, lines) -> ShapeRenderer.renderLineBox(
-                            pose, lines, box, color[0], color[1], color[2], 1.0F));
+                    (pose, lines) -> renderBoxLines(pose, lines, -0.04F, -0.04F, -0.04F, 1.04F, 1.04F, 1.04F, argb));
             return;
         }
+    }
+
+    private static void renderBoxLines(
+            PoseStack.Pose pose,
+            VertexConsumer lines,
+            float minX,
+            float minY,
+            float minZ,
+            float maxX,
+            float maxY,
+            float maxZ,
+            int color) {
+        line(pose, lines, minX, minY, minZ, maxX, minY, minZ, color);
+        line(pose, lines, minX, maxY, minZ, maxX, maxY, minZ, color);
+        line(pose, lines, minX, minY, maxZ, maxX, minY, maxZ, color);
+        line(pose, lines, minX, maxY, maxZ, maxX, maxY, maxZ, color);
+
+        line(pose, lines, minX, minY, minZ, minX, maxY, minZ, color);
+        line(pose, lines, maxX, minY, minZ, maxX, maxY, minZ, color);
+        line(pose, lines, minX, minY, maxZ, minX, maxY, maxZ, color);
+        line(pose, lines, maxX, minY, maxZ, maxX, maxY, maxZ, color);
+
+        line(pose, lines, minX, minY, minZ, minX, minY, maxZ, color);
+        line(pose, lines, maxX, minY, minZ, maxX, minY, maxZ, color);
+        line(pose, lines, minX, maxY, minZ, minX, maxY, maxZ, color);
+        line(pose, lines, maxX, maxY, minZ, maxX, maxY, maxZ, color);
+    }
+
+    private static void line(
+            PoseStack.Pose pose,
+            VertexConsumer lines,
+            float x1,
+            float y1,
+            float z1,
+            float x2,
+            float y2,
+            float z2,
+            int color) {
+        Vector3f normal = new Vector3f(x2 - x1, y2 - y1, z2 - z1).normalize();
+        lines.addVertex(pose, x1, y1, z1).setColor(color).setNormal(pose, normal);
+        lines.addVertex(pose, x2, y2, z2).setColor(color).setNormal(pose, normal);
+    }
+
+    private static int argb(float r, float g, float b, float a) {
+        return ((int) (a * 255.0F) & 0xFF) << 24
+                | ((int) (r * 255.0F) & 0xFF) << 16
+                | ((int) (g * 255.0F) & 0xFF) << 8
+                | ((int) (b * 255.0F) & 0xFF);
     }
 
     private static float[] colorFor(SignContextSelectionManager.SelectionState state) {

@@ -1,12 +1,14 @@
 package com.yourname.simpletranslate.gui;
 
-import com.mojang.blaze3d.vertex.PoseStack;
-
 import com.yourname.simpletranslate.SimpleTranslateMod;
 import com.yourname.simpletranslate.cache.TermDictionary;
+import com.yourname.simpletranslate.config.ModConfig;
 import net.minecraft.client.Minecraft;
-import com.yourname.simpletranslate.compat.GuiGraphics;
+import com.mojang.blaze3d.vertex.PoseStack;
+import com.yourname.simpletranslate.core.render.GuiGraphics;
+import net.minecraft.client.gui.components.AbstractSliderButton;
 import net.minecraft.client.gui.components.Button;
+import net.minecraft.client.gui.components.CycleButton;
 import net.minecraft.client.gui.components.EditBox;
 import net.minecraft.client.gui.components.ObjectSelectionList;
 import net.minecraft.client.gui.screens.Screen;
@@ -15,6 +17,7 @@ import net.minecraft.network.chat.Component;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Function;
 
 /**
  * Term dictionary management screen
@@ -42,14 +45,14 @@ public class TermManagerScreen extends BaseSimpleTranslateScreen {
         int centerX = this.width / 2;
 
         // Term list
-        this.termList = new TermList(this.minecraft, this.width, this.height - 120, 40, this.height - 80);
+        this.termList = new TermList(this.minecraft, this.width, this.height - 120, 40, this.height - 100);
         this.addRenderableWidget(this.termList);
 
         // Load terms
         refreshTermList();
 
         // Add new term section
-        int inputY = this.height - 75;
+        int inputY = this.height - 95;
         int inputWidth = 120;
 
         this.newTermInput = new EditBox(
@@ -59,6 +62,7 @@ public class TermManagerScreen extends BaseSimpleTranslateScreen {
                 inputWidth,
                 20,
                 Component.translatable("screen.simple_translate.terms.term"));
+        this.newTermInput.setSuggestion(Component.translatable("screen.simple_translate.terms.term.hint").getString());
         withTooltip(this.newTermInput, "screen.simple_translate.terms.term.tooltip");
         this.addRenderableWidget(this.newTermInput);
 
@@ -69,6 +73,7 @@ public class TermManagerScreen extends BaseSimpleTranslateScreen {
                 inputWidth,
                 20,
                 Component.translatable("screen.simple_translate.cache.edit.translation"));
+        this.newTranslationInput.setSuggestion(Component.translatable("screen.simple_translate.terms.translation.hint").getString());
         withTooltip(this.newTranslationInput, "screen.simple_translate.terms.translation.tooltip");
         this.addRenderableWidget(this.newTranslationInput);
 
@@ -87,6 +92,23 @@ public class TermManagerScreen extends BaseSimpleTranslateScreen {
                 .build();
         withTooltip(this.deleteButton, "screen.simple_translate.terms.delete.tooltip");
         this.addRenderableWidget(this.deleteButton);
+
+        // Auto-detect settings row
+        int settingsY = this.height - 70;
+        CycleButton<Boolean> autoDetectButton = CycleButton.onOffBuilder(
+                        ModConfig.TERM_AUTO_DETECT_ENABLED.get())
+                .create(centerX - 150, settingsY, 140, 20,
+                        Component.translatable("screen.simple_translate.terms.auto_detect"),
+                        (button, value) -> ModConfig.TERM_AUTO_DETECT_ENABLED.set(value));
+        withTooltip(autoDetectButton, "screen.simple_translate.terms.auto_detect.tooltip");
+        this.addRenderableWidget(autoDetectButton);
+
+        IntSliderWidget autoDetectCountSlider = new IntSliderWidget(
+                centerX + 10, settingsY, 140, 20, ModConfig.TERM_AUTO_DETECT_COUNT, 1, 100, 1,
+                value -> Component.translatable("screen.simple_translate.terms.auto_detect_count", value)
+                        .getString());
+        withTooltip(autoDetectCountSlider, "screen.simple_translate.terms.auto_detect_count.tooltip");
+        this.addRenderableWidget(autoDetectCountSlider);
 
         // Bottom buttons
         int buttonY = this.height - 45;
@@ -188,22 +210,22 @@ public class TermManagerScreen extends BaseSimpleTranslateScreen {
 
     @Override
     public void render(PoseStack poseStack, int mouseX, int mouseY, float partialTick) {
-        GuiGraphics graphics = new GuiGraphics(poseStack);
+        GuiGraphics graphics = GuiGraphics.wrap(poseStack);
         ScreenBackgrounds.renderPlain(graphics, this.width, this.height);
 
         // Draw title
-        graphics.drawCenteredString(this.font, this.title, this.width / 2, 15, 0xFFFFFF);
+        graphics.drawCenteredString(this.font, this.title, this.width / 2, 15, 0xFFFFFFFF);
 
         // Draw column headers
-        graphics.drawString(this.font, Component.translatable("screen.simple_translate.terms.term"), this.width / 2 - 150, 30, 0xAAAAAA);
-        graphics.drawString(this.font, Component.translatable("screen.simple_translate.cache.edit.translation"), this.width / 2 + 20, 30, 0xAAAAAA);
+        graphics.drawString(this.font, Component.translatable("screen.simple_translate.terms.term"), this.width / 2 - 150, 30, 0xFFAAAAAA);
+        graphics.drawString(this.font, Component.translatable("screen.simple_translate.cache.edit.translation"), this.width / 2 + 20, 30, 0xFFAAAAAA);
 
         drawBottomActionMask(graphics);
         super.render(poseStack, mouseX, mouseY, partialTick);
     }
 
     private void drawBottomActionMask(GuiGraphics graphics) {
-        int top = this.height - 82;
+        int top = this.height - 102;
         int left = Math.max(0, this.width / 2 - 190);
         int right = Math.min(this.width, this.width / 2 + 190);
         graphics.fill(left, top, right, this.height - 2, 0xAA101010);
@@ -225,7 +247,7 @@ public class TermManagerScreen extends BaseSimpleTranslateScreen {
      */
     private class TermList extends ObjectSelectionList<TermEntry> {
         public TermList(Minecraft minecraft, int width, int height, int top, int bottom) {
-            super(minecraft, width, height, top, bottom, 20);
+            super(minecraft, width, Math.max(1, bottom - top), top, bottom, 20);
         }
 
 
@@ -262,22 +284,22 @@ public class TermManagerScreen extends BaseSimpleTranslateScreen {
         @Override
         public void render(PoseStack poseStack, int index, int top, int left, int width, int height,
                 int mouseX, int mouseY, boolean isMouseOver, float partialTick) {
-            GuiGraphics graphics = new GuiGraphics(poseStack);
+            GuiGraphics graphics = GuiGraphics.wrap(poseStack);
             int centerX = TermManagerScreen.this.width / 2;
 
             // Draw term
             graphics.drawString(TermManagerScreen.this.font,
                     term.length() > 20 ? term.substring(0, 17) + "..." : term,
-                    centerX - 150, top + 5, 0xFFFFFF);
+                    centerX - 150, top + 5, 0xFFFFFFFF);
 
             // Draw arrow
-            graphics.drawString(TermManagerScreen.this.font, "->", centerX, top + 5, 0x888888);
+            graphics.drawString(TermManagerScreen.this.font, "->", centerX, top + 5, 0xFF888888);
 
             // Draw translation
             String displayTranslation = translation.isEmpty()
                     ? Component.translatable("screen.simple_translate.terms.empty_translation").getString()
                     : translation;
-            int translationColor = translation.isEmpty() ? 0xFF8888 : 0xFFFFFF;
+            int translationColor = translation.isEmpty() ? 0xFF8888 : 0xFFFFFFFF;
             graphics.drawString(TermManagerScreen.this.font,
                     displayTranslation.length() > 20 ? displayTranslation.substring(0, 17) + "..." : displayTranslation,
                     centerX + 20, top + 5, translationColor);
@@ -294,7 +316,47 @@ public class TermManagerScreen extends BaseSimpleTranslateScreen {
             return Component.translatable("screen.simple_translate.terms.narration", term, translation);
         }
     }
+
+    /** Integer slider for the auto-detect threshold. */
+    private static final class IntSliderWidget extends AbstractSliderButton {
+        private final ModConfig.IntValue config;
+        private final int min;
+        private final int max;
+        private final int step;
+        private final Function<Integer, String> label;
+
+        private IntSliderWidget(int x, int y, int width, int height,
+                                ModConfig.IntValue config, int min, int max, int step,
+                                Function<Integer, String> label) {
+            super(x, y, width, height, Component.empty(), normalize(config.get(), min, max));
+            this.config = config;
+            this.min = min;
+            this.max = max;
+            this.step = Math.max(1, step);
+            this.label = label;
+            updateMessage();
+        }
+
+        @Override
+        protected void updateMessage() {
+            setMessage(Component.literal(this.label.apply(currentValue())));
+        }
+
+        @Override
+        protected void applyValue() {
+            this.config.set(currentValue());
+            updateMessage();
+        }
+
+        private int currentValue() {
+            int raw = this.min + (int) Math.round(this.value * (this.max - this.min));
+            int stepped = this.min + Math.round((raw - this.min) / (float) this.step) * this.step;
+            return Math.max(this.min, Math.min(this.max, stepped));
+        }
+
+        private static double normalize(int value, int min, int max) {
+            return max <= min ? 0.0D
+                    : Math.max(0.0D, Math.min(1.0D, (value - min) / (double) (max - min)));
+        }
+    }
 }
-
-
-

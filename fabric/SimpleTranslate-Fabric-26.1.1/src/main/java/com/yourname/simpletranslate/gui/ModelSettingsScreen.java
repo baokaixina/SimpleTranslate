@@ -88,8 +88,20 @@ public class ModelSettingsScreen extends ScrollableSettingsScreen {
                             if (this.modelInput != null && (this.modelInput.getValue() == null || this.modelInput.getValue().isBlank())) {
                                 this.modelInput.setValue(value.getDefaultModel());
                             }
+                            if (value == ApiFormat.LOCAL_OLLAMA) {
+                                if (this.apiUrlInput != null && (this.apiUrlInput.getValue() == null
+                                        || this.apiUrlInput.getValue().isBlank()
+                                        || ModConfig.DEFAULT_API_URL.equals(this.apiUrlInput.getValue()))) {
+                                    this.apiUrlInput.setValue("http://localhost:11434/v1");
+                                }
+                                if (this.apiKeyInput != null && (this.apiKeyInput.getValue() == null || this.apiKeyInput.getValue().isBlank())) {
+                                    this.apiKeyInput.setValue("ollama");
+                                }
+                            }
                         });
         withTooltip(this.formatButton, "screen.simple_translate.model_settings.api_format.tooltip");
+        addEntry(this.formatButton);
+        addDescription(text("screen.simple_translate.model_settings.local_llm_warning"));
         addEntry(this.formatButton);
 
         this.thinkingButton = CycleButton.onOffBuilder(this.currentThinkingEnabled)

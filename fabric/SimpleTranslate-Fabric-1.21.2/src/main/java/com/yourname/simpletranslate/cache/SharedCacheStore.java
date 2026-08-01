@@ -88,7 +88,7 @@ public final class SharedCacheStore {
             data.version = FILE_VERSION;
             data.protocol = TranslationCacheKeys.PROTOCOL;
             data.entries = new ArrayList<>(entries.values());
-            Files.writeString(file, GSON.toJson(data));
+            com.yourname.simpletranslate.core.AtomicFiles.writeString(file, GSON.toJson(data));
         } catch (IOException e) {
             dirty = true;
             LOGGER.warn("Failed to save shared cache store {}: {}", file, e.getMessage());

@@ -1,0 +1,5 @@
+accessWidener	v2	named
+
+# Minecraft 1.21 has no FontSet$SelectedGlyphs: FontSet#getGlyph/getGlyphInfo
+# are public and FontSetMixin/FontSetAccessor cover the remaining private
+# missingGlyph member, so no entries are required on this version.

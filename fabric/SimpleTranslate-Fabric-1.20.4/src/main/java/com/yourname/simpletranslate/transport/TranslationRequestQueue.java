@@ -52,9 +52,9 @@ public final class TranslationRequestQueue {
     private static long nextSequence;
     private static long generation;
     private static int globalInFlight;
-    private static long rateLimitedUntilMs;
+    private static long rateLimitedUntilNanos;
     private static volatile String lastErrorMessage;
-    private static volatile long lastErrorTimestampMs;
+    private static volatile long lastErrorTimestampNanos;
     private static final long ERROR_STATUS_TTL_MS = 60_000L;
 
     private TranslationRequestQueue() {
@@ -72,6 +72,8 @@ public final class TranslationRequestQueue {
         Priority effectivePriority = priority == null ? Priority.NORMAL : priority;
         int attempts = Math.max(1, maxAttempts);
 
+        QueuedTask droppedTask = null;
+        QueuedTask submittedTask;
         synchronized (LOCK) {
             QueuedTask existing = TASKS_BY_LANE_KEY.get(laneKey);
             if (existing != null && !existing.future.isDone()) {
@@ -82,16 +84,17 @@ public final class TranslationRequestQueue {
                 return existing.future;
             }
 
-            if (TASKS_BY_LANE_KEY.size() >= MAX_UNIQUE_TASKS && !dropOneLowPriorityTask()) {
-                CompletableFuture<String> rejected = new CompletableFuture<>();
-                rejected.complete(null);
-                SimpleTranslateMod.getLogger().warn(
-                        "Translation queue full; rejected protected task lane={} surface={} key={}",
-                        laneId, normalizedSurface, shortKey(normalizedKey));
-                return rejected;
+            if (TASKS_BY_LANE_KEY.size() >= MAX_UNIQUE_TASKS) {
+                droppedTask = removeOneLowPriorityTaskLocked();
+                if (droppedTask == null) {
+                    SimpleTranslateMod.getLogger().warn(
+                            "Translation queue full; rejected protected task lane={} surface={} key={}",
+                            laneId, normalizedSurface, shortKey(normalizedKey));
+                    return CompletableFuture.completedFuture(null);
+                }
             }
 
-            QueuedTask task = new QueuedTask(
+            submittedTask = new QueuedTask(
                     ++nextSequence,
                     generation,
                     normalizedKey,
@@ -101,15 +104,18 @@ public final class TranslationRequestQueue {
                     effectivePriority,
                     attempts,
                     request);
-            TASKS_BY_LANE_KEY.put(laneKey, task);
-            lane(laneId).queue.add(task);
+            TASKS_BY_LANE_KEY.put(laneKey, submittedTask);
+            lane(laneId).queue.add(submittedTask);
             SimpleTranslateMod.getLogger().debug(
                     "Translation queue enqueued id={} lane={} surface={} priority={} laneSize={} globalSize={}",
-                    task.id, task.laneId, task.surface, task.priority,
-                    lane(task.laneId).queue.size(), TASKS_BY_LANE_KEY.size());
+                    submittedTask.id, submittedTask.laneId, submittedTask.surface, submittedTask.priority,
+                    lane(submittedTask.laneId).queue.size(), TASKS_BY_LANE_KEY.size());
             scheduleDrainLocked();
-            return task.future;
         }
+        if (droppedTask != null) {
+            droppedTask.future.complete(null);
+        }
+        return submittedTask.future;
     }
 
     public static void clear() {
@@ -156,7 +162,7 @@ public final class TranslationRequestQueue {
             TASKS_BY_LANE_KEY.clear();
             globalInFlight = 0;
             lastErrorMessage = null;
-            lastErrorTimestampMs = 0L;
+            lastErrorTimestampNanos = 0L;
             SimpleTranslateMod.getLogger().debug("Translation queue cleared generation={}", generation);
         }
         for (Future<?> workerFuture : workerFuturesToCancel) {
@@ -178,11 +184,11 @@ public final class TranslationRequestQueue {
 
     public static String getRecentErrorStatus() {
         String message = lastErrorMessage;
-        long timestamp = lastErrorTimestampMs;
+        long timestamp = lastErrorTimestampNanos;
         if (message == null || message.isBlank()) {
             return null;
         }
-        if (System.currentTimeMillis() - timestamp > ERROR_STATUS_TTL_MS) {
+        if (System.nanoTime() - timestamp > ERROR_STATUS_TTL_MS * 1_000_000L) {
             return null;
         }
         return message;
@@ -190,7 +196,7 @@ public final class TranslationRequestQueue {
 
     public static void clearErrorStatus() {
         lastErrorMessage = null;
-        lastErrorTimestampMs = 0L;
+        lastErrorTimestampNanos = 0L;
     }
 
     public static int cancelSurfacePrefix(String surfacePrefix) {
@@ -199,7 +205,9 @@ public final class TranslationRequestQueue {
             return 0;
         }
 
-        int canceled = 0;
+        List<QueuedTask> tasksToComplete = new ArrayList<>();
+        List<Future<?>> workerFuturesToCancel = new ArrayList<>();
+        List<CompletableFuture<String>> requestFuturesToCancel = new ArrayList<>();
         synchronized (LOCK) {
             for (LaneState lane : LANES.values()) {
                 Iterator<QueuedTask> iterator = lane.queue.iterator();
@@ -209,27 +217,36 @@ public final class TranslationRequestQueue {
                         iterator.remove();
                         TASKS_BY_LANE_KEY.remove(task.laneKey, task);
                         task.canceled = true;
-                        task.future.complete(null);
-                        canceled++;
+                        tasksToComplete.add(task);
                     }
                 }
                 for (QueuedTask task : new ArrayList<>(lane.runningTasks)) {
                     if (task.surface.toLowerCase(Locale.ROOT).startsWith(normalizedPrefix)) {
                         task.canceled = true;
                         if (task.workerFuture != null) {
-                            task.workerFuture.cancel(true);
+                            workerFuturesToCancel.add(task.workerFuture);
                         }
                         if (task.requestFuture != null) {
-                            task.requestFuture.cancel(true);
+                            requestFuturesToCancel.add(task.requestFuture);
                         }
                         releaseRunningSlotLocked(task);
                         TASKS_BY_LANE_KEY.remove(task.laneKey, task);
-                        task.future.complete(null);
-                        canceled++;
+                        tasksToComplete.add(task);
                     }
                 }
             }
+            scheduleDrainLocked();
         }
+        for (Future<?> workerFuture : workerFuturesToCancel) {
+            workerFuture.cancel(true);
+        }
+        for (CompletableFuture<String> requestFuture : requestFuturesToCancel) {
+            requestFuture.cancel(true);
+        }
+        for (QueuedTask task : tasksToComplete) {
+            task.future.complete(null);
+        }
+        int canceled = tasksToComplete.size();
         if (canceled > 0) {
             SimpleTranslateMod.getLogger().debug(
                     "Translation queue canceled tasks surfacePrefix={} count={}",
@@ -267,12 +284,16 @@ public final class TranslationRequestQueue {
                 finishTask(task, null, null);
                 return;
             }
+            boolean cancelRequest;
             synchronized (LOCK) {
-                if (task.canceled || task.generation != generation) {
-                    requestFuture.cancel(true);
-                    return;
+                cancelRequest = task.canceled || task.generation != generation;
+                if (!cancelRequest) {
+                    task.requestFuture = requestFuture;
                 }
-                task.requestFuture = requestFuture;
+            }
+            if (cancelRequest) {
+                requestFuture.cancel(true);
+                return;
             }
             requestFuture.whenComplete((result, error) -> {
                 Throwable cause = unwrapCompletion(error);
@@ -347,6 +368,7 @@ public final class TranslationRequestQueue {
 
     private static void finishTask(QueuedTask task, String result, Exception error) {
         long runMs = Math.max(0L, System.currentTimeMillis() - task.startedAt);
+        boolean shouldComplete = false;
         synchronized (LOCK) {
             if (task.canceled || task.generation != generation) {
                 releaseRunningSlotLocked(task);
@@ -366,60 +388,66 @@ public final class TranslationRequestQueue {
                         "Translation queue finish id={} lane={} surface={} runMs={} blank={}",
                         task.id, task.laneId, task.surface, runMs, result == null || result.isBlank());
             }
-            task.future.complete(error == null ? result : null);
             scheduleDrainLocked();
+            shouldComplete = true;
+        }
+        if (shouldComplete) {
+            task.future.complete(error == null ? result : null);
         }
     }
 
     private static void retryTask(QueuedTask task, RetryableTranslationException retryable) {
         long runMs = Math.max(0L, System.currentTimeMillis() - task.startedAt);
+        boolean shouldComplete = false;
         synchronized (LOCK) {
             if (task.canceled || task.generation != generation) {
                 releaseRunningSlotLocked(task);
                 TASKS_BY_LANE_KEY.remove(task.laneKey, task);
-                task.future.complete(null);
                 scheduleDrainLocked();
-                return;
-            }
-            releaseRunningSlotLocked(task);
-            task.attempt++;
-            if (isRateLimit(retryable)) {
-                rateLimitedUntilMs = Math.max(rateLimitedUntilMs, System.currentTimeMillis() + RATE_LIMIT_THROTTLE_MS);
-                lastErrorMessage = "Rate limited (HTTP 429)";
-                lastErrorTimestampMs = System.currentTimeMillis();
-                SimpleTranslateMod.getLogger().warn(
-                        "Translation queue rate limited; temporarily capping global parallelism at {} for {} ms",
-                        RATE_LIMIT_MAX_PARALLEL, RATE_LIMIT_THROTTLE_MS);
-            }
-            if (task.attempt >= task.maxAttempts || task.generation != generation) {
-                TASKS_BY_LANE_KEY.remove(task.laneKey, task);
-                task.future.complete(null);
-                lastErrorMessage = retryable.getMessage() == null ? "Retries exhausted" : retryable.getMessage();
-                lastErrorTimestampMs = System.currentTimeMillis();
-                SimpleTranslateMod.getLogger().warn(
-                        "Translation queue exhausted retries id={} lane={} surface={} runMs={} reason={}",
-                        task.id, task.laneId, task.surface, runMs,
-                        retryable.getMessage() == null ? "retryable-error" : retryable.getMessage());
-                scheduleDrainLocked();
-                return;
-            }
-
-            long delay = retryDelay(task.attempt);
-            SimpleTranslateMod.getLogger().warn(
-                    "Translation queue retry id={} lane={} surface={} nextAttempt={}/{} delayMs={} runMs={} reason={}",
-                    task.id, task.laneId, task.surface, task.attempt + 1, task.maxAttempts,
-                    delay, runMs, retryable.getMessage() == null ? "retryable-error" : retryable.getMessage());
-            TIMER.schedule(() -> {
-                synchronized (LOCK) {
-                    if (task.future.isDone() || task.generation != generation || !TASKS_BY_LANE_KEY.containsKey(task.laneKey)) {
-                        return;
-                    }
-                    lane(task.laneId).queue.add(task);
+                shouldComplete = true;
+            } else {
+                releaseRunningSlotLocked(task);
+                task.attempt++;
+                if (isRateLimit(retryable)) {
+                    rateLimitedUntilNanos = Math.max(rateLimitedUntilNanos, System.nanoTime() + RATE_LIMIT_THROTTLE_MS * 1_000_000L);
+                    lastErrorMessage = "Rate limited (HTTP 429)";
+                    lastErrorTimestampNanos = System.nanoTime();
+                    SimpleTranslateMod.getLogger().warn(
+                            "Translation queue rate limited; temporarily capping global parallelism at {} for {} ms",
+                            RATE_LIMIT_MAX_PARALLEL, RATE_LIMIT_THROTTLE_MS);
+                }
+                if (task.attempt >= task.maxAttempts || task.generation != generation) {
+                    TASKS_BY_LANE_KEY.remove(task.laneKey, task);
+                    lastErrorMessage = retryable.getMessage() == null ? "Retries exhausted" : retryable.getMessage();
+                    lastErrorTimestampNanos = System.nanoTime();
+                    SimpleTranslateMod.getLogger().warn(
+                            "Translation queue exhausted retries id={} lane={} surface={} runMs={} reason={}",
+                            task.id, task.laneId, task.surface, runMs,
+                            retryable.getMessage() == null ? "retryable-error" : retryable.getMessage());
+                    scheduleDrainLocked();
+                    shouldComplete = true;
+                } else {
+                    long delay = retryDelay(task.attempt);
+                    SimpleTranslateMod.getLogger().warn(
+                            "Translation queue retry id={} lane={} surface={} nextAttempt={}/{} delayMs={} runMs={} reason={}",
+                            task.id, task.laneId, task.surface, task.attempt + 1, task.maxAttempts,
+                            delay, runMs, retryable.getMessage() == null ? "retryable-error" : retryable.getMessage());
+                    TIMER.schedule(() -> {
+                        synchronized (LOCK) {
+                            if (task.future.isDone() || task.generation != generation
+                                    || !TASKS_BY_LANE_KEY.containsKey(task.laneKey)) {
+                                return;
+                            }
+                            lane(task.laneId).queue.add(task);
+                            scheduleDrainLocked();
+                        }
+                    }, delay, TimeUnit.MILLISECONDS);
                     scheduleDrainLocked();
                 }
-            }, delay, TimeUnit.MILLISECONDS);
-
-            scheduleDrainLocked();
+            }
+        }
+        if (shouldComplete) {
+            task.future.complete(null);
         }
     }
 
@@ -440,7 +468,7 @@ public final class TranslationRequestQueue {
         return RETRY_DELAYS_MS[index];
     }
 
-    private static boolean dropOneLowPriorityTask() {
+    private static QueuedTask removeOneLowPriorityTaskLocked() {
         QueuedTask candidate = null;
         LaneState candidateLane = null;
         for (LaneState lane : LANES.values()) {
@@ -457,15 +485,14 @@ public final class TranslationRequestQueue {
             }
         }
         if (candidate == null || candidateLane == null) {
-            return false;
+            return null;
         }
         candidateLane.queue.remove(candidate);
         TASKS_BY_LANE_KEY.remove(candidate.laneKey, candidate);
-        candidate.future.complete(null);
         SimpleTranslateMod.getLogger().warn(
                 "Translation queue dropped low priority task id={} lane={} surface={} priority={}",
                 candidate.id, candidate.laneId, candidate.surface, candidate.priority);
-        return true;
+        return candidate;
     }
 
     private static final AtomicLong ANONYMOUS_SEQUENCE = new AtomicLong();
@@ -484,7 +511,7 @@ public final class TranslationRequestQueue {
     private static int maxParallelRequests() {
         try {
             int configured = Math.max(1, Math.min(MAX_WORKERS, ModConfig.API_MAX_PARALLEL_REQUESTS.get()));
-            if (System.currentTimeMillis() < rateLimitedUntilMs) {
+            if (System.nanoTime() < rateLimitedUntilNanos) {
                 return Math.max(1, Math.min(configured, RATE_LIMIT_MAX_PARALLEL));
             }
             return configured;

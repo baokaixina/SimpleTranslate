@@ -1,13 +1,12 @@
 package com.yourname.simpletranslate.gui;
 
-import com.mojang.blaze3d.vertex.PoseStack;
-
 import com.yourname.simpletranslate.api.TokenUsage;
 import com.yourname.simpletranslate.config.ModConfig;
 import com.yourname.simpletranslate.transport.TokenUsageMonitor;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
-import com.yourname.simpletranslate.compat.GuiGraphics;
+import com.mojang.blaze3d.vertex.PoseStack;
+import com.yourname.simpletranslate.core.render.GuiGraphics;
 import net.minecraft.client.gui.components.AbstractWidget;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.components.CycleButton;
@@ -101,6 +100,7 @@ public class TokenMonitorScreen extends ScrollableSettingsScreen {
                         })
                 .bounds(0, 0, contentWidth, 20)
                 .build();
+        withTooltip(clearButton, "screen.simple_translate.token_monitor.clear.tooltip");
         addEntry(clearButton);
     }
 
@@ -154,7 +154,7 @@ public class TokenMonitorScreen extends ScrollableSettingsScreen {
 
         @Override
         public void renderWidget(PoseStack poseStack, int mouseX, int mouseY, float partialTick) {
-            GuiGraphics graphics = new GuiGraphics(poseStack);
+            GuiGraphics graphics = GuiGraphics.wrap(poseStack);
             Font font = Minecraft.getInstance().font;
             int left = getX();
             int top = getY();

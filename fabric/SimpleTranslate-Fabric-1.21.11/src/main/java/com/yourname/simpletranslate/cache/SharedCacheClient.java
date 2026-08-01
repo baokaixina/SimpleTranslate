@@ -181,7 +181,10 @@ public final class SharedCacheClient {
         }
         if (imported > 0) {
             receivedEntries += imported;
-            cache.saveNow();
+            // Network payload handling runs on the client thread. Schedule the
+            // existing delayed persistence path instead of serializing every
+            // cache lane during a render tick.
+            cache.save();
             SimpleTranslateMod.onSharedTranslationCacheImported();
         }
     }

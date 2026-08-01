@@ -24,10 +24,11 @@
   "mixins": [
     "simple_translate.mixins.json"
   ],
+  "accessWidener": "simple_translate.accesswidener",
   "depends": {
-    "fabricloader": ">=${loader_version}",
+    "fabricloader": ">=0.16.0",
     "minecraft": ">=${minecraft_version}",
-    "fabric-api": ">=${fabric_version}"
+    "fabric-api": ">=0.134.1+1.21.10"
   },
   "suggests": {
     "modmenu": "*"

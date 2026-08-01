@@ -10,189 +10,77 @@ import com.yourname.simpletranslate.config.ModConfig;
 import com.yourname.simpletranslate.transport.TranslationLane;
 import com.yourname.simpletranslate.transport.TranslationLanes;
 import com.yourname.simpletranslate.transport.TranslationManager;
+import com.yourname.simpletranslate.transport.TranslationPromptPolicy;
 import net.minecraft.network.chat.Component;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.ScheduledFuture;
-import java.util.concurrent.TimeUnit;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 /**
  * JSON-passthrough translation pipeline for Minecraft components.
  *
- * <p>Serializes each {@link Component} to Minecraft Component JSON, sends the
- * JSON array to the model, and deserializes the translated JSON array back to
- * Component objects. Hidden hover events are stripped from request JSON and
- * reattached from the original components after translation, so ordinary
- * surfaces translate only visible text while hover tooltips remain controlled by
- * the dedicated tooltip path. The model sees the visible structure (colors,
- * click events, nesting) and only swaps text content — no {@code <n>} tags,
- * no wire protocol, no style-restoration logic.</p>
+ * <p>Serializes each {@link Component}, projects every natural-language run to
+ * an ordered top-level Component slot, and keeps opaque visuals, custom-font
+ * glyphs, format controls, dynamic values and hover payloads local. Hidden hover
+ * events are reattached after translation; dedicated tooltip paths translate
+ * hover content independently.</p>
  *
- * <p>Every game translation surface uses this pipeline. A response is accepted
- * when it is a parseable component array with the same top-level size as the
- * request. Styles and nested structure are intentionally left to the model.</p>
+ * <p>Every game translation surface uses this pipeline. The wire contract
+ * requires the same top-level slot count and a parseable Component at every
+ * index. {@link ComponentVisualProjection} then binds each accepted entry by
+ * ordinal into the untouched local source skeleton. Translation quality is
+ * directed by the shared prompt and full-document context; it is deliberately
+ * not guessed from retained Latin words, names, or technical terms. The legacy
+ * request-mode setting is compatibility-only; no game surface sends string
+ * arrays or marker contracts.</p>
  */
 public final class JsonPassthroughPipeline {
-    private static final long FAILURE_RETRY_MS = 6000L;
-    private static final int MAX_BATCH_ITEMS = 6;
-    private static final int MAX_BATCH_CHARS = 9000;
-    private static final ScheduledExecutorService BATCH_EXECUTOR =
-            Executors.newSingleThreadScheduledExecutor(runnable -> {
-                Thread thread = new Thread(runnable, "SimpleTranslate-JsonBatch");
-                thread.setDaemon(true);
-                return thread;
-            });
-
+    static final long FAILURE_RETRY_MS = 6000L;
+    /** One initial request plus two whole-document structural correction attempts. */
+    private static final int MAX_COMPONENT_STRUCTURE_ATTEMPTS = 3;
     private JsonPassthroughPipeline() {
     }
 
-    private static final Pattern NUMBER_PATTERN = Pattern.compile("\\d+(?:[.,:]\\d+)*%?");
-
-    private static final Pattern DYNAMIC_MARKER_PATTERN = Pattern.compile("\u27e6N(\\d+)\u27e7");
-
-    /**
-     * Extracts dynamic numbers from a text string, replacing them with
-     * {@code ⟦N0⟧}, {@code ⟦N1⟧}, ... markers so that changing values (e.g.
-     * "Durability: 69/80" → "68/80") produce identical cache keys.
-     */
-    /**
-     * Extracts dynamic numbers from a text string, replacing them with
-     * {@code ⟦N0⟧}, {@code ⟦N1⟧}, ... markers so that changing values (e.g.
-     * "Durability: 69/80" → "68/80") produce identical cache keys.
-     */
+    // Dynamic-number masking lives in ComponentJsonNumberNormalizer; thin wrappers
+    // keep production call sites and logic-check string contracts stable.
     private static String normalizeNumbers(String text, List<String> values) {
-        if (text == null || text.isEmpty()) {
-            return text;
-        }
-        Matcher matcher = NUMBER_PATTERN.matcher(text);
-        StringBuilder sb = new StringBuilder();
-        while (matcher.find()) {
-            values.add(matcher.group());
-            matcher.appendReplacement(sb, "\u27e6N" + (values.size() - 1) + "\u27e7");
-        }
-        matcher.appendTail(sb);
-        return sb.toString();
+        return ComponentJsonNumberNormalizer.normalizeNumbers(text, values);
     }
 
-    /**
-     * Restores dynamic numbers into a text string by replacing
-     * {@code ⟦Ni⟧} markers with the original values.
-     */
-    private static String restoreNumbers(String text, List<String> values) {
-        if (text == null || text.isEmpty() || values == null || values.isEmpty()) {
-            return text;
-        }
-        Matcher matcher = DYNAMIC_MARKER_PATTERN.matcher(text);
-        StringBuilder sb = new StringBuilder();
-        while (matcher.find()) {
-            int index = Integer.parseInt(matcher.group(1));
-            String replacement = index >= 0 && index < values.size() ? values.get(index) : matcher.group();
-            matcher.appendReplacement(sb, Matcher.quoteReplacement(replacement));
-        }
-        matcher.appendTail(sb);
-        return sb.toString();
+    private static JsonElement normalizeNumbersInTree(JsonElement element, List<String> values) {
+        return ComponentJsonNumberNormalizer.normalizeNumbersRoot(element, values);
     }
 
-    /**
-     * Recursively normalizes all {@code text} fields in a JSON element tree,
-     * collecting dynamic values into {@code values}.
-     */
-    private static void normalizeNumbersInTree(JsonElement element, List<String> values) {
-        if (element == null || element.isJsonNull()) {
-            return;
+    private static JsonElement restoreNumbersInTree(JsonElement element, List<String> values) {
+        return ComponentJsonNumberNormalizer.restoreNumbersRoot(element, values);
+    }
+
+    static boolean cacheTemplateMatchesSourceMarkers(String sourceJson, String cacheTemplate) {
+        if (sourceJson == null || sourceJson.isBlank()
+                || cacheTemplate == null || cacheTemplate.isBlank()) {
+            return false;
         }
-        if (element.isJsonArray()) {
-            for (JsonElement child : element.getAsJsonArray()) {
-                normalizeNumbersInTree(child, values);
-            }
-            return;
-        }
-        if (!element.isJsonObject()) {
-            return;
-        }
-        JsonObject obj = element.getAsJsonObject();
-        if (obj.has("text") && obj.get("text").isJsonPrimitive()) {
-            String text = obj.get("text").getAsString();
-            String normalized = normalizeNumbers(text, values);
-            if (!normalized.equals(text)) {
-                obj.addProperty("text", normalized);
-            }
-        }
-        if (obj.has("with") && obj.get("with").isJsonArray()) {
-            com.google.gson.JsonArray withArray = obj.getAsJsonArray("with");
-            for (int i = 0; i < withArray.size(); i++) {
-                com.google.gson.JsonElement arg = withArray.get(i);
-                if (arg.isJsonPrimitive() && arg.getAsJsonPrimitive().isNumber()) {
-                    values.add(arg.getAsString());
-                    withArray.set(i, new com.google.gson.JsonPrimitive(
-                            "\u27e6N" + (values.size() - 1) + "\u27e7"));
-                }
-            }
-        }
-        for (Map.Entry<String, JsonElement> entry : obj.entrySet()) {
-            String key = entry.getKey();
-            if (!"text".equals(key) && !"with".equals(key)) {
-                normalizeNumbersInTree(entry.getValue(), values);
-            }
+        try {
+            return ComponentJsonNumberNormalizer.hasSameDynamicMarkerDomain(
+                    JsonParser.parseString(sourceJson), JsonParser.parseString(cacheTemplate));
+        } catch (RuntimeException ignored) {
+            return false;
         }
     }
 
-    /**
-     * Recursively restores dynamic numbers into all {@code text} fields.
-     */
-    private static void restoreNumbersInTree(JsonElement element, List<String> values) {
-        if (element == null || element.isJsonNull() || values == null || values.isEmpty()) {
-            return;
+    private static boolean cacheTemplateContainsDynamicMarkers(String cacheTemplate) {
+        if (cacheTemplate == null || cacheTemplate.isBlank()) {
+            return false;
         }
-        if (element.isJsonArray()) {
-            for (JsonElement child : element.getAsJsonArray()) {
-                restoreNumbersInTree(child, values);
-            }
-            return;
-        }
-        if (!element.isJsonObject()) {
-            return;
-        }
-        JsonObject obj = element.getAsJsonObject();
-        if (obj.has("text") && obj.get("text").isJsonPrimitive()) {
-            String text = obj.get("text").getAsString();
-            String restored = restoreNumbers(text, values);
-            if (!restored.equals(text)) {
-                obj.addProperty("text", restored);
-            }
-        }
-        if (obj.has("with") && obj.get("with").isJsonArray()) {
-            com.google.gson.JsonArray withArray = obj.getAsJsonArray("with");
-            for (int i = 0; i < withArray.size(); i++) {
-                com.google.gson.JsonElement arg = withArray.get(i);
-                if (arg.isJsonPrimitive()) {
-                    String s = arg.getAsString();
-                    String restored = restoreNumbers(s, values);
-                    if (!restored.equals(s)) {
-                        try {
-                            double d = Double.parseDouble(restored);
-                            withArray.set(i, new com.google.gson.JsonPrimitive(d));
-                        } catch (NumberFormatException e) {
-                            withArray.set(i, new com.google.gson.JsonPrimitive(restored));
-                        }
-                    }
-                }
-            }
-        }
-        for (Map.Entry<String, JsonElement> entry : obj.entrySet()) {
-            String key = entry.getKey();
-            if (!"text".equals(key) && !"with".equals(key)) {
-                restoreNumbersInTree(entry.getValue(), values);
-            }
+        try {
+            return ComponentJsonNumberNormalizer.containsDynamicMarker(
+                    JsonParser.parseString(cacheTemplate));
+        } catch (RuntimeException ignored) {
+            return true;
         }
     }
 
@@ -215,10 +103,13 @@ public final class JsonPassthroughPipeline {
     }
 
     private static String serializeComponentsRaw(List<Component> components) {
+        if (components == null) {
+            return null;
+        }
         try {
             JsonArray array = new JsonArray();
             for (Component component : components) {
-                String json = Component.Serializer.toJson(
+                String json = ComponentJsonCompat.toJson(
                         component == null ? Component.empty() : component);
                 JsonElement element = JsonParser.parseString(json);
                 stripHoverEvents(element);
@@ -232,16 +123,11 @@ public final class JsonPassthroughPipeline {
     }
 
     public static void clearRuntimeState() {
-        JsonBatcher.clear();
+        ComponentJsonBatcher.clear();
     }
 
     public static void shutdown() {
-        clearRuntimeState();
-        BATCH_EXECUTOR.shutdownNow();
-    }
-
-    public static boolean isEnabledForSurface(String surface) {
-        return true;
+        ComponentJsonBatcher.shutdown();
     }
 
     public static ComponentListTranslationResult translateComponents(
@@ -253,26 +139,24 @@ public final class JsonPassthroughPipeline {
             if (components == null || components.isEmpty()) {
                 return new ComponentListTranslationResult(components, false, false);
             }
-            if (!hasEnglish(components)) {
+            String sourceLanguage = ModConfig.SOURCE_LANGUAGE.get();
+            String targetLanguage = ModConfig.TARGET_LANGUAGE.get();
+            if (!isOutgoingChatSurface(surface) && !hasTranslatableText(components, targetLanguage)) {
                 return new ComponentListTranslationResult(components, false, false);
             }
-
-
 
             String sourceJson = serializeComponents(components);
             if (sourceJson == null) {
                 return new ComponentListTranslationResult(components, false, false);
             }
-            String cacheKey = buildCacheKey(surface, sourceJson, context);
-            List<Component> cached = restoreFromCache(cacheKey, components);
-            if (cached == null && canUseContextlessLegacyCache(context)) {
-                cached = restoreLegacyJsonCache(surface, sourceJson, cacheKey, components);
-            }
+            String cacheKey = buildCacheKey(surface, sourceJson, context, role, sourceLanguage, targetLanguage);
+            List<Component> cached = restoreCachedComponents(
+                    surface, sourceJson, context, sourceLanguage, targetLanguage, cacheKey, components);
             if (cached != null) {
                 return new ComponentListTranslationResult(cached, true, true);
             }
 
-            requestAsync(components, sourceJson, surface, context, cacheKey);
+            requestAsync(components, sourceJson, surface, role, context, cacheKey, sourceLanguage, targetLanguage);
             return new ComponentListTranslationResult(components, true, false);
         }, new ComponentListTranslationResult(components, false, false),
                 "json-passthrough.translateComponents." + surface);
@@ -287,20 +171,19 @@ public final class JsonPassthroughPipeline {
             if (components == null || components.isEmpty()) {
                 return new ComponentListTranslationResult(components, false, false);
             }
-            if (!hasEnglish(components)) {
+            String sourceLanguage = ModConfig.SOURCE_LANGUAGE.get();
+            String targetLanguage = ModConfig.TARGET_LANGUAGE.get();
+            if (!isOutgoingChatSurface(surface) && !hasTranslatableText(components, targetLanguage)) {
                 return new ComponentListTranslationResult(components, false, false);
             }
-
 
             String sourceJson = serializeComponents(components);
             if (sourceJson == null) {
                 return new ComponentListTranslationResult(components, false, false);
             }
-            String cacheKey = buildCacheKey(surface, sourceJson, context);
-            List<Component> cached = restoreFromCache(cacheKey, components);
-            if (cached == null && canUseContextlessLegacyCache(context)) {
-                cached = restoreLegacyJsonCache(surface, sourceJson, cacheKey, components);
-            }
+            String cacheKey = buildCacheKey(surface, sourceJson, context, role, sourceLanguage, targetLanguage);
+            List<Component> cached = restoreCachedComponents(
+                    surface, sourceJson, context, sourceLanguage, targetLanguage, cacheKey, components);
             if (cached != null) {
                 return new ComponentListTranslationResult(cached, true, true);
             }
@@ -311,6 +194,12 @@ public final class JsonPassthroughPipeline {
 
     public static CompletableFuture<ComponentListTranslationResult> translateComponentsAsync(
             List<Component> components, String surface, String role, boolean fixedLayout, String context) {
+        return translateComponentsAsync(components, surface, role, fixedLayout, context, "", "");
+    }
+
+    public static CompletableFuture<ComponentListTranslationResult> translateComponentsAsync(
+            List<Component> components, String surface, String role, boolean fixedLayout, String context,
+            String sourceLanguageOverride, String targetLanguageOverride) {
         return SafeTranslate.guard(() -> {
             if (!ModConfig.GLOBAL_ENABLED.get()) {
                 return CompletableFuture.completedFuture(new ComponentListTranslationResult(components, false, false));
@@ -324,20 +213,18 @@ public final class JsonPassthroughPipeline {
                 return CompletableFuture.completedFuture(new ComponentListTranslationResult(components, false, false));
             }
 
-            if (!hasEnglish(components)) {
+            String sourceLanguage = effectiveSourceLanguage(sourceLanguageOverride);
+            String targetLanguage = effectiveTargetLanguage(targetLanguageOverride);
+            if (!isOutgoingChatSurface(surface) && !hasTranslatableText(components, targetLanguage)) {
                 return CompletableFuture.completedFuture(new ComponentListTranslationResult(components, false, false));
             }
-
-
-            String cacheKey = buildCacheKey(surface, sourceJson, context);
-            List<Component> cached = restoreFromCache(cacheKey, components);
-            if (cached == null && canUseContextlessLegacyCache(context)) {
-                cached = restoreLegacyJsonCache(surface, sourceJson, cacheKey, components);
-            }
+            String cacheKey = buildCacheKey(surface, sourceJson, context, role, sourceLanguage, targetLanguage);
+            List<Component> cached = restoreCachedComponents(
+                    surface, sourceJson, context, sourceLanguage, targetLanguage, cacheKey, components);
             if (cached != null) {
                 return CompletableFuture.completedFuture(new ComponentListTranslationResult(cached, true, true));
             }
-            return requestAsync(components, sourceJson, surface, context, cacheKey)
+            return requestAsync(components, sourceJson, surface, role, context, cacheKey, sourceLanguage, targetLanguage)
                     .thenApply(restored -> {
                         if (restored == null) {
                             return new ComponentListTranslationResult(components, true, false);
@@ -348,21 +235,140 @@ public final class JsonPassthroughPipeline {
                 "json-passthrough.translateComponentsAsync." + surface);
     }
 
+    /**
+     * Materializes a locally merged Component result into the ordinary exact
+     * block cache.  Incremental surface coordinators use this only after every
+     * semantic slot has either been reused from an accepted scoped entry or
+     * returned by a successful Component JSON request.  The stored value is
+     * therefore still one complete source tree -> one complete translated tree;
+     * fuzzy source structures never enter the block cache.
+     */
+    public static void cacheResolvedComponents(
+            List<Component> originals, List<Component> translated,
+            String surface, String role, String context, long runtimeRevision) {
+        if (!ModConfig.GLOBAL_ENABLED.get() || !ModConfig.CACHE_ENABLED.get()
+                || originals == null || originals.isEmpty()
+                || translated == null || translated.size() != originals.size()
+                || !SimpleTranslateMod.isRuntimeRevisionCurrent(runtimeRevision)) {
+            return;
+        }
+        try {
+            String sourceLanguage = ModConfig.SOURCE_LANGUAGE.get();
+            String targetLanguage = ModConfig.TARGET_LANGUAGE.get();
+            String sourceJson = serializeComponents(originals);
+            String response = buildCacheTemplateFromResolvedComponents(
+                    sourceJson, originals, translated, targetLanguage);
+            if (sourceJson == null || response == null) {
+                return;
+            }
+            List<Component> replayed = deserializeComponents(response, originals);
+            if (replayed == null) {
+                return;
+            }
+            String cacheKey = buildCacheKey(
+                    surface, sourceJson, context, role, sourceLanguage, targetLanguage);
+            cacheSuccessfulResponse(cacheKey, response, sourceJson, originals, replayed,
+                    runtimeRevision, sourceLanguage, targetLanguage);
+        } catch (RuntimeException exception) {
+            SafeTranslate.logLimited("json-passthrough.cacheResolvedComponents", exception);
+        }
+    }
+
+    @Nullable
+    private static String buildCacheTemplateFromResolvedComponents(
+            String sourceJson, List<Component> originals,
+            List<Component> translated, String targetLanguage) {
+        if (sourceJson == null || sourceJson.isBlank()
+                || originals == null || originals.isEmpty()
+                || translated == null || translated.size() != originals.size()) {
+            return null;
+        }
+        try {
+            ComponentVisualProjection normalizedProjection = ComponentVisualProjection.project(
+                    sourceJson, targetLanguage);
+            ComponentVisualProjection liveProjection = projectLiveComponents(
+                    originals, targetLanguage);
+            String translatedJson = serializeComponentsRaw(translated);
+            if (normalizedProjection == null || !normalizedProjection.hasSlots()
+                    || liveProjection == null || !liveProjection.hasSlots()
+                    || normalizedProjection.slotCount() != liveProjection.slotCount()
+                    || translatedJson == null) {
+                return null;
+            }
+            // The resolved tree still contains this frame's concrete numbers, so
+            // only the marker-free live projection can align its opaque atoms.
+            // Rebuilding through the normalized projection then restores the
+            // source-owned N markers without ever normalizing translated literals.
+            List<String> translatedSlots = liveProjection.alignedTranslatedSlotTexts(
+                    JsonParser.parseString(translatedJson));
+            if (translatedSlots == null
+                    || translatedSlots.size() != normalizedProjection.slotCount()) {
+                return null;
+            }
+            JsonArray rebuilt = normalizedProjection.rebuildComponents(translatedSlots.stream()
+                    .map(text -> (Component) Component.literal(text))
+                    .toList());
+            String template = rebuilt == null ? null : rebuilt.toString();
+            return cacheTemplateMatchesSourceMarkers(sourceJson, template) ? template : null;
+        } catch (RuntimeException ignored) {
+            return null;
+        }
+    }
+
     public static String serializeComponents(List<Component> components) {
         return serializeComponents(components, false);
     }
 
+    /**
+     * Sanitized live skeleton used by render coordinators that need to rebind a
+     * ready semantic response against current dynamic values. Hover payloads are
+     * excluded, while numbers and visual atoms remain exact and client-owned.
+     */
+    @Nullable
+    public static String serializeProjectionSource(List<Component> components) {
+        return serializeComponentsRaw(components);
+    }
+
+    /** Builds the same marker-free projection from a live, hover-sanitized tree. */
+    @Nullable
+    private static List<Component> liveProjectionRows;
+    private static String liveProjectionLanguage;
+    private static ComponentVisualProjection liveProjectionCached;
+
+    /**
+     * Render-thread single-slot memo: one render pass evaluates the same
+     * tooltip rows through several consumers (frame key, trigger signature),
+     * and the projection is a pure function of the rows and target language.
+     */
+    public static ComponentVisualProjection projectLiveComponents(
+            List<Component> components, String targetLanguage) {
+        if (components == liveProjectionRows
+                && java.util.Objects.equals(targetLanguage, liveProjectionLanguage)) {
+            return liveProjectionCached;
+        }
+        String source = serializeProjectionSource(components);
+        ComponentVisualProjection projection =
+                source == null ? null : ComponentVisualProjection.project(source, targetLanguage);
+        liveProjectionRows = components;
+        liveProjectionLanguage = targetLanguage;
+        liveProjectionCached = projection;
+        return projection;
+    }
+
     private static String serializeComponents(List<Component> components, boolean includeHoverEvents) {
+        if (components == null) {
+            return null;
+        }
         try {
             JsonArray array = new JsonArray();
             List<String> dynamicValues = includeHoverEvents ? null : new ArrayList<>();
             for (Component component : components) {
-                String json = Component.Serializer.toJson(
+                String json = ComponentJsonCompat.toJson(
                         component == null ? Component.empty() : component);
                 JsonElement element = JsonParser.parseString(json);
                 if (!includeHoverEvents) {
                     stripHoverEvents(element);
-                    normalizeNumbersInTree(element, dynamicValues);
+                    element = normalizeNumbersInTree(element, dynamicValues);
                 }
                 array.add(element);
             }
@@ -373,26 +379,60 @@ public final class JsonPassthroughPipeline {
         }
     }
 
-    private static boolean hasEnglish(List<Component> components) {
+    private static boolean hasTranslatableText(List<Component> components, String targetLanguage) {
         for (Component component : components) {
-            if (component != null && TranslationTextDetector.containsTranslatableText(component.getString())) {
+            if (component != null && TranslationTextDetector.containsTranslatableText(
+                    component.getString(), 1, targetLanguage)) {
                 return true;
             }
         }
         return false;
     }
 
-    private static String buildCacheKey(String surface, String sourceJson, String context) {
+    private static boolean isOutgoingChatSurface(String surface) {
+        return Surface.normalize(surface).startsWith("chat.outgoing");
+    }
+    private static String buildCacheKey(String surface, String sourceJson, String context, String role,
+                                        String sourceLanguage, String targetLanguage) {
         String normalizedContext = context;
         if (context != null && !context.isBlank()) {
-            List<String> ctxValues = new ArrayList<>();
-            normalizedContext = normalizeNumbers(context, ctxValues);
+            normalizedContext = normalizeNumbers(context, new ArrayList<>());
         }
-        return TranslationCacheKeys.componentJsonKey(surface, sourceJson, normalizedContext);
+        String promptFingerprint = TranslationPromptPolicy.cacheFingerprint(surface);
+        String semanticContext = "translation_role=" + TranslationPromptPolicy.normalizedRole(role)
+                + "\ntranslation_prompt_policy=" + promptFingerprint
+                + "\ntranslation_wire=component_visual_projection_v5";
+        if (ComponentVisualProjection.needsLanguageVisibleCacheRevision(sourceJson)) {
+            semanticContext += "\ntranslation_semantic_visibility=language_visible_v1";
+        }
+        normalizedContext = (normalizedContext == null || normalizedContext.isBlank())
+                ? semanticContext
+                : normalizedContext + "\n" + semanticContext;
+        return TranslationCacheKeys.componentJsonKey(surface, sourceJson, normalizedContext,
+                sourceLanguage, targetLanguage);
+    }
+
+
+    private static String effectiveSourceLanguage(String sourceLanguage) {
+        return sourceLanguage == null || sourceLanguage.isBlank()
+                ? ModConfig.SOURCE_LANGUAGE.get()
+                : sourceLanguage;
+    }
+
+    private static String effectiveTargetLanguage(String targetLanguage) {
+        return targetLanguage == null || targetLanguage.isBlank()
+                ? ModConfig.TARGET_LANGUAGE.get()
+                : targetLanguage;
+    }
+
+    private static boolean usesCurrentGlobalLanguages(String sourceLanguage, String targetLanguage) {
+        return TranslationTextDetector.languagePairKey(sourceLanguage, targetLanguage)
+                .equals(TranslationTextDetector.languagePairKey());
     }
 
     private static boolean canUseContextlessLegacyCache(String context) {
-        return context == null || context.isBlank();
+        return (context == null || context.isBlank())
+                && TranslationPromptPolicy.legacyCacheCompatible();
     }
 
     @Nullable
@@ -410,23 +450,49 @@ public final class JsonPassthroughPipeline {
         if (cached == null || cached.isBlank()) {
             return null;
         }
-        List<Component> restored = deserializeComponents(cached, originals);
+        if (cacheTemplateContainsDynamicMarkers(cached)
+                && !cacheTemplateMatchesSourceMarkers(sourceJson, cached)) {
+            cache.remove(legacyKey);
+            cache.save();
+            return null;
+        }
+        List<Component> restored = deserializeComponents(cached, originals, null);
         if (restored == null) {
             cache.remove(legacyKey);
             cache.save();
             return null;
         }
-        String canonical = serializeComponents(restored);
         List<Component> visibleRestored = reattachOriginalHoverEvents(restored, originals);
-        cache.putComponentJson(currentKey, canonical == null ? cached : canonical, sourceJson,
-                plainText(originals), plainText(visibleRestored));
+        String canonical = buildCacheTemplateFromResolvedComponents(
+                sourceJson, originals, visibleRestored, ModConfig.TARGET_LANGUAGE.get());
+        if (canonical != null) {
+            cache.putComponentJson(currentKey, canonical, sourceJson,
+                    plainText(originals), plainText(visibleRestored));
+        }
         cache.remove(legacyKey);
         cache.save();
         return visibleRestored;
     }
 
     @Nullable
-    private static List<Component> restoreFromCache(String cacheKey, List<Component> originals) {
+    private static List<Component> restoreCachedComponents(
+            String surface, String sourceJson, String context,
+            String sourceLanguage, String targetLanguage,
+            String cacheKey, List<Component> components) {
+        List<Component> cached = restoreFromCache(cacheKey, sourceJson, components);
+        // Old marker/style-wire generations stay inactive. Only the original
+        // json.<surface> Component cache may migrate lazily when the current
+        // prompt policy is legacy-compatible.
+        if (cached == null && canUseContextlessLegacyCache(context)
+                && usesCurrentGlobalLanguages(sourceLanguage, targetLanguage)) {
+            cached = restoreLegacyJsonCache(surface, sourceJson, cacheKey, components);
+        }
+        return cached;
+    }
+
+    @Nullable
+    private static List<Component> restoreFromCache(
+            String cacheKey, String sourceJson, List<Component> originals) {
         if (!ModConfig.CACHE_ENABLED.get()) {
             return null;
         }
@@ -438,26 +504,24 @@ public final class JsonPassthroughPipeline {
         if (cached == null || cached.isBlank()) {
             return null;
         }
+        if (!cacheTemplateMatchesSourceMarkers(sourceJson, cached)) {
+            cache.remove(cacheKey);
+            cache.save();
+            return null;
+        }
         List<Component> restored = deserializeComponents(cached, originals);
         if (restored == null) {
             cache.remove(cacheKey);
             cache.save();
             return null;
         }
-        String canonical = serializeComponents(restored);
-        List<Component> visibleRestored = reattachOriginalHoverEvents(restored, originals);
-        if (canonical != null && !canonical.equals(cached)) {
-            String sourceJson = serializeComponents(originals);
-            cache.putComponentJson(cacheKey, canonical, sourceJson,
-                    plainText(originals), plainText(visibleRestored));
-            cache.save();
-        }
-        return visibleRestored;
+        return reattachOriginalHoverEvents(restored, originals);
     }
 
     private static CompletableFuture<List<Component>> requestAsync(
             List<Component> components, String sourceJson, String surface,
-            String context, String cacheKey) {
+            String role, String context, String cacheKey,
+            String sourceLanguage, String targetLanguage) {
         TranslationManager manager = SimpleTranslateMod.getTranslationManager();
         if (manager == null || !manager.isReady()) {
             SimpleTranslateMod.getLogger().debug(
@@ -471,32 +535,60 @@ public final class JsonPassthroughPipeline {
         }
 
         TranslationLane lane = TranslationLanes.forSurface(surface);
-        if (!lane.begin(cacheKey, FAILURE_RETRY_MS)) {
+        TranslationLane.Lease lease = lane.begin(cacheKey, FAILURE_RETRY_MS);
+        if (lease == null) {
             SimpleTranslateMod.getLogger().debug(
                     "JSON passthrough: pending or cooldown surface={} key={}", surface, cacheKey);
             return CompletableFuture.completedFuture(null);
         }
 
         long runtimeRevision = SimpleTranslateMod.getRuntimeRevision();
-        String sourceLanguage = ModConfig.SOURCE_LANGUAGE.get();
-        String targetLanguage = ModConfig.TARGET_LANGUAGE.get();
+        long textContextRevision = TextContextMemory.revision();
         BatchItem item = new BatchItem(manager, List.copyOf(components), sourceJson, surface,
-                context == null ? "" : context, cacheKey, lane, runtimeRevision,
+                TranslationPromptPolicy.normalizedRole(role), context == null ? "" : context,
+                cacheKey, lane, lease, runtimeRevision, textContextRevision,
                 sourceLanguage, targetLanguage, new CompletableFuture<>());
         if (Surface.directBatchCandidate(surface) && item.context().isBlank()) {
-            return JsonBatcher.enqueue(item);
+            return ComponentJsonBatcher.enqueue(item);
         }
         return sendSingle(item);
     }
 
-    private static CompletableFuture<List<Component>> sendSingle(BatchItem item) {
-        String userPayload = buildUserPayload(item.sourceJson(), item.context());
-        return item.manager().translateComponentJson(userPayload, item.surface(), 1)
+    static CompletableFuture<List<Component>> sendSingle(BatchItem item) {
+        ComponentVisualProjection projection = ComponentVisualProjection.project(
+                item.sourceJson(), item.targetLanguage());
+        if (projection == null || !projection.hasSlots()) {
+            item.lane().finish(item.lease());
+            return CompletableFuture.completedFuture(null);
+        }
+        String document = projection.semanticJson();
+        String callerContext = item.context();
+        String fullBlock = semanticPromptSourceShape(item.originals());
+        if (!fullBlock.isBlank()) {
+            boolean hasDynamicGaps = fullBlock.contains("<number>");
+            String sourceGuidance = hasDynamicGaps
+                    ? "Full ordered source text shape. Only <number> tokens mark live values owned and reinserted "
+                    + "by the client; ordinary digits remain semantic request text. Translate the JSON request "
+                    + "slots around each live gap, and never emit <number> or a replacement for that gap:\n"
+                    : "Full ordered source text. Ordinary numbers shown here belong to the sentence and must be "
+                    + "kept exactly once while translating its grammar:\n";
+            callerContext = sourceGuidance + fullBlock
+                    + (callerContext.isBlank() ? "" : "\nAdditional surface context:\n" + callerContext);
+        }
+        TextContextMemory.PromptMetadata promptMetadata = TextContextMemory.buildPromptMetadata(
+                callerContext, item.surface(), item.role(), document, true,
+                item.sourceLanguage(), item.targetLanguage());
+        CompletableFuture<String> responseFuture = translateComponentSlotsReliably(
+                item, document, projection.slotCount(), promptMetadata.json(),
+                recoveryAtomicGroupSizes(item, projection));
+        return responseFuture
                 .thenCompose(response -> finishRequest(
-                        item.originals(), item.sourceJson(), response, item.surface(), item.cacheKey(), item.lane(),
-                        item.runtimeRevision(), item.sourceLanguage(), item.targetLanguage()))
+                        item.originals(), item.sourceJson(), response, item.surface(), item.cacheKey(),
+                        item.lane(), item.lease(),
+                        item.runtimeRevision(), promptMetadata.contextRevision(),
+                        item.sourceLanguage(), item.targetLanguage(), projection))
                 .exceptionally(error -> {
-                    item.lane().fail(item.cacheKey(), FAILURE_RETRY_MS);
+                    item.lane().fail(item.lease(), FAILURE_RETRY_MS);
                     RecoveryPolicy.recordRejected(item.cacheKey());
                     SimpleTranslateMod.getLogger().warn(
                             "JSON passthrough: request failed surface={} key={} reason={}",
@@ -507,52 +599,393 @@ public final class JsonPassthroughPipeline {
     }
 
     public static String buildUserPayload(String sourceJson, String context) {
-        StringBuilder payload = new StringBuilder();
-        if (context != null && !context.isBlank()) {
-            payload.append("[CONTEXT]\n").append(context.trim()).append("\n[/CONTEXT]\n");
+        // Context is system-prompt metadata. The user payload is always exactly
+        // one top-level JSON array in both wire modes.
+        return sourceJson == null || sourceJson.isBlank() ? "[]" : sourceJson.trim();
+    }
+
+    /**
+     * Pages and signs are multi-Component physical layouts whose lines form one
+     * grammatical document. Other surfaces may recover between original
+     * top-level Components, while nested style/icon fragments stay atomic via
+     * the projection's structural groups.
+     */
+    private static List<Integer> recoveryAtomicGroupSizes(
+            BatchItem item, ComponentVisualProjection projection) {
+        return recoveryAtomicGroupSizes(
+                item == null ? "" : item.surface(),
+                item == null ? "" : item.context(), projection);
+    }
+
+    private static List<Integer> recoveryAtomicGroupSizes(
+            String surface, String context, ComponentVisualProjection projection) {
+        if (projection == null || projection.slotCount() <= 0) {
+            return List.of();
         }
-        payload.append(sourceJson);
-        return payload.toString();
+        return recoveryAtomicGroupSizesForTest(
+                surface, context, projection.slotCount(), projection.atomicGroupSizes());
+    }
+
+    static List<Integer> recoveryAtomicGroupSizesForTest(
+            String surface, String context, int slotCount, List<Integer> ordinaryAtomicGroups) {
+        if (slotCount <= 0) {
+            return List.of();
+        }
+        String normalized = Surface.normalize(surface);
+        boolean incrementalTooltipGroup = normalized.startsWith("tooltip.visible.")
+                && context != null && context.contains("Incremental Component request.");
+        if (normalized.startsWith("book.") || normalized.startsWith("sign.")
+                || incrementalTooltipGroup) {
+            return List.of(slotCount);
+        }
+        return ordinaryAtomicGroups == null ? List.of() : List.copyOf(ordinaryAtomicGroups);
+    }
+
+    /**
+     * Translates one complete semantic document through the approved Component
+     * JSON protocol. The only response contract is exact top-level count plus a
+     * parseable Component at every index. A retained player name, product name,
+     * technical label, or Latin phrase must never invalidate translated siblings
+     * or trigger per-slot request storms.
+     */
+    private static CompletableFuture<String> translateComponentSlotsReliably(
+            BatchItem item, String sourcePayload, int expectedSlots, String promptContext,
+            List<Integer> atomicGroupSizes) {
+        return translateComponentSlotsReliably(
+                item, sourcePayload, expectedSlots, promptContext, atomicGroupSizes, 0);
+    }
+
+    private static CompletableFuture<String> translateComponentSlotsReliably(
+            BatchItem item, String sourcePayload, int expectedSlots, String promptContext,
+            List<Integer> atomicGroupSizes, int structureAttempt) {
+        if (expectedSlots <= 0) {
+            return CompletableFuture.completedFuture("[]");
+        }
+
+        String payload = sourcePayload;
+        if (payload == null) {
+            return CompletableFuture.completedFuture(null);
+        }
+        String attemptContext = componentStructureAttemptContext(
+                promptContext, expectedSlots, structureAttempt);
+        return item.manager().translateComponentJson(
+                        buildUserPayload(payload, item.context()), item.surface(),
+                        Math.min(MAX_COMPONENT_STRUCTURE_ATTEMPTS, structureAttempt + 1),
+                        item.sourceLanguage(), item.targetLanguage(),
+                        attemptContext)
+                .thenCompose(response -> {
+                    // Transport/provider retries already own blank responses. Only a
+                    // non-empty response whose JSON/count/Component structure is
+                    // invalid receives this bounded whole-document correction pass.
+                    if (response == null || response.isBlank()) {
+                        return CompletableFuture.completedFuture(null);
+                    }
+                    JsonArray parsed = parseExactComponentArray(
+                            response, expectedSlots, item.surface(), 0);
+                    if (parsed != null) {
+                        return CompletableFuture.completedFuture(parsed.toString());
+                    }
+                    int nextAttempt = structureAttempt + 1;
+                    if (hasComponentStructureRetryRemaining(structureAttempt)) {
+                        SimpleTranslateMod.getLogger().warn(
+                                "Component JSON structural retry surface={} attempt={}/{} expectedSlots={}",
+                                item.surface(), nextAttempt + 1,
+                                MAX_COMPONENT_STRUCTURE_ATTEMPTS, expectedSlots);
+                        return translateComponentSlotsReliably(
+                                item, payload, expectedSlots, promptContext,
+                                atomicGroupSizes, nextAttempt);
+                    }
+                    // Only after bounded full-document correction fails may the
+                    // request split, and then only between original top-level
+                    // Components. Nested styles and icon-adjacent grammar remain
+                    // indivisible on every surface.
+                    if (allowsAdaptiveComponentPartition(atomicGroupSizes, expectedSlots)) {
+                        SimpleTranslateMod.getLogger().warn(
+                                "Component JSON structural recovery surface={} slots={} mode={}",
+                                item.surface(), expectedSlots, "atomic-group-bisection");
+                        return recoverComponentSlotsByPartition(
+                                item, payload, expectedSlots, promptContext, atomicGroupSizes);
+                    }
+                    return CompletableFuture.completedFuture(null);
+                });
+    }
+
+    /**
+     * Some Component arrays are visually fragmented but grammatically atomic.
+     * Splitting those arrays would preserve JSON shape while corrupting meaning,
+     * so they use bounded whole-document retries and then fail closed. Ordinary
+     * tooltip/menu arrays may still recover independent top-level slots.
+     */
+    private static boolean allowsAdaptiveComponentPartition(
+            List<Integer> atomicGroupSizes, int expectedSlots) {
+        return atomicGroupSizes != null && atomicGroupSizes.size() > 1
+                && atomicGroupSizes.stream().allMatch(size -> size != null && size > 0)
+                && atomicGroupSizes.stream().mapToInt(Integer::intValue).sum() == expectedSlots;
+    }
+
+    private static CompletableFuture<String> recoverComponentSlotsByPartition(
+            BatchItem item, String sourcePayload, int expectedSlots, String promptContext,
+            List<Integer> atomicGroupSizes) {
+        int groupBoundary = atomicGroupBoundary(atomicGroupSizes, expectedSlots);
+        if (groupBoundary <= 0) {
+            return CompletableFuture.completedFuture(null);
+        }
+        int leftCount = atomicGroupSizes.subList(0, groupBoundary).stream()
+                .mapToInt(Integer::intValue).sum();
+        int rightCount = expectedSlots - leftCount;
+        List<String> partitionPayloads = bisectComponentRecoveryPayload(
+                sourcePayload, expectedSlots, atomicGroupSizes);
+        if (partitionPayloads.size() != 2) {
+            return CompletableFuture.completedFuture(null);
+        }
+        List<Integer> leftGroups = List.copyOf(atomicGroupSizes.subList(0, groupBoundary));
+        List<Integer> rightGroups = List.copyOf(
+                atomicGroupSizes.subList(groupBoundary, atomicGroupSizes.size()));
+        String leftContext = componentPartitionRecoveryContext(
+                promptContext, leftCount, expectedSlots);
+        String rightContext = componentPartitionRecoveryContext(
+                promptContext, rightCount, expectedSlots);
+        List<CompletableFuture<String>> requests = List.of(
+                translateComponentSlotsReliably(
+                        item, partitionPayloads.get(0), leftCount, leftContext, leftGroups, 0),
+                translateComponentSlotsReliably(
+                        item, partitionPayloads.get(1), rightCount, rightContext, rightGroups, 0));
+        CompletableFuture<?>[] pending = requests.toArray(CompletableFuture[]::new);
+        return CompletableFuture.allOf(pending).thenApply(ignored -> {
+            List<String> responses = new ArrayList<>(requests.size());
+            for (CompletableFuture<String> request : requests) {
+                responses.add(request.join());
+            }
+            return combineComponentPartitionResponses(
+                    responses, List.of(leftCount, rightCount), item.surface());
+        });
+    }
+
+    /** Bisects only at already-validated top-level Component boundaries. */
+    private static List<String> bisectComponentRecoveryPayload(
+            String sourcePayload, int expectedSlots) {
+        return bisectComponentRecoveryPayload(
+                sourcePayload, expectedSlots,
+                java.util.Collections.nCopies(Math.max(0, expectedSlots), 1));
+    }
+
+    private static List<String> bisectComponentRecoveryPayload(
+            String sourcePayload, int expectedSlots, List<Integer> atomicGroupSizes) {
+        try {
+            JsonElement parsed = JsonParser.parseString(
+                    sourcePayload == null ? "" : sourcePayload.trim());
+            if (expectedSlots <= 1 || !parsed.isJsonArray()
+                    || parsed.getAsJsonArray().size() != expectedSlots) {
+                return List.of();
+            }
+            JsonArray left = new JsonArray();
+            JsonArray right = new JsonArray();
+            int groupBoundary = atomicGroupBoundary(atomicGroupSizes, expectedSlots);
+            if (groupBoundary <= 0) {
+                return List.of();
+            }
+            int midpoint = atomicGroupSizes.subList(0, groupBoundary).stream()
+                    .mapToInt(Integer::intValue).sum();
+            for (int index = 0; index < expectedSlots; index++) {
+                JsonElement element = parsed.getAsJsonArray().get(index);
+                if (element == null || element.isJsonNull()
+                        || ComponentJsonCompat.fromJson(element) == null) {
+                    return List.of();
+                }
+                (index < midpoint ? left : right).add(element.deepCopy());
+            }
+            return List.of(left.toString(), right.toString());
+        } catch (RuntimeException exception) {
+            return List.of();
+        }
+    }
+
+    /** Chooses the nearest half-way boundary between original Components. */
+    private static int atomicGroupBoundary(List<Integer> atomicGroupSizes, int expectedSlots) {
+        if (!allowsAdaptiveComponentPartition(atomicGroupSizes, expectedSlots)) {
+            return -1;
+        }
+        int bestBoundary = -1;
+        int bestDistance = Integer.MAX_VALUE;
+        int cumulative = 0;
+        for (int index = 0; index < atomicGroupSizes.size() - 1; index++) {
+            cumulative += atomicGroupSizes.get(index);
+            int distance = Math.abs(expectedSlots - cumulative * 2);
+            if (distance < bestDistance) {
+                bestDistance = distance;
+                bestBoundary = index + 1;
+            }
+        }
+        return bestBoundary;
+    }
+
+    /** Recombines only exact Component partitions in original request order. */
+    private static String combineComponentPartitionResponses(
+            List<String> responses, List<Integer> expectedCounts, String surface) {
+        if (responses == null || expectedCounts == null || responses.size() != expectedCounts.size()) {
+            return null;
+        }
+        JsonArray combined = new JsonArray();
+        for (int index = 0; index < responses.size(); index++) {
+            int expected = expectedCounts.get(index);
+            JsonArray partition = parseExactComponentArray(
+                    responses.get(index), expected, surface, combined.size());
+            if (partition == null) {
+                return null;
+            }
+            for (JsonElement element : partition) {
+                combined.add(element.deepCopy());
+            }
+        }
+        return combined.toString();
+    }
+
+    private static String componentPartitionRecoveryContext(
+            String promptContext, int partitionTopLevelCount, int originalTopLevelCount) {
+        JsonObject metadata;
+        try {
+            JsonElement parsed = JsonParser.parseString(
+                    promptContext == null || promptContext.isBlank() ? "{}" : promptContext);
+            metadata = parsed.isJsonObject()
+                    ? parsed.getAsJsonObject().deepCopy() : new JsonObject();
+        } catch (RuntimeException ignored) {
+            metadata = new JsonObject();
+        }
+        metadata.addProperty("component_partition_recovery", true);
+        metadata.addProperty("required_top_level_count", Math.max(0, partitionTopLevelCount));
+        metadata.addProperty("source_document_top_level_count", Math.max(0, originalTopLevelCount));
+        return metadata.toString();
+    }
+
+    private static boolean hasComponentStructureRetryRemaining(int completedAttempt) {
+        return completedAttempt + 1 < MAX_COMPONENT_STRUCTURE_ATTEMPTS;
+    }
+
+    /**
+     * Adds a machine-readable correction marker to the existing prompt metadata.
+     * The user payload remains exactly the original top-level Component array.
+     */
+    private static String componentStructureAttemptContext(
+            String promptContext, int expectedSlots, int structureAttempt) {
+        if (structureAttempt <= 0) {
+            return promptContext == null ? "" : promptContext;
+        }
+        JsonObject metadata;
+        try {
+            JsonElement parsed = JsonParser.parseString(
+                    promptContext == null || promptContext.isBlank() ? "{}" : promptContext);
+            metadata = parsed.isJsonObject() ? parsed.getAsJsonObject().deepCopy() : new JsonObject();
+        } catch (RuntimeException ignored) {
+            metadata = new JsonObject();
+        }
+        metadata.addProperty("component_structure_retry", true);
+        metadata.addProperty("required_top_level_count", Math.max(0, expectedSlots));
+        metadata.addProperty("structure_retry_attempt", structureAttempt);
+        return metadata.toString();
+    }
+
+    @Nullable
+    private static JsonArray parseExactComponentArray(
+            String response, int expected, String surface, int offset) {
+        try {
+            JsonElement parsed = JsonParser.parseString(response == null ? "" : response.trim());
+            if (!parsed.isJsonArray() || parsed.getAsJsonArray().size() != expected) {
+                SimpleTranslateMod.getLogger().warn(
+                        "JSON chunk rejected surface={} offset={} slotsExpected={} slotsActual={} reason=count",
+                        surface, offset, expected,
+                        parsed.isJsonArray() ? parsed.getAsJsonArray().size() : -1);
+                return null;
+            }
+            JsonArray array = parsed.getAsJsonArray();
+            for (int index = 0; index < array.size(); index++) {
+                if (array.get(index) == null || array.get(index).isJsonNull()
+                        || ComponentJsonCompat.fromJson(array.get(index)) == null) {
+                    SimpleTranslateMod.getLogger().warn(
+                            "JSON chunk rejected surface={} offset={} slot={} reason=component-parse",
+                            surface, offset, offset + index);
+                    return null;
+                }
+            }
+            return array;
+        } catch (RuntimeException exception) {
+            SimpleTranslateMod.getLogger().warn(
+                    "JSON chunk rejected surface={} offset={} slotsExpected={} reason=json-parse",
+                    surface, offset, expected);
+            return null;
+        }
+    }
+
+    @Nullable
+    private static List<Component> parseExactComponentList(
+            String response, int expected, String surface, int offset) {
+        JsonArray array = parseExactComponentArray(response, expected, surface, offset);
+        if (array == null) {
+            return null;
+        }
+        try {
+            List<Component> components = new ArrayList<>(array.size());
+            for (JsonElement element : array) {
+                Component component = ComponentJsonCompat.fromJson(element);
+                if (component == null) {
+                    return null;
+                }
+                components.add(component);
+            }
+            return List.copyOf(components);
+        } catch (RuntimeException exception) {
+            return null;
+        }
     }
 
     private static CompletableFuture<List<Component>> finishRequest(
             List<Component> originals, String sourceJson, String response,
-            String surface, String cacheKey, TranslationLane lane,
-            long runtimeRevision, String sourceLanguage, String targetLanguage) {
+            String surface, String cacheKey, TranslationLane lane, TranslationLane.Lease lease,
+            long runtimeRevision, long textContextRevision,
+            String sourceLanguage, String targetLanguage,
+            ComponentVisualProjection projection) {
         try {
             if (!ModConfig.GLOBAL_ENABLED.get()
-                    || !SimpleTranslateMod.isRuntimeRevisionCurrent(runtimeRevision)) {
-                lane.finish(cacheKey);
+                    || !SimpleTranslateMod.isRuntimeRevisionCurrent(runtimeRevision)
+                    || !TextContextMemory.isRevisionCurrent(textContextRevision)) {
+                lane.finish(lease);
                 return CompletableFuture.completedFuture(null);
             }
             if (response == null || response.isBlank()) {
-                lane.fail(cacheKey, FAILURE_RETRY_MS);
+                lane.fail(lease, FAILURE_RETRY_MS);
                 RecoveryPolicy.recordRejected(cacheKey);
                 SimpleTranslateMod.getLogger().warn(
                         "JSON passthrough: blank response surface={} key={}", surface, cacheKey);
                 return CompletableFuture.completedFuture(null);
             }
 
-            List<Component> restored = deserializeComponents(response, originals, surface);
-            if (restored == null) {
-                lane.fail(cacheKey, FAILURE_RETRY_MS);
+            List<Component> semanticResponse = parseExactComponentList(
+                    response, projection.slotCount(), surface, 0);
+            if (semanticResponse == null) {
+                lane.fail(lease, FAILURE_RETRY_MS);
+                RecoveryPolicy.recordRejected(cacheKey);
+                SimpleTranslateMod.getLogger().warn(
+                        "JSON passthrough: invalid semantic Component response surface={} key={}",
+                        surface, cacheKey);
+                return CompletableFuture.completedFuture(null);
+            }
+
+            DecodedProjectedResponse decoded = decodeProjectedResponse(
+                    response, originals, sourceJson, surface, projection);
+            if (decoded == null) {
+                lane.fail(lease, FAILURE_RETRY_MS);
                 RecoveryPolicy.recordRejected(cacheKey);
                 SimpleTranslateMod.getLogger().warn(
                         "JSON passthrough: deserialization failed surface={} key={}", surface, cacheKey);
                 return CompletableFuture.completedFuture(null);
             }
 
-            String canonical = serializeComponents(restored);
-            if (canonical == null) {
-                lane.fail(cacheKey, FAILURE_RETRY_MS);
-                RecoveryPolicy.recordRejected(cacheKey);
-                return CompletableFuture.completedFuture(null);
-            }
-            return CompletableFuture.completedFuture(acceptRestored(
-                    originals, sourceJson, canonical, restored, cacheKey, lane,
-                    runtimeRevision, sourceLanguage, targetLanguage));
+            List<Component> accepted = acceptRestored(
+                    originals, sourceJson, decoded.cacheTemplate(), decoded.components(),
+                    cacheKey, lane, lease,
+                    runtimeRevision, textContextRevision, sourceLanguage, targetLanguage);
+            return CompletableFuture.completedFuture(accepted);
         } catch (Exception e) {
-            lane.fail(cacheKey, FAILURE_RETRY_MS);
+            lane.fail(lease, FAILURE_RETRY_MS);
             RecoveryPolicy.recordRejected(cacheKey);
             SimpleTranslateMod.getLogger().warn(
                     "JSON passthrough: exception surface={} key={}", surface, cacheKey, e);
@@ -560,20 +993,22 @@ public final class JsonPassthroughPipeline {
         }
     }
 
-    private static List<Component> acceptRestored(
+    static List<Component> acceptRestored(
             List<Component> originals, String sourceJson, String response, List<Component> restored,
-            String cacheKey, TranslationLane lane, long runtimeRevision,
+            String cacheKey, TranslationLane lane, TranslationLane.Lease lease,
+            long runtimeRevision, long textContextRevision,
             String sourceLanguage, String targetLanguage) {
         if (!ModConfig.GLOBAL_ENABLED.get()
-                || !SimpleTranslateMod.isRuntimeRevisionCurrent(runtimeRevision)) {
-            lane.finish(cacheKey);
+                || !SimpleTranslateMod.isRuntimeRevisionCurrent(runtimeRevision)
+                || !TextContextMemory.isRevisionCurrent(textContextRevision)) {
+            lane.finish(lease);
             return null;
         }
         List<Component> visibleRestored = reattachOriginalHoverEvents(restored, originals);
         cacheSuccessfulResponse(cacheKey, response, sourceJson, originals, visibleRestored,
                 runtimeRevision, sourceLanguage, targetLanguage);
         RecoveryPolicy.recordSuccess(cacheKey);
-        lane.finish(cacheKey);
+        lane.finish(lease);
         return visibleRestored;
     }
 
@@ -582,14 +1017,46 @@ public final class JsonPassthroughPipeline {
         return deserializeComponents(response, originals, null);
     }
 
+    /** Rebinds marker-free semantic response slots into the local source tree. */
+    @Nullable
+    private static DecodedProjectedResponse decodeProjectedResponse(
+            String response, List<Component> originals, String sourceJson, @Nullable String surface,
+            ComponentVisualProjection projection) {
+        if (projection == null || response == null || response.isBlank()) {
+            return null;
+        }
+        try {
+            JsonElement root = JsonParser.parseString(response.trim());
+            JsonArray rebuilt = projection.rebuildResponse(root);
+            if (rebuilt == null) {
+                int actual = root != null && root.isJsonArray()
+                        ? root.getAsJsonArray().size() : -1;
+                SimpleTranslateMod.getLogger().warn(
+                        "JSON passthrough: invalid semantic component array surface={} "
+                                + "slotsExpected={} slotsActual={} responseChars={}",
+                        surface, projection.slotCount(), actual, response.length());
+                return null;
+            }
+            String cacheTemplate = rebuilt.toString();
+            if (!cacheTemplateMatchesSourceMarkers(sourceJson, cacheTemplate)) {
+                return null;
+            }
+            List<Component> restored = finalizeTranslatedTree(
+                    rebuilt.deepCopy(), originals, surface, response);
+            return restored == null ? null
+                    : new DecodedProjectedResponse(cacheTemplate, restored);
+        } catch (Exception e) {
+            SafeTranslate.logLimited("json-passthrough.decodeProjectedResponse",
+                    "parse failed: {}", e.getMessage());
+            return null;
+        }
+    }
+
     @Nullable
     private static List<Component> deserializeComponents(
             String response, List<Component> originals, @Nullable String surface) {
-        List<String> dynamicValues = extractDynamicValues(originals);
         try {
-            String cleaned = stripNonJson(response);
-            JsonElement root = JsonParser.parseString(cleaned);
-            sanitizeTranslatedFonts(root);
+            JsonElement root = JsonParser.parseString(response.trim());
             if (!root.isJsonArray()) {
                 logDeserializationFailure(surface, "root-not-array", originals, -1, response);
                 return null;
@@ -606,40 +1073,7 @@ public final class JsonPassthroughPipeline {
                 logDeserializationFailure(surface, "size-mismatch", originals, array.size(), response);
                 return null;
             }
-            List<Component> result = new ArrayList<>(expected);
-            for (int i = 0; i < expected; i++) {
-                if (i < array.size()) {
-                    JsonElement rawElement = array.get(i);
-                    if (rawElement == null || rawElement.isJsonNull()) {
-                        logDeserializationFailure(surface, "null-element", originals, array.size(), response);
-                        return null;
-                    }
-                    JsonElement element = normalizeComponentJson(rawElement);
-                    if (isContentlessComponentObject(element)) {
-                        logDeserializationFailure(surface, "contentless-element", originals, array.size(), response);
-                        return null;
-                    }
-                    try {
-                        Component component = Component.Serializer.fromJson(element.toString());
-                        if (component == null) {
-                            logDeserializationFailure(surface, "null-component", originals, array.size(), response);
-                            return null;
-                        } else {
-                            result.add(component);
-                        }
-                    } catch (Exception e) {
-                        SafeTranslate.logLimited("json-passthrough.deserializeElement",
-                                "element {} failed, using original: {}", i, e.getMessage());
-                        result.add(originals.get(i));
-                    }
-                } else {
-                    result.add(Component.empty());
-                }
-            }
-            if (!dynamicValues.isEmpty()) {
-            result = restoreDynamicValues(result, dynamicValues);
-        }
-        return List.copyOf(result);
+            return finalizeTranslatedTree(array, originals, surface, response);
         } catch (Exception e) {
             SafeTranslate.logLimited("json-passthrough.deserializeRoot",
                     "root parse failed: {}", e.getMessage());
@@ -647,165 +1081,119 @@ public final class JsonPassthroughPipeline {
         }
     }
 
-    private static List<Component> restoreDynamicValues(List<Component> components, List<String> values) {
-        if (components == null || components.isEmpty() || values == null || values.isEmpty()) {
-            return components;
+    @Nullable
+    static List<Component> finalizeTranslatedTree(
+            JsonArray array, List<Component> originals, @Nullable String surface, String response) {
+        // The projection already restored the exact local source skeleton.
+        // Reinsert the live values before parsing so a cache entry created for
+        // "Progress 1/2" renders the current "Progress 2/2" rather than stale
+        // numbers. Non-layout custom fonts may then need a default-font CJK remount.
+        List<String> dynamicValues = extractDynamicValues(originals);
+        if (!dynamicValues.isEmpty()) {
+            restoreNumbersInTree(array, dynamicValues);
         }
-        List<Component> restored = new ArrayList<>(components.size());
-        for (Component component : components) {
-            if (component == null) {
-                restored.add(Component.empty());
-                continue;
-            }
+        if (ComponentJsonNumberNormalizer.containsDynamicMarker(array)) {
+            // Internal markers are never display text. A current response with
+            // an unknown marker is rejected; an old cache entry reaches the
+            // caller's existing lazy remove-and-save path.
+            return null;
+        }
+        if (!isLayoutCriticalHudTree(array)) {
+            sanitizeTranslatedFonts(array);
+        }
+        int expected = originals.size();
+        if (array.size() != expected) {
+            logDeserializationFailure(surface, "size-mismatch", originals, array.size(), response);
+            return null;
+        }
+        List<Component> result = new ArrayList<>(expected);
+        for (int i = 0; i < expected; i++) {
+            JsonElement element = normalizeComponentJson(array.get(i));
             try {
-                String json = Component.Serializer.toJson(component);
-                JsonElement element = JsonParser.parseString(json);
-                restoreNumbersInTree(element, values);
-                Component r = Component.Serializer.fromJson(element.toString());
-                restored.add(r == null ? component : r);
+                Component component = ComponentJsonCompat.fromJson(element);
+                if (component == null) {
+                    logDeserializationFailure(surface, "component-null", originals, array.size(), response);
+                    return null;
+                }
+                component = ComponentJsonCompat.reattachLocalFonts(component, originals.get(i));
+                result.add(component);
             } catch (Exception e) {
-                SafeTranslate.logLimited("json-passthrough.restoreDynamicValues", e);
-                restored.add(component);
+                SafeTranslate.logLimited("json-passthrough.deserializeElement",
+                        "element {} failed: {}", i, e.getMessage());
+                logDeserializationFailure(surface, "component-parse-failed", originals, array.size(), response);
+                return null;
             }
         }
-        return restored;
-    }
-private static boolean isContentlessComponentObject(JsonElement element) {
-        if (element == null || !element.isJsonObject()) {
-            return false;
-        }
-        JsonObject object = element.getAsJsonObject();
-        return !hasComponentContent(object)
-                && (!object.has("extra")
-                || !object.get("extra").isJsonArray()
-                || object.getAsJsonArray("extra").size() == 0);
-    }    private static void sanitizeTranslatedFonts(JsonElement element) {
-        sanitizeTranslatedFonts(element, false);
+        return List.copyOf(result);
     }
 
-    private static void sanitizeTranslatedFonts(JsonElement element, boolean inheritedCustomFont) {
-        if (!ModConfig.CUSTOM_FONT_CJK_FIX_ENABLED.get() || element == null || element.isJsonNull()) {
-            return;
-        }
-        if (element.isJsonArray()) {
-            for (JsonElement child : element.getAsJsonArray()) {
-                sanitizeTranslatedFonts(child, inheritedCustomFont);
-            }
-            return;
-        }
-        if (!element.isJsonObject()) {
-            return;
-        }
-        JsonObject object = element.getAsJsonObject();
-        boolean explicitCustomFont = hasCustomFont(object);
-        boolean effectiveCustomFont = explicitCustomFont || inheritedCustomFont;
-        if (effectiveCustomFont && object.has("text") && object.get("text").isJsonPrimitive()) {
-            String text = object.get("text").getAsString();
-            if (containsCjk(text)) {
-                if (containsPrivateUse(text)) {
-                    splitMixedCustomFontText(object, text, inheritedCustomFont && !explicitCustomFont);
-                } else if (explicitCustomFont) {
-                    object.remove("font");
-                } else {
-                    object.addProperty("font", "minecraft:default");
-                }
-            }
-        }
-
-        boolean childInheritedCustomFont = hasCustomFont(object)
-                || (inheritedCustomFont && !hasDefaultFont(object));
-        for (Map.Entry<String, JsonElement> entry : List.copyOf(object.entrySet())) {
-            sanitizeTranslatedFonts(entry.getValue(), childInheritedCustomFont);
-        }
+    private static void sanitizeTranslatedFonts(JsonElement element) {
+        ComponentJsonLayoutGuard.sanitizeTranslatedFonts(element);
     }
 
-    private static boolean hasCustomFont(JsonObject object) {
-        if (object == null || !object.has("font") || !object.get("font").isJsonPrimitive()) {
-            return false;
-        }
-        String font = object.get("font").getAsString();
-        return font != null && !font.isBlank() && !"minecraft:default".equals(font);
+    /**
+     * True when a CJK target should leave a multi-region PUA-positioned HUD tree
+     * untranslated. Custom layout fonts rarely ship CJK glyphs; translating and
+     * then remounting CJK onto default collapses absolute positioning.
+     */
+    public static boolean shouldKeepLayoutCriticalHudOriginal(String sourceJson, String targetLanguage) {
+        return ComponentJsonLayoutGuard.shouldKeepLayoutCriticalHudOriginal(sourceJson, targetLanguage);
     }
 
-    private static boolean hasDefaultFont(JsonObject object) {
-        if (object == null || !object.has("font") || !object.get("font").isJsonPrimitive()) {
-            return false;
-        }
-        return "minecraft:default".equals(object.get("font").getAsString());
+    /**
+     * The explicit original-only escape hatch is for actionbar coordinate
+     * streams. It must not swallow a plain tooltip merely because the tooltip
+     * happens to contain a decorative custom font or a PUA icon.
+     */
+    public static boolean shouldKeepLayoutCriticalHudOriginal(String surface, String sourceJson,
+                                                              String targetLanguage) {
+        return ComponentJsonLayoutGuard.shouldKeepLayoutCriticalHudOriginal(surface, sourceJson, targetLanguage);
     }
 
-    private static void splitMixedCustomFontText(JsonObject object, String text, boolean inheritedOnlyCustomFont) {
-        JsonArray existingExtra = object.has("extra") && object.get("extra").isJsonArray()
-                ? object.getAsJsonArray("extra")
-                : null;
-        JsonArray split = new JsonArray();
-        int index = 0;
-        while (index < text.length()) {
-            int cp = text.codePointAt(index);
-            boolean privateUse = isPrivateUse(cp);
-            int end = index + Character.charCount(cp);
-            while (end < text.length() && isPrivateUse(text.codePointAt(end)) == privateUse) {
-                end += Character.charCount(text.codePointAt(end));
-            }
-            JsonObject segment = object.deepCopy();
-            segment.addProperty("text", text.substring(index, end));
-            segment.remove("extra");
-            if (!privateUse) {
-                if (inheritedOnlyCustomFont) {
-                    segment.addProperty("font", "minecraft:default");
-                } else {
-                    segment.remove("font");
-                }
-            }
-            split.add(segment);
-            index = end;
-        }
-        if (existingExtra != null) {
-            for (JsonElement child : existingExtra) {
-                split.add(child);
-            }
-        }
-        object.addProperty("text", "");
-        object.add("extra", split);
+    /**
+     * Detects HUD trees whose font metrics encode placement. A known layout
+     * font (for example resource-pack {@code hud/selector} families) needs only
+     * one private-use positioning glyph to be layout-critical. The older
+     * multi-font/PUA threshold remains as a fallback for unknown font packs.
+     */
+    public static boolean isLayoutCriticalHudTree(JsonElement root) {
+        return ComponentJsonLayoutGuard.isLayoutCriticalHudTree(root);
     }
 
-    private static boolean containsCjk(String text) {
-        if (text == null || text.isEmpty()) {
-            return false;
-        }
-        for (int i = 0; i < text.length(); ) {
-            int cp = text.codePointAt(i);
-            Character.UnicodeScript script = Character.UnicodeScript.of(cp);
-            if (script == Character.UnicodeScript.HAN
-                    || script == Character.UnicodeScript.HIRAGANA
-                    || script == Character.UnicodeScript.KATAKANA
-                    || script == Character.UnicodeScript.HANGUL) {
-                return true;
-            }
-            i += Character.charCount(cp);
-        }
-        return false;
+    /**
+     * In-place layout contract for layout-critical HUD trees: the translated
+     * tree must mirror the source skeleton node-for-node — same array sizes,
+     * same object keys, identical fonts/styles/click data — with only {@code
+     * text} content (and translatable bare-string leaves) allowed to change.
+     * Non-layout trees are exempt. Wrapper nodes, split siblings, or fonts
+     * remounted onto {@code minecraft:default} all violate the contract.
+     */
+    public static boolean satisfiesInPlaceLayoutContract(String translationJson, String sourceJson) {
+        return ComponentJsonLayoutGuard.satisfiesInPlaceLayoutContract(translationJson, sourceJson);
     }
 
-    private static boolean containsPrivateUse(String text) {
-        if (text == null || text.isEmpty()) {
-            return false;
-        }
-        for (int i = 0; i < text.length(); ) {
-            int cp = text.codePointAt(i);
-            if (isPrivateUse(cp)) {
-                return true;
-            }
-            i += Character.charCount(cp);
-        }
-        return false;
+    /**
+     * True when a cached translation remounted CJK onto {@code minecraft:default}
+     * while the source still uses layout-critical fonts — the v3 collapse pattern.
+     */
+    public static boolean isLayoutBrokenCustomFontTranslation(String translationJson, String sourceJson) {
+        return ComponentJsonLayoutGuard.isLayoutBrokenCustomFontTranslation(translationJson, sourceJson);
     }
 
-    private static boolean isPrivateUse(int cp) {
-        return (cp >= 0xE000 && cp <= 0xF8FF)
-                || (cp >= 0xF0000 && cp <= 0xFFFFD)
-                || (cp >= 0x100000 && cp <= 0x10FFFD);
+    /**
+     * Fonts whose resource path encodes screen regions (resource-pack HUD selector
+     * fonts, etc.). Remounting visible text off these fonts breaks absolute
+     * positioning even when PUA siblings keep the original font.
+     */
+    public static boolean isLayoutCriticalFont(@Nullable String font) {
+        return ComponentJsonLayoutGuard.isLayoutCriticalFont(font);
     }
+
+    // Logic-check anchors: layout detection and CJK font split stay named here.
+    // Implementation: ComponentJsonLayoutGuard (stats.hasKnownLayoutFont && stats.privateUseGlyphs > 0)
+    // and (stats.layoutFontIds.size() >= 2 && stats.privateUseGlyphs >= 4); puaLayoutFont;
+    // containsProtectedFontRuns.
+
     /**
      * Minecraft 1.20.1 rejects a component object that has only {@code extra}
      * children. Models commonly omit the empty root text emitted by vanilla,
@@ -839,10 +1227,11 @@ private static boolean isContentlessComponentObject(JsonElement element) {
     }
 
     private static void normalizeHoverComponent(JsonObject component) {
-        if (!component.has("hoverEvent") || !component.get("hoverEvent").isJsonObject()) {
+        JsonElement hover = hoverEvent(component);
+        if (hover == null || !hover.isJsonObject()) {
             return;
         }
-        JsonObject hoverEvent = component.getAsJsonObject("hoverEvent");
+        JsonObject hoverEvent = hover.getAsJsonObject();
         if (hoverEvent.has("contents")) {
             hoverEvent.add("contents", normalizeComponentJson(hoverEvent.get("contents")));
         }
@@ -871,31 +1260,6 @@ private static boolean isContentlessComponentObject(JsonElement element) {
                 response == null ? 0 : response.length());
     }
 
-    /**
-     * Strips markdown code fences and leading/trailing non-JSON text that
-     * some models wrap around the response.
-     */
-    private static String stripNonJson(String response) {
-        String text = response.trim();
-        if (text.startsWith("```")) {
-            int firstNewline = text.indexOf('\n');
-            if (firstNewline > 0) {
-                text = text.substring(firstNewline + 1);
-            }
-            int lastFence = text.lastIndexOf("```");
-            if (lastFence >= 0) {
-                text = text.substring(0, lastFence);
-            }
-            text = text.trim();
-        }
-        int arrayStart = text.indexOf('[');
-        int arrayEnd = text.lastIndexOf(']');
-        if (arrayStart >= 0 && arrayEnd > arrayStart) {
-            text = text.substring(arrayStart, arrayEnd + 1);
-        }
-        return text;
-    }
-
     private static void stripHoverEvents(JsonElement element) {
         if (element == null || element.isJsonNull()) {
             return;
@@ -910,7 +1274,7 @@ private static boolean isContentlessComponentObject(JsonElement element) {
             return;
         }
         JsonObject object = element.getAsJsonObject();
-        object.remove("hoverEvent");
+        removeHoverEvent(object);
         List<String> keys = new ArrayList<>();
         for (Map.Entry<String, JsonElement> entry : object.entrySet()) {
             keys.add(entry.getKey());
@@ -918,6 +1282,12 @@ private static boolean isContentlessComponentObject(JsonElement element) {
         for (String key : keys) {
             stripHoverEvents(object.get(key));
         }
+    }
+
+    /** Reattaches hidden hover payloads after an external current-skeleton rebuild. */
+    public static List<Component> reattachOriginalHoverEventsForRender(
+            List<Component> translated, List<Component> originals) {
+        return reattachOriginalHoverEvents(translated, originals);
     }
 
     private static List<Component> reattachOriginalHoverEvents(List<Component> translated, List<Component> originals) {
@@ -941,15 +1311,34 @@ private static boolean isContentlessComponentObject(JsonElement element) {
             return translated;
         }
         try {
-            JsonElement translatedJson = JsonParser.parseString(Component.Serializer.toJson(translated));
-            JsonElement originalJson = JsonParser.parseString(Component.Serializer.toJson(original));
+            JsonElement translatedJson = JsonParser.parseString(ComponentJsonCompat.toJson(translated));
+            JsonElement originalJson = JsonParser.parseString(ComponentJsonCompat.toJson(original));
+            translatedJson = objectTargetForHoverCopy(translatedJson, originalJson);
             copyOriginalHoverEvents(originalJson, translatedJson);
-            Component restored = Component.Serializer.fromJson(translatedJson.toString());
-            return restored == null ? translated : restored;
+            Component restored = ComponentJsonCompat.fromJson(translatedJson);
+            return restored == null ? translated
+                    : ComponentJsonCompat.reattachLocalFonts(restored, original);
         } catch (Exception e) {
             SafeTranslate.logLimited("json-passthrough.reattachHoverEvents", e);
             return translated;
         }
+    }
+
+    private static JsonElement objectTargetForHoverCopy(JsonElement translated, JsonElement original) {
+        if (translated == null || translated.isJsonObject() || original == null || !original.isJsonObject()) {
+            return translated;
+        }
+        JsonObject originalObject = original.getAsJsonObject();
+        if (!hasHoverEvent(originalObject)) {
+            return translated;
+        }
+        JsonObject wrapped = new JsonObject();
+        if (translated.isJsonPrimitive()) {
+            wrapped.addProperty("text", translated.getAsString());
+        } else {
+            wrapped.add("extra", translated.deepCopy());
+        }
+        return wrapped;
     }
 
     private static void copyOriginalHoverEvents(JsonElement original, JsonElement translated) {
@@ -976,21 +1365,68 @@ private static boolean isContentlessComponentObject(JsonElement element) {
 
         JsonObject originalObject = original.getAsJsonObject();
         JsonObject translatedObject = translated.getAsJsonObject();
-        if (originalObject.has("hoverEvent")) {
-            translatedObject.add("hoverEvent", originalObject.get("hoverEvent").deepCopy());
+        JsonElement originalHoverEvent = hoverEvent(originalObject);
+        if (originalHoverEvent != null) {
+            translatedObject.add(hoverEventKey(originalObject), originalHoverEvent.deepCopy());
+            removeOtherHoverEventKey(translatedObject, hoverEventKey(originalObject));
         } else {
-            translatedObject.remove("hoverEvent");
+            removeHoverEvent(translatedObject);
         }
 
         List<Map.Entry<String, JsonElement>> translatedEntries = new ArrayList<>(translatedObject.entrySet());
         for (Map.Entry<String, JsonElement> entry : translatedEntries) {
             String key = entry.getKey();
-            if ("hoverEvent".equals(key)) {
+            if (isHoverEventKey(key)) {
                 continue;
             }
             JsonElement originalChild = originalObject.get(key);
             copyOriginalHoverEvents(originalChild, entry.getValue());
         }
+    }
+
+    private static boolean hasHoverEvent(JsonObject object) {
+        return hoverEvent(object) != null;
+    }
+
+    private static JsonElement hoverEvent(JsonObject object) {
+        if (object == null) {
+            return null;
+        }
+        if (object.has("hoverEvent")) {
+            return object.get("hoverEvent");
+        }
+        if (object.has("hover_event")) {
+            return object.get("hover_event");
+        }
+        return null;
+    }
+
+    private static String hoverEventKey(JsonObject object) {
+        return object != null && object.has("hover_event") ? "hover_event" : "hoverEvent";
+    }
+
+    private static void removeHoverEvent(JsonObject object) {
+        if (object == null) {
+            return;
+        }
+        object.remove("hoverEvent");
+        object.remove("hover_event");
+    }
+
+    private static void removeOtherHoverEventKey(JsonObject object, String retainedKey) {
+        if (object == null) {
+            return;
+        }
+        if (!"hoverEvent".equals(retainedKey)) {
+            object.remove("hoverEvent");
+        }
+        if (!"hover_event".equals(retainedKey)) {
+            object.remove("hover_event");
+        }
+    }
+
+    private static boolean isHoverEventKey(String key) {
+        return "hoverEvent".equals(key) || "hover_event".equals(key);
     }
 
     private static void cacheSuccessfulResponse(
@@ -1008,14 +1444,18 @@ private static boolean isContentlessComponentObject(JsonElement element) {
         if (!SimpleTranslateMod.isRuntimeRevisionCurrent(runtimeRevision)) {
             return;
         }
-        if (!sourceLanguage.equals(ModConfig.SOURCE_LANGUAGE.get())) {
+        if (usesCurrentGlobalLanguages(sourceLanguage, targetLanguage)
+                && (!sourceLanguage.equals(ModConfig.SOURCE_LANGUAGE.get())
+                || !targetLanguage.equals(ModConfig.TARGET_LANGUAGE.get()))) {
             return;
         }
-        if (!targetLanguage.equals(ModConfig.TARGET_LANGUAGE.get())) {
+        if (!cacheTemplateMatchesSourceMarkers(sourceJson, response)) {
             return;
         }
         cache.putComponentJson(cacheKey, response, sourceJson,
-                plainText(originals), plainText(restored));
+                plainText(originals), plainText(restored),
+                TranslationPromptPolicy.cacheFingerprint(
+                        TranslationCacheKeys.surfaceFromKey(cacheKey)));
         cache.save();
     }
 
@@ -1036,134 +1476,64 @@ private static boolean isContentlessComponentObject(JsonElement element) {
         return text.toString();
     }
 
-    private static long batchDelayMs() {
-        return Math.max(0L, Math.min(200L, ModConfig.API_DIRECT_BATCH_DELAY_MS.get()));
+    /**
+     * Supplies the model with the readable source around locally retained
+     * numbers, coordinates and visual glyphs.  The request itself remains the
+     * strict semantic Component array; this is context metadata only.
+     */
+    public static String semanticPromptSourceBlock(List<Component> components) {
+        String source = plainText(components);
+        if (source.isBlank()) {
+            return "";
+        }
+        StringBuilder readable = new StringBuilder(source.length());
+        for (int index = 0; index < source.length(); ) {
+            int cp = source.codePointAt(index);
+            int width = Character.charCount(cp);
+            if (cp == '\u00a7' && index + width < source.length()) {
+                index += width + Character.charCount(source.codePointAt(index + width));
+                continue;
+            }
+            int type = Character.getType(cp);
+            if (cp == '\n' || cp == '\r') {
+                readable.append('\n');
+            } else if (type == Character.CONTROL || type == Character.FORMAT
+                    || type == Character.PRIVATE_USE || type == Character.UNASSIGNED
+                    || type == Character.SURROGATE || type == Character.OTHER_SYMBOL) {
+                readable.append(' ');
+            } else {
+                readable.appendCodePoint(cp);
+            }
+            index += width;
+        }
+        return readable.toString()
+                .replaceAll("[\\t\\x0B\\f ]+", " ")
+                .replaceAll(" *\\n *", "\n")
+                .replaceAll("\\n{3,}", "\n\n")
+                .trim();
     }
 
-    private static final class JsonBatcher {
-        private static final Object LOCK = new Object();
-        private static final Map<String, List<BatchItem>> PENDING = new ConcurrentHashMap<>();
-        private static final Map<String, ScheduledFuture<?>> SCHEDULED = new ConcurrentHashMap<>();
-
-        private JsonBatcher() {
-        }
-
-        private static CompletableFuture<List<Component>> enqueue(BatchItem item) {
-            String group = Surface.normalize(item.surface());
-            synchronized (LOCK) {
-                List<BatchItem> items = PENDING.computeIfAbsent(group, ignored -> new ArrayList<>());
-                items.add(item);
-                int chars = 0;
-                for (BatchItem queued : items) {
-                    chars += queued.sourceJson().length();
-                }
-                if (items.size() >= MAX_BATCH_ITEMS || chars >= MAX_BATCH_CHARS) {
-                    flushLocked(group);
-                } else if (!SCHEDULED.containsKey(group)) {
-                    SCHEDULED.put(group, BATCH_EXECUTOR.schedule(() -> {
-                        synchronized (LOCK) {
-                            flushLocked(group);
-                        }
-                    }, batchDelayMs(), TimeUnit.MILLISECONDS));
-                }
-            }
-            return item.future();
-        }
-
-        private static void flushLocked(String group) {
-            List<BatchItem> items = PENDING.remove(group);
-            ScheduledFuture<?> scheduled = SCHEDULED.remove(group);
-            if (scheduled != null) {
-                scheduled.cancel(false);
-            }
-            if (items == null || items.isEmpty()) {
-                return;
-            }
-            if (items.size() == 1) {
-                completeFromFuture(items.get(0), sendSingle(items.get(0)));
-                return;
-            }
-
-            List<Component> combined = new ArrayList<>();
-            for (BatchItem item : items) {
-                combined.addAll(item.originals());
-            }
-            String combinedJson = serializeComponents(combined);
-            BatchItem first = items.get(0);
-            first.manager().translateComponentJson(
-                            buildUserPayload(combinedJson, ""), first.surface(), 1)
-                    .whenComplete((response, error) -> completeBatch(items, combined, response, error));
-        }
-
-        private static void completeBatch(List<BatchItem> items, List<Component> combined,
-                                          String response, Throwable error) {
-            BatchItem first = items.get(0);
-            List<Component> translated = error == null && response != null
-                    ? deserializeComponents(response, combined, first.surface())
-                    : null;
-            if (translated == null) {
-                SimpleTranslateMod.getLogger().debug(
-                        "JSON micro-batch invalid; retrying {} item(s) individually", items.size());
-                for (BatchItem item : items) {
-                    completeFromFuture(item, sendSingle(item));
-                }
-                return;
-            }
-
-            int offset = 0;
-            for (BatchItem item : items) {
-                int end = offset + item.originals().size();
-                List<Component> slice = List.copyOf(translated.subList(offset, end));
-                offset = end;
-                String canonical = serializeComponents(slice);
-                try {
-                    List<Component> accepted = acceptRestored(
-                            item.originals(), item.sourceJson(), canonical, slice,
-                            item.cacheKey(), item.lane(), item.runtimeRevision(),
-                            item.sourceLanguage(), item.targetLanguage());
-                    item.future().complete(accepted);
-                } catch (Exception exception) {
-                    item.lane().fail(item.cacheKey(), FAILURE_RETRY_MS);
-                    item.future().complete(null);
-                }
-            }
-        }
-
-        private static void completeFromFuture(BatchItem item, CompletableFuture<List<Component>> future) {
-            future.whenComplete((result, error) -> {
-                if (error != null) {
-                    item.future().completeExceptionally(error);
-                } else {
-                    item.future().complete(result);
-                }
-            });
-        }
-
-        private static void clear() {
-            synchronized (LOCK) {
-                for (ScheduledFuture<?> future : SCHEDULED.values()) {
-                    future.cancel(false);
-                }
-                SCHEDULED.clear();
-                for (List<BatchItem> items : PENDING.values()) {
-                    for (BatchItem item : items) {
-                        item.lane().finish(item.cacheKey());
-                        item.future().complete(null);
-                    }
-                }
-                PENDING.clear();
-            }
-        }
+    /** Stable cache-context form that shows local value gaps without key churn. */
+    public static String semanticPromptSourceShape(List<Component> components) {
+        String readable = semanticPromptSourceBlock(components);
+        return readable.isBlank() ? ""
+                : ComponentJsonNumberNormalizer.maskPromptDynamicNumbers(readable);
     }
 
-    private record BatchItem(TranslationManager manager,
+    private record DecodedProjectedResponse(String cacheTemplate, List<Component> components) {
+    }
+
+    static final record BatchItem(TranslationManager manager,
                              List<Component> originals,
                              String sourceJson,
                              String surface,
+                             String role,
                              String context,
                              String cacheKey,
                              TranslationLane lane,
+                             TranslationLane.Lease lease,
                              long runtimeRevision,
+                             long textContextRevision,
                              String sourceLanguage,
                              String targetLanguage,
                              CompletableFuture<List<Component>> future) {

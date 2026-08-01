@@ -1,0 +1,277 @@
+package com.yourname.simpletranslate.gui;
+
+import com.yourname.simpletranslate.SimpleTranslateMod;
+import com.yourname.simpletranslate.cache.TranslationBlacklist;
+import net.minecraft.client.Minecraft;
+import com.mojang.blaze3d.matrix.MatrixStack;
+import com.yourname.simpletranslate.core.render.GuiGraphics;
+import net.minecraft.client.gui.widget.button.Button;
+import net.minecraft.client.gui.widget.TextFieldWidget;
+import net.minecraft.client.gui.widget.list.ExtendedList;
+import net.minecraft.client.gui.screen.Screen;
+import net.minecraft.util.text.ITextComponent;
+
+import java.util.ArrayList;
+import java.util.List;
+
+public class BlacklistManagerScreen extends BaseSimpleTranslateScreen {
+    private final Screen parent;
+    private BlacklistList blacklistList;
+    private TextFieldWidget newEntryInput;
+    private Button addButton;
+    private Button deleteButton;
+    private Button clearButton;
+    private Button exportButton;
+    private Button importButton;
+
+    public BlacklistManagerScreen(Screen parent) {
+        super(com.yourname.simpletranslate.core.LegacyComponentFactory.translatable("screen.simple_translate.blacklist_manager"));
+        this.parent = parent;
+    }
+
+    @Override
+    protected void init() {
+        super.init();
+
+        int centerX = this.width / 2;
+
+        this.blacklistList = new BlacklistList(this.minecraft, this.width, this.height - 120, 40, this.height - 80);
+        this.addRenderableWidget(this.blacklistList);
+        refreshBlacklistList();
+
+        int inputY = this.height - 75;
+        int inputWidth = 220;
+        this.newEntryInput = new TextFieldWidget(
+                this.font,
+                centerX - inputWidth / 2 - 25,
+                inputY,
+                inputWidth,
+                20,
+                com.yourname.simpletranslate.core.LegacyComponentFactory.translatable("screen.simple_translate.blacklist.entry"));
+        this.newEntryInput.setMaxLength(256);
+        this.newEntryInput.setSuggestion(com.yourname.simpletranslate.core.LegacyComponentFactory.translatable("screen.simple_translate.blacklist.entry_hint").getString());
+        withTooltip(this.newEntryInput, "screen.simple_translate.blacklist.entry.tooltip");
+        this.addRenderableWidget(this.newEntryInput);
+
+        this.addButton = ButtonCompat.builder(
+                com.yourname.simpletranslate.core.LegacyComponentFactory.literal("+"),
+                button -> addEntry())
+                .bounds(centerX + inputWidth / 2 + 5, inputY, 20, 20)
+                .build();
+        withTooltip(this.addButton, "screen.simple_translate.blacklist.add.tooltip");
+        this.addRenderableWidget(this.addButton);
+
+        this.deleteButton = ButtonCompat.builder(
+                com.yourname.simpletranslate.core.LegacyComponentFactory.translatable("screen.simple_translate.delete"),
+                button -> deleteSelectedEntry())
+                .bounds(centerX + inputWidth / 2 + 30, inputY, 50, 20)
+                .build();
+        withTooltip(this.deleteButton, "screen.simple_translate.blacklist.delete.tooltip");
+        this.addRenderableWidget(this.deleteButton);
+
+        int buttonY = this.height - 45;
+        int buttonWidth = 70;
+        int spacing = 5;
+        int totalWidth = buttonWidth * 4 + spacing * 3;
+        int startX = centerX - totalWidth / 2;
+
+        this.clearButton = ButtonCompat.builder(
+                com.yourname.simpletranslate.core.LegacyComponentFactory.translatable("screen.simple_translate.clear"),
+                button -> clearBlacklist())
+                .bounds(startX, buttonY, buttonWidth, 20)
+                .build();
+        withTooltip(this.clearButton, "screen.simple_translate.blacklist.clear.tooltip");
+        this.addRenderableWidget(this.clearButton);
+
+        this.exportButton = ButtonCompat.builder(
+                com.yourname.simpletranslate.core.LegacyComponentFactory.translatable("screen.simple_translate.export"),
+                button -> exportBlacklist())
+                .bounds(startX + buttonWidth + spacing, buttonY, buttonWidth, 20)
+                .build();
+        withTooltip(this.exportButton, "screen.simple_translate.blacklist.export.tooltip");
+        this.addRenderableWidget(this.exportButton);
+
+        this.importButton = ButtonCompat.builder(
+                com.yourname.simpletranslate.core.LegacyComponentFactory.translatable("screen.simple_translate.import"),
+                button -> importBlacklist())
+                .bounds(startX + (buttonWidth + spacing) * 2, buttonY, buttonWidth, 20)
+                .build();
+        withTooltip(this.importButton, "screen.simple_translate.blacklist.import.tooltip");
+        this.addRenderableWidget(this.importButton);
+
+        Button backButton = ButtonCompat.builder(
+                com.yourname.simpletranslate.core.LegacyComponentFactory.translatable("screen.simple_translate.back"),
+                button -> this.onClose())
+                .bounds(startX + (buttonWidth + spacing) * 3, buttonY, buttonWidth, 20)
+                .build();
+        withTooltip(backButton, "screen.simple_translate.back.tooltip");
+        this.addRenderableWidget(backButton);
+    }
+
+    private void refreshBlacklistList() {
+        TranslationBlacklist blacklist = SimpleTranslateMod.getTranslationBlacklist();
+        if (blacklist == null) {
+            this.blacklistList.setEntries(List.of());
+            return;
+        }
+
+        List<String> entries = blacklist.getAllEntries();
+        List<BlacklistEntry> rows = new ArrayList<>();
+        for (String entry : entries) {
+            rows.add(new BlacklistEntry(entry));
+        }
+        this.blacklistList.setEntries(rows);
+    }
+
+    private void addEntry() {
+        String entry = this.newEntryInput.getValue().trim();
+        if (entry.isEmpty()) {
+            return;
+        }
+
+        TranslationBlacklist blacklist = SimpleTranslateMod.getTranslationBlacklist();
+        if (blacklist != null) {
+            blacklist.addEntry(entry);
+            this.newEntryInput.setValue("");
+            refreshBlacklistList();
+        }
+    }
+
+    private void deleteSelectedEntry() {
+        BlacklistEntry selected = this.blacklistList.getSelected();
+        if (selected == null) {
+            return;
+        }
+
+        TranslationBlacklist blacklist = SimpleTranslateMod.getTranslationBlacklist();
+        if (blacklist != null) {
+            blacklist.removeEntry(selected.entry);
+            refreshBlacklistList();
+        }
+    }
+
+    private void clearBlacklist() {
+        TranslationBlacklist blacklist = SimpleTranslateMod.getTranslationBlacklist();
+        if (blacklist != null) {
+            blacklist.clear();
+            refreshBlacklistList();
+        }
+    }
+
+    private void exportBlacklist() {
+        TranslationBlacklist blacklist = SimpleTranslateMod.getTranslationBlacklist();
+        if (blacklist == null) {
+            return;
+        }
+
+        try {
+            java.nio.file.Path exportPath = SimpleTranslateMod.getConfigDir().resolve("blacklist_export.json");
+            blacklist.exportToFile(exportPath);
+            SimpleTranslateMod.getLogger().info("Blacklist exported to {}", exportPath);
+        } catch (Exception e) {
+            SimpleTranslateMod.getLogger().error("Failed to export blacklist", e);
+        }
+    }
+
+    private void importBlacklist() {
+        TranslationBlacklist blacklist = SimpleTranslateMod.getTranslationBlacklist();
+        if (blacklist == null) {
+            return;
+        }
+
+        try {
+            java.nio.file.Path importPath = SimpleTranslateMod.getConfigDir().resolve("blacklist_import.json");
+            blacklist.importFromFile(importPath, true);
+            refreshBlacklistList();
+            SimpleTranslateMod.getLogger().info("Blacklist imported from {}", importPath);
+        } catch (Exception e) {
+            SimpleTranslateMod.getLogger().error("Failed to import blacklist", e);
+        }
+    }
+
+    @Override
+    public void render(MatrixStack poseStack, int mouseX, int mouseY, float partialTick) {
+        GuiGraphics graphics = GuiGraphics.wrap(poseStack);
+        ScreenBackgrounds.renderPlain(graphics, this.width, this.height);
+
+        graphics.drawCenteredString(this.font, this.title, this.width / 2, 15, 0xFFFFFFFF);
+
+        TranslationBlacklist blacklist = SimpleTranslateMod.getTranslationBlacklist();
+        int count = blacklist != null ? blacklist.size() : 0;
+        graphics.drawString(this.font,
+                com.yourname.simpletranslate.core.LegacyComponentFactory.translatable("screen.simple_translate.blacklist.count", count),
+                10,
+                30,
+                0xFFAAAAAA);
+
+        drawBottomActionMask(graphics);
+        super.render(poseStack, mouseX, mouseY, partialTick);
+    }
+
+    private void drawBottomActionMask(GuiGraphics graphics) {
+        int top = this.height - 82;
+        int left = Math.max(0, this.width / 2 - 205);
+        int right = Math.min(this.width, this.width / 2 + 205);
+        graphics.fill(left, top, right, this.height - 2, 0xAA101010);
+        graphics.fill(left, top, right, top + 1, 0x55FFFFFF);
+    }
+
+    @Override
+    public void onClose() {
+        Minecraft.getInstance().setScreen(this.parent);
+    }
+
+    @Override
+    public boolean isPauseScreen() {
+        return false;
+    }
+
+    private class BlacklistList extends ExtendedList<BlacklistEntry> {
+        public BlacklistList(Minecraft minecraft, int width, int height, int top, int bottom) {
+            super(minecraft, width, Math.max(1, bottom - top), top, bottom, 20);
+        }
+
+
+        void setEntries(List<BlacklistEntry> entries) {
+            this.clearEntries();
+            for (BlacklistEntry entry : entries) {
+                this.addEntry(entry);
+            }
+        }
+
+        @Override
+        protected int getScrollbarPosition() {
+            return this.width / 2 + 160;
+        }
+
+        @Override
+        public int getRowWidth() {
+            return 300;
+        }
+    }
+
+    private class BlacklistEntry extends ExtendedList.AbstractListEntry<BlacklistEntry> {
+        private final String entry;
+
+        public BlacklistEntry(String entry) {
+            this.entry = entry;
+        }
+
+        @Override
+        public void render(MatrixStack poseStack, int index, int top, int left, int width, int height,
+                int mouseX, int mouseY, boolean isMouseOver, float partialTick) {
+            GuiGraphics graphics = GuiGraphics.wrap(poseStack);
+            String displayEntry = entry.length() > 45 ? entry.substring(0, 42) + "..." : entry;
+            graphics.drawString(BlacklistManagerScreen.this.font, displayEntry, left + 5, top + 5, 0xFFFFFFFF);
+        }
+
+        @Override
+        public boolean mouseClicked(double mouseX, double mouseY, int button) {
+            BlacklistManagerScreen.this.blacklistList.setSelected(this);
+            return true;
+        }
+        public ITextComponent getNarration() {
+            return com.yourname.simpletranslate.core.LegacyComponentFactory.literal(entry);
+        }
+    }
+}

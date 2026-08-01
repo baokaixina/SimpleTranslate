@@ -79,7 +79,7 @@ public final class ComponentRenderSafety {
     }
 
     private static String recoveryText(Component component, String fallback) {
-        if (component.getContents() instanceof PlainTextContents.LiteralContents literal) {
+        if (component.getContents() instanceof PlainTextContents literal) {
             return literal.text() == null ? fallback : literal.text();
         }
         if (component.getContents() instanceof TranslatableContents translatable) {

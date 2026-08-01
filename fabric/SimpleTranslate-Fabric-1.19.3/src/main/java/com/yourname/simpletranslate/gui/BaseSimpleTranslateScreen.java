@@ -1,8 +1,6 @@
 package com.yourname.simpletranslate.gui;
 
 import com.mojang.blaze3d.vertex.PoseStack;
-
-import com.yourname.simpletranslate.compat.GuiGraphics;
 import net.minecraft.client.gui.components.AbstractWidget;
 import net.minecraft.client.gui.components.Tooltip;
 import net.minecraft.client.gui.screens.Screen;
@@ -29,7 +27,6 @@ public abstract class BaseSimpleTranslateScreen extends Screen {
 
     @Override
     public void renderBackground(PoseStack poseStack) {
-        GuiGraphics graphics = new GuiGraphics(poseStack);
         // Each settings screen draws the SimpleTranslate background at the start
         // of its render method. Keep this override empty so super.render() cannot
         // call vanilla blur or draw a second translucent layer over custom labels.

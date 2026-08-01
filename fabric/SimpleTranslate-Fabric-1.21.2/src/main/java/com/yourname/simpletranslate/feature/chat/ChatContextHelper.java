@@ -63,6 +63,17 @@ public final class ChatContextHelper {
         if (prefix == null || prefix.isBlank()) {
             return false;
         }
+        String wholePrefix = prefix.trim();
+        // An unverified player prefix must itself be one complete Minecraft
+        // username. Looking only at the first word made system labels such as
+        // "Master Mode:" and "Death Counter:" look like player chat.
+        if (looksLikePlayerName(wholePrefix)) {
+            return true;
+        }
+
+        // Preserve decorated forms such as "Player [Guild]: ...", but only
+        // when the leading name is actually present in the current player
+        // list. Arbitrary multi-word system labels must not pass this branch.
         int stop = prefix.length();
         for (int i = 0; i < prefix.length(); i++) {
             char c = prefix.charAt(i);
@@ -75,7 +86,7 @@ public final class ChatContextHelper {
         if (leading.isEmpty()) {
             return false;
         }
-        return isKnownPlayerName(leading) || looksLikePlayerName(leading);
+        return isKnownPlayerName(leading);
     }
 
     /** Username-shaped token; does not require the player to be online. */

@@ -257,15 +257,15 @@ public final class SignContextSelectionManager {
 
     private static void showCountMessage(String key) {
         Minecraft minecraft = Minecraft.getInstance();
-        if (minecraft.player != null) {
-            minecraft.player.sendOverlayMessage(Component.translatable(key, SELECTIONS.size()));
+        if (minecraft.gui != null) {
+            minecraft.gui.setOverlayMessage(Component.translatable(key, SELECTIONS.size()), false);
         }
     }
 
     private static void showActionbar(String key) {
         Minecraft minecraft = Minecraft.getInstance();
-        if (minecraft.player != null) {
-            minecraft.player.sendOverlayMessage(Component.translatable(key));
+        if (minecraft.gui != null) {
+            minecraft.gui.setOverlayMessage(Component.translatable(key), false);
         }
     }
 

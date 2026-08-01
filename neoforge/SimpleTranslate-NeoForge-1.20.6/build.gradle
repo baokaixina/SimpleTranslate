@@ -20,7 +20,26 @@ repositories {
             includeGroup "org.apache.logging.log4j"
         }
     }
+    maven {
+        name = 'SimpleTranslate Local Maven'
+        url = file('.gradle/local-maven')
+        // maven.neoforged.net is unreachable from this network; vendored
+        // metadata/artifacts (e.g. the 20.6.1-beta floor-verification build)
+        // live here. The vendored poms lack the published-with-gradle-metadata
+        // marker, so force explicit gradle metadata lookup.
+        metadataSources {
+            gradleMetadata()
+            mavenPom()
+            artifact()
+        }
+    }
+    // maven.neoforged.net is unreachable from this network; BMCLAPI mirrors the full tree.
+    maven { url = 'https://bmclapi2.bangbang93.com/maven/' }
     maven { url = "https://maven.neoforged.net/releases" }
+    // Forge/Fabric mavens are directly reachable and authoritative for
+    // cpw.mods:*, net.minecraftforge:* and net.fabricmc:* (BMCLAPI lacks their poms).
+    maven { url = 'https://maven.minecraftforge.net/' }
+    maven { url = 'https://maven.fabricmc.net/' }
     mavenCentral()
 }
 
@@ -58,6 +77,13 @@ neoForge {
 
 dependencies {
     compileOnly "org.jetbrains:annotations:24.1.0"
+    // NeoForge 20.6 only bundles MixinExtras 0.4.x from 20.6.137; earlier
+    // builds ship 0.3.5, which predates @WrapMethod. The donor mixins use
+    // @WrapMethod, so compile against 0.4.1 and bundle it via JarJar: the
+    // loader's version range [0.3.5,) then selects our 0.4.1 at runtime
+    // instead of NeoForge's 0.3.5.
+    compileOnly "io.github.llamalad7:mixinextras-neoforge:0.4.1"
+    jarJar "io.github.llamalad7:mixinextras-neoforge:0.4.1"
 }
 
 configurations.configureEach {

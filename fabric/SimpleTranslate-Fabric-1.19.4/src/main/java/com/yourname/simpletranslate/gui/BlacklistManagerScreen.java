@@ -1,11 +1,10 @@
 package com.yourname.simpletranslate.gui;
 
-import com.mojang.blaze3d.vertex.PoseStack;
-
 import com.yourname.simpletranslate.SimpleTranslateMod;
 import com.yourname.simpletranslate.cache.TranslationBlacklist;
 import net.minecraft.client.Minecraft;
-import com.yourname.simpletranslate.compat.GuiGraphics;
+import com.mojang.blaze3d.vertex.PoseStack;
+import com.yourname.simpletranslate.core.render.GuiGraphics;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.components.EditBox;
 import net.minecraft.client.gui.components.ObjectSelectionList;
@@ -192,10 +191,10 @@ public class BlacklistManagerScreen extends BaseSimpleTranslateScreen {
 
     @Override
     public void render(PoseStack poseStack, int mouseX, int mouseY, float partialTick) {
-        GuiGraphics graphics = new GuiGraphics(poseStack);
+        GuiGraphics graphics = GuiGraphics.wrap(poseStack);
         ScreenBackgrounds.renderPlain(graphics, this.width, this.height);
 
-        graphics.drawCenteredString(this.font, this.title, this.width / 2, 15, 0xFFFFFF);
+        graphics.drawCenteredString(this.font, this.title, this.width / 2, 15, 0xFFFFFFFF);
 
         TranslationBlacklist blacklist = SimpleTranslateMod.getTranslationBlacklist();
         int count = blacklist != null ? blacklist.size() : 0;
@@ -203,7 +202,7 @@ public class BlacklistManagerScreen extends BaseSimpleTranslateScreen {
                 Component.translatable("screen.simple_translate.blacklist.count", count),
                 10,
                 30,
-                0xAAAAAA);
+                0xFFAAAAAA);
 
         drawBottomActionMask(graphics);
         super.render(poseStack, mouseX, mouseY, partialTick);
@@ -229,7 +228,7 @@ public class BlacklistManagerScreen extends BaseSimpleTranslateScreen {
 
     private class BlacklistList extends ObjectSelectionList<BlacklistEntry> {
         public BlacklistList(Minecraft minecraft, int width, int height, int top, int bottom) {
-            super(minecraft, width, height, top, bottom, 20);
+            super(minecraft, width, Math.max(1, bottom - top), top, bottom, 20);
         }
 
 
@@ -261,9 +260,9 @@ public class BlacklistManagerScreen extends BaseSimpleTranslateScreen {
         @Override
         public void render(PoseStack poseStack, int index, int top, int left, int width, int height,
                 int mouseX, int mouseY, boolean isMouseOver, float partialTick) {
-            GuiGraphics graphics = new GuiGraphics(poseStack);
+            GuiGraphics graphics = GuiGraphics.wrap(poseStack);
             String displayEntry = entry.length() > 45 ? entry.substring(0, 42) + "..." : entry;
-            graphics.drawString(BlacklistManagerScreen.this.font, displayEntry, left + 5, top + 5, 0xFFFFFF);
+            graphics.drawString(BlacklistManagerScreen.this.font, displayEntry, left + 5, top + 5, 0xFFFFFFFF);
         }
 
         @Override

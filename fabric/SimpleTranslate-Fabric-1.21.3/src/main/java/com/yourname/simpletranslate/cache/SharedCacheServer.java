@@ -53,7 +53,7 @@ public final class SharedCacheServer {
 
         ServerPlayNetworking.registerGlobalReceiver(SharedCachePayload.TYPE, (payload, context) -> {
             ServerPlayer player = context.player();
-            handlePayload(player.server, player, payload);
+            handlePayload(player.level().getServer(), player, payload);
         });
     }
 

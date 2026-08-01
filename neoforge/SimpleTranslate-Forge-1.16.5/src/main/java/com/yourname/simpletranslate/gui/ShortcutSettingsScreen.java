@@ -1,0 +1,246 @@
+package com.yourname.simpletranslate.gui;
+
+import com.yourname.simpletranslate.config.ModConfig;
+import com.yourname.simpletranslate.keybind.HoldOriginalFeature;
+import com.yourname.simpletranslate.keybind.KeyChord;
+import com.yourname.simpletranslate.keybind.ModKeyBindings;
+import com.yourname.simpletranslate.keybind.ShortcutAction;
+import net.minecraft.util.text.TextFormatting;
+import net.minecraft.client.Minecraft;
+import com.mojang.blaze3d.matrix.MatrixStack;
+import com.yourname.simpletranslate.core.render.GuiGraphics;
+import net.minecraft.client.gui.widget.Widget;
+import net.minecraft.client.gui.widget.button.Button;
+import com.yourname.simpletranslate.vanillacompat.CycleButton;
+import net.minecraft.client.gui.screen.Screen;
+import net.minecraft.util.text.ITextComponent;
+import org.lwjgl.glfw.GLFW;
+
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+
+/** Records every mod shortcut as one keyboard/mouse chord with exact modifiers. */
+public final class ShortcutSettingsScreen extends BaseSimpleTranslateScreen {
+    private static final int VIEWPORT_TOP = 35;
+    private static final int BOTTOM_HEIGHT = 38;
+    private final Screen parent;
+    private final Map<BindingTarget, Button> keyButtons = new LinkedHashMap<>();
+    private final List<Widget> scrolling = new ArrayList<>();
+    private final List<Integer> baseYs = new ArrayList<>();
+    private BindingTarget recording;
+    private BindingTarget pendingConflictTarget;
+    private KeyChord pendingConflictChord;
+    private ITextComponent status = com.yourname.simpletranslate.core.LegacyComponentFactory.empty();
+    private long statusUntil;
+    private double scrollOffset;
+    private int contentHeight;
+
+    public ShortcutSettingsScreen(Screen parent) {
+        super(com.yourname.simpletranslate.core.LegacyComponentFactory.translatable("screen.simple_translate.shortcuts"));
+        this.parent = parent;
+    }
+
+    @Override
+    protected void init() {
+        super.init();
+        keyButtons.clear();
+        scrolling.clear();
+        baseYs.clear();
+        scrollOffset = 0;
+        int width = Math.max(270, Math.min(360, this.width - 30));
+        int x = this.width / 2 - width / 2;
+        int y = 48;
+
+        y = addSection(y, "screen.simple_translate.shortcuts.section.actions", x, width);
+        for (ShortcutAction action : ShortcutAction.values()) {
+            y = addBindingRow(y, x, width, BindingTarget.action(action));
+        }
+        y += 8;
+        y = addSection(y, "screen.simple_translate.shortcuts.section.hold_original", x, width);
+        CycleButton<Boolean> enabled = CycleButton.onOffBuilder(ModConfig.HOLD_ORIGINAL_ENABLED.get())
+                .create(x, y, width, 20,
+                        com.yourname.simpletranslate.core.LegacyComponentFactory.translatable("screen.simple_translate.hold_original.master_enabled"),
+                        (button, value) -> {
+                            ModConfig.HOLD_ORIGINAL_ENABLED.set(value);
+                            ModConfig.save();
+                        });
+        withTooltip(enabled, "screen.simple_translate.hold_original.master_enabled.tooltip");
+        addScrolling(enabled, y);
+        y += 26;
+        for (HoldOriginalFeature feature : HoldOriginalFeature.values()) {
+            y = addBindingRow(y, x, width, BindingTarget.hold(feature));
+        }
+        contentHeight = y + 12;
+
+        Button back = ButtonCompat.builder(com.yourname.simpletranslate.core.LegacyComponentFactory.translatable("screen.simple_translate.back"), button -> onClose())
+                .bounds(x, this.height - 27, width, 20).build();
+        withTooltip(back, "screen.simple_translate.back.tooltip");
+        addRenderableWidget(back);
+        reposition();
+    }
+
+    private int addSection(int y, String key, int x, int width) {
+        Label label = new Label(x, y, width, 16, com.yourname.simpletranslate.core.LegacyComponentFactory.translatable(key));
+        addScrolling(label, y);
+        return y + 18;
+    }
+
+    private int addBindingRow(int y, int x, int width, BindingTarget target) {
+        int labelWidth = Math.min(165, width / 2);
+        Label label = new Label(x, y, labelWidth, 20, target.label());
+        addScrolling(label, y);
+        Button key = ButtonCompat.builder(target.chord().displayName(), button -> beginRecording(target))
+                .bounds(x + labelWidth + 4, y, width - labelWidth - 58, 20).build();
+        withTooltip(key, "screen.simple_translate.shortcuts.record.tooltip");
+        keyButtons.put(target, key);
+        addScrolling(key, y);
+        Button clear = ButtonCompat.builder(com.yourname.simpletranslate.core.LegacyComponentFactory.translatable("screen.simple_translate.shortcuts.clear"),
+                        button -> assign(target, KeyChord.NONE))
+                .bounds(x + width - 50, y, 50, 20).build();
+        withTooltip(clear, "screen.simple_translate.shortcuts.clear.tooltip");
+        addScrolling(clear, y);
+        return y + 24;
+    }
+
+    private void beginRecording(BindingTarget target) {
+        cancelRecording();
+        recording = target;
+        Button button = keyButtons.get(target);
+        if (button != null) button.setMessage(com.yourname.simpletranslate.core.LegacyComponentFactory.translatable("screen.simple_translate.shortcuts.press_chord")
+                .withStyle(TextFormatting.YELLOW));
+    }
+
+    private void cancelRecording() {
+        if (recording != null) {
+            Button button = keyButtons.get(recording);
+            if (button != null) button.setMessage(recording.chord().displayName());
+        }
+        recording = null;
+        pendingConflictTarget = null;
+        pendingConflictChord = null;
+    }
+
+    private void assign(BindingTarget target, KeyChord chord) {
+        boolean conflict = ModKeyBindings.hasConflict(chord, target.action, target.hold);
+        if (conflict && !(target.equals(pendingConflictTarget) && chord.equals(pendingConflictChord))) {
+            pendingConflictTarget = target;
+            pendingConflictChord = chord;
+            status = com.yourname.simpletranslate.core.LegacyComponentFactory.translatable("screen.simple_translate.shortcuts.conflict");
+            statusUntil = System.currentTimeMillis() + 5000L;
+            return;
+        }
+        if (target.action != null) ModKeyBindings.setChord(target.action, chord);
+        else ModKeyBindings.setChord(target.hold, chord);
+        Button button = keyButtons.get(target);
+        if (button != null) button.setMessage(chord.displayName());
+        recording = null;
+        pendingConflictTarget = null;
+        pendingConflictChord = null;
+        status = com.yourname.simpletranslate.core.LegacyComponentFactory.translatable("screen.simple_translate.shortcuts.saved");
+        statusUntil = System.currentTimeMillis() + 2500L;
+    }
+
+    @Override
+    public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
+        if (recording != null) {
+            if (keyCode == GLFW.GLFW_KEY_ESCAPE) {
+                cancelRecording();
+                return true;
+            }
+            if (keyCode == GLFW.GLFW_KEY_BACKSPACE || keyCode == GLFW.GLFW_KEY_DELETE) {
+                assign(recording, KeyChord.NONE);
+                return true;
+            }
+            if (KeyChord.isModifierKey(keyCode)) return true;
+            assign(recording, new KeyChord(KeyChord.InputType.KEYBOARD, keyCode,
+                    KeyChord.currentModifiers(Minecraft.getInstance())));
+            return true;
+        }
+        return super.keyPressed(keyCode, scanCode, modifiers);
+    }
+
+    @Override
+    public boolean mouseClicked(double mouseX, double mouseY, int button) {
+        if (recording != null) {
+            assign(recording, new KeyChord(KeyChord.InputType.MOUSE, button,
+                    KeyChord.currentModifiers(Minecraft.getInstance())));
+            return true;
+        }
+        return super.mouseClicked(mouseX, mouseY, button);
+    }
+
+    @Override
+    public boolean mouseScrolled(double mouseX, double mouseY, double delta) {
+        int max = maxScroll();
+        if (max > 0 && mouseY < contentBottom()) {
+            scrollOffset = Math.max(0, Math.min(max, scrollOffset - delta * 24));
+            reposition();
+            return true;
+        }
+        return super.mouseScrolled(mouseX, mouseY, delta);
+    }
+
+    @Override
+    public void render(MatrixStack poseStack, int mouseX, int mouseY, float partialTick) {
+        GuiGraphics graphics = GuiGraphics.wrap(poseStack);
+        ScreenBackgrounds.renderPlain(graphics, width, height);
+        graphics.drawCenteredString(font, title, width / 2, 12, 0xFFFFFFFF);
+        if (maxScroll() > 0) drawScrollBar(graphics);
+        graphics.fill(0, contentBottom(), width, height, 0xCC101010);
+        super.render(poseStack, mouseX, mouseY, partialTick);
+        if (System.currentTimeMillis() < statusUntil) {
+            graphics.drawCenteredString(font, status, width / 2, height - 42, 0xFFFFAA00);
+        }
+    }
+
+    private void addScrolling(Widget widget, int baseY) {
+        scrolling.add(widget);
+        baseYs.add(baseY);
+        addRenderableWidget(widget);
+    }
+
+    private void reposition() {
+        for (int i = 0; i < scrolling.size(); i++) {
+            Widget widget = scrolling.get(i);
+            int y = baseYs.get(i) - (int) scrollOffset;
+            widget.y = y;
+            widget.visible = y >= VIEWPORT_TOP && y + widget.getHeight() <= contentBottom();
+            widget.active = widget.visible && !(widget instanceof Label);
+        }
+    }
+
+    private int contentBottom() { return height - BOTTOM_HEIGHT; }
+    private int maxScroll() { return Math.max(0, contentHeight - (contentBottom() - VIEWPORT_TOP)); }
+
+    private void drawScrollBar(GuiGraphics graphics) {
+        int x = Math.min(width - 5, width / 2 + Math.min(180, (width - 30) / 2) + 4);
+        int h = contentBottom() - VIEWPORT_TOP;
+        graphics.fill(x, VIEWPORT_TOP, x + 3, contentBottom(), 0x33FFFFFF);
+        int handle = Math.max(20, h * h / Math.max(h, contentHeight));
+        int y = VIEWPORT_TOP + (int) ((h - handle) * (scrollOffset / maxScroll()));
+        graphics.fill(x, y, x + 3, y + handle, 0xAAFFFFFF);
+    }
+
+    @Override public void onClose() { Minecraft.getInstance().setScreen(parent); }
+    @Override public boolean isPauseScreen() { return false; }
+
+    private record BindingTarget(ShortcutAction action, HoldOriginalFeature hold) {
+        static BindingTarget action(ShortcutAction action) { return new BindingTarget(action, null); }
+        static BindingTarget hold(HoldOriginalFeature hold) { return new BindingTarget(null, hold); }
+        ITextComponent label() { return com.yourname.simpletranslate.core.LegacyComponentFactory.translatable(action != null ? action.translationKey() : hold.getTranslationKey()); }
+        KeyChord chord() { return action != null ? action.chord() : hold.chord(); }
+    }
+
+    private static final class Label extends Widget {
+        private Label(int x, int y, int width, int height, ITextComponent message) {
+            super(x, y, width, height, message);
+            active = false;
+        }
+        @Override public void renderButton(MatrixStack poseStack, int mouseX, int mouseY, float partialTick) {
+            GuiGraphics.wrap(poseStack).drawString(Minecraft.getInstance().font, getMessage(), x, y + 6, 0xFFCCCCCC);
+        }
+        public void updateNarration(com.yourname.simpletranslate.vanillacompat.NarrationElementOutput output) {}
+    }
+}

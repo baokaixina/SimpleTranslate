@@ -1,0 +1,12 @@
+{
+  "required": false,
+  "minVersion": "0.8",
+  "package": "com.yourname.simpletranslate.mixin.compat",
+  "refmap": "simple_translate.refmap.json",
+  "compatibilityLevel": "JAVA_8",
+  "client": [
+    "FtbGuiWrapperMixin",
+    "FtbTextFieldMixin",
+    "FtbTextBoxMixin"
+  ]
+}

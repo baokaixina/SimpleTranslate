@@ -1,5 +1,6 @@
 package com.yourname.simpletranslate.mixin;
 
+import net.fabricmc.loader.api.FabricLoader;
 import org.objectweb.asm.tree.ClassNode;
 import org.spongepowered.asm.mixin.extensibility.IMixinConfigPlugin;
 import org.spongepowered.asm.mixin.extensibility.IMixinInfo;
@@ -8,8 +9,8 @@ import java.util.List;
 import java.util.Set;
 
 public class SimpleTranslateMixinPlugin implements IMixinConfigPlugin {
-    private static final String ADVANCEMENT_PLAQUES_TARGET =
-            "com.anthonyhilyard.advancementplaques.ui.render.AdvancementPlaque";
+    private static final String FTB_LIBRARY_MOD_ID = "ftblibrary";
+    private static final String WYNNTILS_MOD_ID = "wynntils";
 
     @Override
     public void onLoad(String mixinPackage) {
@@ -22,6 +23,15 @@ public class SimpleTranslateMixinPlugin implements IMixinConfigPlugin {
 
     @Override
     public boolean shouldApplyMixin(String targetClassName, String mixinClassName) {
+        if (mixinClassName.endsWith("FtbScreenWrapperTranslationMixin")) {
+            return FabricLoader.getInstance().isModLoaded(FTB_LIBRARY_MOD_ID);
+        }
+        if (mixinClassName.endsWith("FtbTextFieldTranslationMixin")) {
+            return FabricLoader.getInstance().isModLoaded(FTB_LIBRARY_MOD_ID);
+        }
+        if (mixinClassName.endsWith("WynntilsOverlayManagerMixin")) {
+            return FabricLoader.getInstance().isModLoaded(WYNNTILS_MOD_ID);
+        }
         return true;
     }
 
@@ -31,9 +41,6 @@ public class SimpleTranslateMixinPlugin implements IMixinConfigPlugin {
 
     @Override
     public List<String> getMixins() {
-        if (isClassPresent(ADVANCEMENT_PLAQUES_TARGET)) {
-            return List.of("AdvancementPlaquesMixin");
-        }
         return List.of();
     }
 
@@ -45,12 +52,4 @@ public class SimpleTranslateMixinPlugin implements IMixinConfigPlugin {
     public void postApply(String targetClassName, ClassNode targetClass, String mixinClassName, IMixinInfo mixinInfo) {
     }
 
-    private static boolean isClassPresent(String className) {
-        try {
-            Class.forName(className, false, SimpleTranslateMixinPlugin.class.getClassLoader());
-            return true;
-        } catch (ClassNotFoundException ignored) {
-            return false;
-        }
-    }
 }

@@ -1,0 +1,5 @@
+accessWidener	v2	named
+
+accessible	class	net/minecraft/client/gui/font/FontSet$SelectedGlyphs
+accessible	field	net/minecraft/client/gui/font/FontSet	missingSelectedGlyphs	Lnet/minecraft/client/gui/font/FontSet$SelectedGlyphs;
+accessible	method	net/minecraft/client/gui/font/FontSet	getGlyph	(I)Lnet/minecraft/client/gui/font/FontSet$SelectedGlyphs;

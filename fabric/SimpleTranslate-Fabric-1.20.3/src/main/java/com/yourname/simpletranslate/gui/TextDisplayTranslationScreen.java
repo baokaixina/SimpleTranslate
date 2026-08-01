@@ -32,10 +32,8 @@ public class TextDisplayTranslationScreen extends ScrollableSettingsScreen {
         withTooltip(textDisplayButton, "screen.simple_translate.text_display.enabled.tooltip");
         addEntry(textDisplayButton);
 
-        CycleButton<Integer> radiusButton = CycleButton.<Integer>builder(
-                        value -> Component.translatable("screen.simple_translate.radius.blocks", value))
+        CycleButton<Integer> radiusButton = CycleButton.<Integer>builder(value -> Component.translatable("screen.simple_translate.radius.blocks", value)).withInitialValue(textDisplayRadius)
                 .withValues(4, 8, 12, 16, 20, 24, 32, 48, 64)
-                .withInitialValue(textDisplayRadius)
                 .create(0, 0, contentWidth, 20,
                         Component.translatable("screen.simple_translate.text_display.radius"),
                         (button, value) -> textDisplayRadius = value);

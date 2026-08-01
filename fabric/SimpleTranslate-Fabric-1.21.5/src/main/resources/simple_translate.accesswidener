@@ -1,0 +1,7 @@
+accessWidener	v2	named
+
+# Minecraft 1.21.5 has no FontSet$SelectedGlyphs: FontSet#getGlyph/getGlyphInfo
+# are public and FontSetMixin/FontSetAccessor cover the remaining private
+# missingGlyph member. The Wynn glyph-mask hook targets the private
+# Font$StringRenderOutput by name and names only public types in its handler
+# (List / BakedGlyph$GlyphInstance), so no entries are required on this version.

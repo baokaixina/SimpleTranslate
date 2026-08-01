@@ -1,6 +1,8 @@
 package com.yourname.simpletranslate.gui;
 
 import com.yourname.simpletranslate.config.ModConfig;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.components.CycleButton;
 import net.minecraft.client.gui.components.EditBox;
 import net.minecraft.client.gui.screens.Screen;
@@ -16,6 +18,8 @@ public class HudTranslationScreen extends ScrollableSettingsScreen {
     private boolean bossbarEnabled;
     private boolean titleEnabled;
     private boolean actionbarEnabled;
+    private boolean wynnOverlayEnabled;
+    private boolean keepLayoutCriticalOriginal;
     private boolean titleContextEnabled;
     private boolean historyChatEnabled;
     private int batchIntervalMs;
@@ -32,6 +36,8 @@ public class HudTranslationScreen extends ScrollableSettingsScreen {
         this.bossbarEnabled = ModConfig.HUD_BOSSBAR_ENABLED.get();
         this.titleEnabled = ModConfig.HUD_TITLE_ENABLED.get();
         this.actionbarEnabled = ModConfig.HUD_ACTIONBAR_ENABLED.get();
+        this.wynnOverlayEnabled = ModConfig.HUD_WYNN_OVERLAY_ENABLED.get();
+        this.keepLayoutCriticalOriginal = ModConfig.LAYOUT_CRITICAL_HUD_KEEP_ORIGINAL.get();
         this.titleContextEnabled = ModConfig.HUD_TITLE_CONTEXT_ENABLED.get();
         this.historyChatEnabled = ModConfig.HUD_HISTORY_CHAT_ENABLED.get();
         this.batchIntervalMs = ModConfig.HUD_CAPTION_BATCH_INTERVAL_MS.get();
@@ -71,6 +77,23 @@ public class HudTranslationScreen extends ScrollableSettingsScreen {
                         (button, value) -> actionbarEnabled = value);
         withTooltip(actionbarButton, "screen.simple_translate.hud.actionbar.tooltip");
         addEntry(actionbarButton);
+
+        CycleButton<Boolean> layoutProtectionButton = CycleButton.onOffBuilder(keepLayoutCriticalOriginal)
+                .create(0, 0, contentWidth, 20,
+                        Component.translatable("screen.simple_translate.settings.layout_critical_hud_keep_original"),
+                        (button, value) -> keepLayoutCriticalOriginal = value);
+        withTooltip(layoutProtectionButton,
+                "screen.simple_translate.settings.layout_critical_hud_keep_original.tooltip");
+        addEntry(layoutProtectionButton);
+
+        addSectionHeader(text("screen.simple_translate.hud.wynn.section"));
+
+        CycleButton<Boolean> wynnOverlayButton = CycleButton.onOffBuilder(wynnOverlayEnabled)
+                .create(0, 0, contentWidth, 20,
+                        Component.translatable("screen.simple_translate.hud.wynn_overlay"),
+                        (button, value) -> wynnOverlayEnabled = value);
+        withTooltip(wynnOverlayButton, "screen.simple_translate.hud.wynn_overlay.tooltip");
+        addEntry(wynnOverlayButton);
 
         addSectionHeader(text("screen.simple_translate.title.section.history"));
 
@@ -113,6 +136,8 @@ public class HudTranslationScreen extends ScrollableSettingsScreen {
         ModConfig.HUD_BOSSBAR_ENABLED.set(bossbarEnabled);
         ModConfig.HUD_TITLE_ENABLED.set(titleEnabled);
         ModConfig.HUD_ACTIONBAR_ENABLED.set(actionbarEnabled);
+        ModConfig.HUD_WYNN_OVERLAY_ENABLED.set(wynnOverlayEnabled);
+        ModConfig.LAYOUT_CRITICAL_HUD_KEEP_ORIGINAL.set(keepLayoutCriticalOriginal);
         ModConfig.HUD_TITLE_CONTEXT_ENABLED.set(titleContextEnabled);
         ModConfig.HUD_HISTORY_CHAT_ENABLED.set(historyChatEnabled);
         ModConfig.HUD_CAPTION_BATCH_INTERVAL_MS.set(parseMillis(batchIntervalInput, batchIntervalMs));

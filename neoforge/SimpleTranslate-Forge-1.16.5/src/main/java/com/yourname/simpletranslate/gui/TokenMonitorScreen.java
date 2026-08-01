@@ -1,0 +1,193 @@
+package com.yourname.simpletranslate.gui;
+
+import com.yourname.simpletranslate.api.TokenUsage;
+import com.yourname.simpletranslate.config.ModConfig;
+import com.yourname.simpletranslate.transport.TokenUsageMonitor;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.gui.FontRenderer;
+import com.mojang.blaze3d.matrix.MatrixStack;
+import com.yourname.simpletranslate.core.render.GuiGraphics;
+import net.minecraft.client.gui.widget.Widget;
+import net.minecraft.client.gui.widget.button.Button;
+import com.yourname.simpletranslate.vanillacompat.CycleButton;
+import com.yourname.simpletranslate.vanillacompat.NarratedElementType;
+import com.yourname.simpletranslate.vanillacompat.NarrationElementOutput;
+import net.minecraft.client.gui.screen.Screen;
+import net.minecraft.util.text.ITextComponent;
+
+import java.text.SimpleDateFormat;
+import java.util.ArrayList;
+import java.util.Date;
+import java.util.List;
+
+/**
+ * Token usage monitor screen. Shows session totals and a scrollable list of
+ * recent API requests with per-request token breakdown.
+ */
+public class TokenMonitorScreen extends ScrollableSettingsScreen {
+
+    private static final int RECENT_REQUEST_LIMIT = 60;
+
+    public TokenMonitorScreen(Screen parent) {
+        super(com.yourname.simpletranslate.core.LegacyComponentFactory.translatable("screen.simple_translate.token_monitor"), parent);
+        this.contentWidth = 330;
+        this.entrySpacing = 10;
+    }
+
+    @Override
+    protected void buildContent() {
+        addSectionHeader(text("screen.simple_translate.token_monitor.enable"));
+        CycleButton<Boolean> enableToggle = CycleButton.onOffBuilder(ModConfig.TOKEN_MONITOR_ENABLED.get())
+                .create(0, 0, contentWidth, 20,
+                        com.yourname.simpletranslate.core.LegacyComponentFactory.translatable("screen.simple_translate.token_monitor.enable"),
+                        (button, value) -> ModConfig.TOKEN_MONITOR_ENABLED.set(value));
+        withTooltip(enableToggle, "screen.simple_translate.token_monitor.enable.tooltip");
+        addEntry(enableToggle);
+
+        addSectionHeader(text("screen.simple_translate.token_monitor.totals"));
+        addEntry(new InfoCardWidget(
+                com.yourname.simpletranslate.core.LegacyComponentFactory.translatable("screen.simple_translate.token_monitor.totals"),
+                buildTotalsLines(),
+                0xFF62D5FF,
+                contentWidth,
+                92));
+
+        addSectionHeader(text("screen.simple_translate.token_monitor.recent"));
+
+        if (!ModConfig.TOKEN_MONITOR_ENABLED.get()) {
+            addEntry(new InfoCardWidget(
+                    com.yourname.simpletranslate.core.LegacyComponentFactory.translatable("screen.simple_translate.token_monitor.disabled"),
+                    List.of(text("screen.simple_translate.token_monitor.enable.tooltip")),
+                    0xFFFFC857,
+                    contentWidth,
+                    58));
+            return;
+        }
+
+        List<TokenUsage> snapshot = TokenUsageMonitor.snapshot();
+        if (snapshot.isEmpty()) {
+            addEntry(new InfoCardWidget(
+                    com.yourname.simpletranslate.core.LegacyComponentFactory.translatable("screen.simple_translate.token_monitor.no_data"),
+                    List.of(""),
+                    0xFF9E9E9E,
+                    contentWidth,
+                    46));
+        } else {
+            SimpleDateFormat timeFormat = new SimpleDateFormat("HH:mm:ss");
+            for (int i = snapshot.size() - 1; i >= 0 && i >= snapshot.size() - RECENT_REQUEST_LIMIT; i--) {
+                TokenUsage usage = snapshot.get(i);
+                String time = timeFormat.format(new Date(usage.timestampMillis()));
+                String title = time + "  " + shortenSurface(usage.surface());
+                List<String> lines = List.of(
+                        usage.model(),
+                        com.yourname.simpletranslate.core.LegacyComponentFactory.translatable("screen.simple_translate.token_monitor.prompt_tokens",
+                                String.format("%,d", usage.promptTokens())).getString()
+                                + "   "
+                                + com.yourname.simpletranslate.core.LegacyComponentFactory.translatable("screen.simple_translate.token_monitor.completion_tokens",
+                                String.format("%,d", usage.completionTokens())).getString(),
+                        com.yourname.simpletranslate.core.LegacyComponentFactory.translatable("screen.simple_translate.token_monitor.total_tokens",
+                                String.format("%,d", usage.totalTokens())).getString()
+                                + "   " + usage.elapsedMs() + "ms");
+                addEntry(new InfoCardWidget(com.yourname.simpletranslate.core.LegacyComponentFactory.literal(title), lines, 0xFF7CFFB2, contentWidth, 64));
+            }
+        }
+
+        Button clearButton = ButtonCompat.builder(
+                        com.yourname.simpletranslate.core.LegacyComponentFactory.translatable("screen.simple_translate.token_monitor.clear"),
+                        button -> {
+                            TokenUsageMonitor.clear();
+                            this.rebuild();
+                        })
+                .bounds(0, 0, contentWidth, 20)
+                .build();
+        withTooltip(clearButton, "screen.simple_translate.token_monitor.clear.tooltip");
+        addEntry(clearButton);
+    }
+
+    private void rebuild() {
+        this.init();
+    }
+
+    private List<String> buildTotalsLines() {
+        TokenUsageMonitor.Totals totals = TokenUsageMonitor.totals();
+        List<String> lines = new ArrayList<>();
+        lines.add(com.yourname.simpletranslate.core.LegacyComponentFactory.translatable("screen.simple_translate.token_monitor.requests", totals.requestCount()).getString());
+        lines.add(com.yourname.simpletranslate.core.LegacyComponentFactory.translatable("screen.simple_translate.token_monitor.prompt_tokens",
+                String.format("%,d", totals.promptTokens())).getString());
+        lines.add(com.yourname.simpletranslate.core.LegacyComponentFactory.translatable("screen.simple_translate.token_monitor.completion_tokens",
+                String.format("%,d", totals.completionTokens())).getString());
+        lines.add(com.yourname.simpletranslate.core.LegacyComponentFactory.translatable("screen.simple_translate.token_monitor.total_tokens",
+                String.format("%,d", totals.totalTokens())).getString());
+        lines.add(com.yourname.simpletranslate.core.LegacyComponentFactory.translatable("screen.simple_translate.token_monitor.avg_time", totals.avgElapsedMs()).getString());
+        return lines;
+    }
+
+    private static String shortenSurface(String surface) {
+        if (surface == null || surface.isBlank()) {
+            return "?";
+        }
+        if (surface.length() <= 30) {
+            return surface;
+        }
+        return surface.substring(0, 27) + "...";
+    }
+
+    @Override
+    protected void saveSettings() {
+    }
+
+    private static String text(String key) {
+        return com.yourname.simpletranslate.core.LegacyComponentFactory.translatable(key).getString();
+    }
+
+    private static final class InfoCardWidget extends Widget {
+        private final ITextComponent heading;
+        private final List<String> lines;
+        private final int accentColor;
+
+        private InfoCardWidget(ITextComponent heading, List<String> lines, int accentColor, int width, int height) {
+            super(0, 0, width, height, com.yourname.simpletranslate.core.LegacyComponentFactory.empty());
+            this.heading = heading == null ? com.yourname.simpletranslate.core.LegacyComponentFactory.empty() : heading;
+            this.lines = lines == null ? List.of() : List.copyOf(lines);
+            this.accentColor = accentColor;
+        }
+
+        @Override
+        public void renderButton(MatrixStack poseStack, int mouseX, int mouseY, float partialTick) {
+            GuiGraphics graphics = GuiGraphics.wrap(poseStack);
+            FontRenderer font = Minecraft.getInstance().font;
+            int left = x;
+            int top = y;
+            int right = left + getWidth();
+            int bottom = top + getHeight();
+            graphics.fill(left, top, right, bottom, 0xCC14171C);
+            graphics.fill(left, top, left + 3, bottom, accentColor);
+            graphics.fill(left + 3, top, right, top + 1, 0x44FFFFFF);
+
+            int textLeft = left + 10;
+            int textWidth = Math.max(20, getWidth() - 18);
+            graphics.drawString(font, trim(font, heading.getString(), textWidth), textLeft, top + 7, 0xFFFFFFFF, false);
+            int y = top + 22;
+            for (String line : lines) {
+                if (line == null || line.isBlank()) {
+                    continue;
+                }
+                if (y + 9 > bottom - 5) {
+                    break;
+                }
+                graphics.drawString(font, trim(font, line, textWidth), textLeft, y, 0xFFD6D9DE, false);
+                y += 11;
+            }
+        }
+        public void updateNarration(NarrationElementOutput output) {
+            output.add(NarratedElementType.TITLE, heading);
+        }
+
+        private static String trim(FontRenderer font, String text, int width) {
+            if (text == null || text.isEmpty() || font.width(text) <= width) {
+                return text == null ? "" : text;
+            }
+            return font.plainSubstrByWidth(text, Math.max(0, width - font.width("..."))) + "...";
+        }
+    }
+}

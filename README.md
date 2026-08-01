@@ -1,299 +1,151 @@
-# SimpleTranslate 2.0
+# SimpleTranslate 2.1.28
 
-**语言 / Language:** [中文说明](#中文说明) | [English](#english)
+**语言 / Language:** [中文](#中文) | [English](#english)
+
+SimpleTranslate is a client-side, real-time Minecraft translation mod. It translates chat, item tooltips, books, signs, HUD text, and other mods' GUIs through the language model/API configured by the player.
+
+SimpleTranslate 是客户端 Minecraft 实时翻译模组，可通过玩家自行配置的模型/API 翻译聊天、物品提示、书本、告示牌、HUD，以及其他模组的 GUI。
+
+![Distant Horizons 配置界面经 SimpleTranslate 翻译为中文，按钮布局保持不变 / Distant Horizons configuration screen translated into Chinese by SimpleTranslate with the original button layout preserved](docs/images/2.1.28/gui-distant-horizons-after.png)
+
+*整屏 GUI 翻译保留 Distant Horizons 的按钮布局。 / Whole-screen GUI translation preserves the Distant Horizons button layout.*
+
+## 截图 / Screenshots
+
+### 整屏 GUI / Whole-screen GUI
+
+| 翻译前 / Before | 翻译后 / After |
+| --- | --- |
+| ![翻译前的 Distant Horizons 英文配置界面 / Distant Horizons configuration screen in English before translation](docs/images/2.1.28/gui-distant-horizons-before.png) | ![Distant Horizons 配置界面经 SimpleTranslate 翻译为中文，按钮布局保持不变 / Distant Horizons configuration screen translated into Chinese by SimpleTranslate with the original button layout preserved](docs/images/2.1.28/gui-distant-horizons-after.png) |
+
+*Distant Horizons 配置界面的整屏翻译。 / Whole-screen translation of the Distant Horizons configuration UI.*
+
+### Patchouli 手册 / Patchouli guide
+
+| 翻译前 / Before | 翻译后 / After |
+| --- | --- |
+| ![翻译前的 Patchouli 英文动物围栏手册页面 / Patchouli Animal Pen guide page in English before translation](docs/images/2.1.28/gui-patchouli-before.png) | ![Patchouli 动物围栏手册翻译为中文并保留书页图标与布局 / Patchouli Animal Pen guide translated into Chinese with its page icons and layout preserved](docs/images/2.1.28/gui-patchouli-after.png) |
+
+*Patchouli 手册翻译保留书页结构和分类图标。 / Patchouli guide translation preserves the page structure and category icons.*
+
+### FTB Quests
+
+| 翻译前 / Before | 翻译后 / After |
+| --- | --- |
+| ![翻译前的 FTB Quests 英文任务窗口 / FTB Quests task window in English before translation](docs/images/2.1.28/gui-ftb-quests-before.png) | ![FTB Quests 任务窗口已翻译为中文并保留原有图标和布局 / FTB Quests task window translated into Chinese with its icons and layout preserved](docs/images/2.1.28/gui-ftb-quests-after.png) |
+
+*FTB Quests 兼容保留任务窗口结构。 / FTB Quests compatibility preserves the task window structure.*
+
+### Wynncraft
+
+![Wynncraft NPC 对话以中文显示，角色头像和对话框布局保持原样 / Wynncraft NPC dialogue displayed in Chinese while preserving the portrait and dialogue panel layout](docs/images/2.1.28/wynncraft-npc-dialogue.jpg)
+
+*Wynncraft 对话翻译保留专用头像、字形和对话框布局。 / Wynncraft dialogue translation preserves its portrait, glyphs, and dialogue layout.*
+
+Wynncraft, Wynntils, Patchouli, FTB Quests, Distant Horizons, Iceberg, and Legendary Tooltips are third-party projects or services. Compatibility descriptions and screenshots demonstrate SimpleTranslate only; they do not imply affiliation, endorsement, sponsorship, or official cooperation.
+
+Wynncraft、Wynntils、Patchouli、FTB Quests、Distant Horizons、Iceberg 和 Legendary Tooltips 均为第三方项目或服务。兼容性描述与截图仅用于展示 SimpleTranslate，不代表隶属、认可、赞助或官方合作。
 
 ---
 
-## 中文说明
-
-SimpleTranslate / 简单翻译 是一个客户端 Minecraft 实时翻译模组，适合游玩外语地图、RPG 服务器、冒险内容、任务书、物品 lore、告示牌和各种 UI 文本。
-
-**SimpleTranslate 2.0 支持在你配置的翻译模型/API 能力范围内进行任意语言互转。**  
-它不局限于英文 -> 中文。你可以用于英文、中文、日文、韩文、混合多语言文本，或任何模型支持的源语言/目标语言组合。
-
-> 当前公开的 2.0 下载：**仅提供 Fabric 版本**。
-
-[下载 SimpleTranslate 2.0](https://github.com/baokaixina/SimpleTranslate/releases/tag/v2.0)
-
-### 2.0 有什么不同
-
-SimpleTranslate 2.0 将翻译系统重构为以 Minecraft **Component JSON** 为核心。
-
-旧式做法通常会把游戏文本压平成普通字符串，翻译后再猜颜色和位置；2.0 会把 Minecraft 文本组件交给模型，并接收翻译后的 Component JSON。这有助于保留：
-
-- 颜色和格式；
-- 换行；
-- 物品 lore 结构；
-- 悬浮提示结构；
-- 告示牌布局；
-- 书本页顺序；
-- 聊天格式；
-- HUD、标题和 ActionBar 文本；
-- 成就名称和描述。
-
-目标很简单：让 Minecraft 文本被翻译后，仍然像 Minecraft 原生文本。
+## 中文
 
 ### 主要功能
 
-#### 聊天翻译
+- **多文本表面翻译**：接收和发送的聊天、物品提示、悬浮提示、书本、告示牌、计分板、玩家列表、Boss 栏、标题、Actionbar、实体名称和文字展示实体。
+- **整屏 GUI 翻译**：可按快捷键（默认 `K`）翻译当前界面，也可启用自动模式；输入框不会作为待翻译文本发送，明显的 URL 和技术 ID 会被跳过。
+- **其他模组 GUI**：可翻译普通 Minecraft Component 驱动的模组界面，例如 Patchouli 手册、FTB Quests 和 Distant Horizons。
+- **Wynncraft 专用支持**：Minecraft `>=1.21.4` 的对应 Fabric/NeoForge 版本包含对话与 Actionbar 语义投影、布局和字形覆盖层，以及 Wynntils HUD 兼容。该功能依据 Wynncraft 的字体、字形锚点和布局结构识别内容，不依赖服务器地址。
+- **结构保真**：所有游戏文本表面使用 Component JSON 数组管线。译文会重新绑定到当前画面的组件结构，以保留样式、布局、点击事件、动态数字和资源包图标；普通可见文本中的隐藏悬浮事件不会被顺带发送，而由专用悬浮提示路径处理。
+- **物品提示缓存**：物品 Tooltip 会用当前帧的图标、样式、数值和间距重新绑定语义译文；已有持久缓存可在物品 Tooltip 首次显示时直接命中。
+- **上下文和配置档**：可以按聊天、物品、GUI、HUD、书本、告示牌等来源选择是否向 API 提供历史译文，并为全局、服务器或单人世界保存参考提示词。
+- **可配置快捷键**：支持键盘和鼠标组合键，可配置全局翻译开关、聊天模式、GUI、Tooltip、告示牌操作和各表面的“按住显示原文”。
+- **任意语言方向**：模组不限定英译中；实际可用语言、质量、速度和费用由玩家选择的模型/API 决定。
 
-翻译服务器消息、RPG 菜单文本、旁白消息、任务提示和带格式的聊天内容。
+### 支持版本
 
-聊天悬浮文本由专门的悬浮翻译路径处理，不会因为翻译可见聊天而意外翻译隐藏 hover 内容。
+请下载与 Minecraft 版本和加载器完全匹配的文件。
 
-![聊天翻译前](https://github.com/baokaixina/SimpleTranslate/releases/download/v2.0/demo-chat-before.png)
+| 加载器 | Minecraft 版本 | 数量 |
+| --- | --- | ---: |
+| Fabric | 1.12.2、1.16.5、1.18.2、1.19.2–1.19.4、1.20–1.20.6、1.21–1.21.11、26.1、26.1.1、26.1.2、26.2 | 29 |
+| Forge | 1.12.2、1.16.5、1.18.2、1.19.2、1.20.1 | 5 |
+| NeoForge | 1.20.1–1.20.6、1.21–1.21.11、26.1、26.1.1、26.1.2、26.2 | 22 |
 
-![聊天翻译后](https://github.com/baokaixina/SimpleTranslate/releases/download/v2.0/demo-chat-after.png)
+Fabric 1.12.2 是功能面较窄的 Legacy 版本；部分现代 GUI、文本组件和兼容功能只存在于较新的 Minecraft 版本。Wynncraft 专用功能仅随 Minecraft `>=1.21.4` 的目标提供。
 
-#### 物品提示翻译
+### 安装与配置
 
-翻译物品名称、属性、lore、NBT 相关文本和复杂彩色提示。
+1. 安装对应 Minecraft 版本的 Fabric、Forge 或 NeoForge。
+2. Fabric 版本按下载页要求安装 Fabric API；其他加载器也应遵循对应文件页列出的依赖。
+   **仅 Forge 1.12.2 目标**还必须安装 [MixinBooter 9.4 或更高版本](https://github.com/CleanroomMC/MixinBooter)；SimpleTranslate 不打包该运行依赖，其他目标不需要它。
+3. 将匹配版本的 SimpleTranslate JAR 放入客户端实例的 `mods` 目录。
+4. 在游戏内设置页配置 API 地址、密钥、模型和语言方向。Mod Menu 是 Fabric 上推荐但非必需的设置入口。
 
-适合 RPG 服务器、自定义物品、冒险地图和包含大量物品描述的整合包。
+SimpleTranslate 不内置免费翻译引擎、模型或 API 额度。请自行选择兼容服务，并了解其隐私、计费和数据处理政策。服务器无需安装本模组。
 
-#### 告示牌翻译
+### 升级说明
 
-支持翻译单个告示牌或一组告示牌。适合冒险地图、剧情墙、服务器规则牌、谜题提示和地图说明。
-
-![告示牌翻译前](https://github.com/baokaixina/SimpleTranslate/releases/download/v2.0/demo-sign-before.png)
-
-![告示牌翻译后](https://github.com/baokaixina/SimpleTranslate/releases/download/v2.0/demo-sign-after.png)
-
-#### 书本翻译
-
-翻译成书和书页内容，同时保持清晰的阅读顺序。
-
-![书本翻译前](https://github.com/baokaixina/SimpleTranslate/releases/download/v2.0/demo-book-before.png)
-
-![书本翻译后](https://github.com/baokaixina/SimpleTranslate/releases/download/v2.0/demo-book-after.png)
-
-#### 成就翻译
-
-翻译成就名称和描述。
-
-![成就翻译前](https://github.com/baokaixina/SimpleTranslate/releases/download/v2.0/demo-advancement-before.png)
-
-![成就翻译后](https://github.com/baokaixina/SimpleTranslate/releases/download/v2.0/demo-advancement-after.png)
-
-#### 更多游戏文本
-
-SimpleTranslate 还可以翻译：
-
-- Boss 栏；
-- 计分板；
-- 标题和副标题；
-- ActionBar；
-- 实体名称；
-- 文本展示实体；
-- 物品悬浮提示；
-- 书本/聊天悬浮提示；
-- 模组支持的其他 Minecraft UI 文本表面。
-
-### 任意语言互转
-
-模组本身不会把你锁定到某一种语言对。
-
-你可以在设置中配置目标语言，并使用任何支持目标语言的翻译提供商、API 或模型。
-
-示例：
-
-- 英文 -> 中文；
-- 中文 -> 英文；
-- 日文 -> 中文；
-- 韩文 -> 中文；
-- 混合多语言文本 -> 中文；
-- 任意支持的源语言 -> 任意支持的目标语言。
-
-翻译质量取决于你配置的模型/API。
-
-### 缓存、Token 统计和显示原文
-
-SimpleTranslate 提供适合长期游玩的工具：
-
-- 持久化翻译缓存；
-- 共享缓存支持；
-- Token 和请求统计；
-- 可配置的翻译提供商；
-- 按住临时显示原文。
-
-按住显示原文适合核对源文本、对比译文或截图展示。
-
-### 支持的 Fabric 版本
-
-SimpleTranslate 2.0 当前提供以下 Fabric 版本：
-
-- 1.19.2、1.19.3、1.19.4
-- 1.20、1.20.1、1.20.2、1.20.3、1.20.4、1.20.5、1.20.6
-- 1.21、1.21.1、1.21.2、1.21.3、1.21.4、1.21.5、1.21.6、1.21.7、1.21.8、1.21.9、1.21.10、1.21.11
-- 26.1、26.1.1、26.1.2、26.2
-
-请从 [2.0 发布页](https://github.com/baokaixina/SimpleTranslate/releases/tag/v2.0) 下载与你 Minecraft 版本匹配的 jar。
-
-### 需求
-
-- Minecraft Java Edition
-- Fabric Loader
-- Fabric API
-- 客户端安装
-- Mod Menu 可选，但推荐安装，方便打开设置
-- 已配置的翻译提供商/API/模型
-
-### 说明
-
-- SimpleTranslate 是客户端辅助模组，服务器无需安装。
-- 翻译速度、质量和 Token 消耗取决于你配置的提供商、模型和网络环境。
-- 如果希望结构保留效果更好，建议使用能稳定遵循 JSON/component 指令的模型。
+- 持久化命名空间继续使用 `stx2`，新缓存继续使用 `component_json_v1`。
+- 兼容的旧 `json.<surface>` Component 缓存可在满足条件时惰性迁移；更旧的 wire/style 缓存保持停用，不会被当作当前译文使用。
+- 旧单键快捷键会迁移为组合键；旧语言默认值只迁移已知的 `en -> auto` 和 `zh -> zh_cn` 情况。
+- 升级不会无条件清空用户缓存。无效或结构不兼容的单条记录仍可能被正常淘汰。
 
 ### 链接
 
 - [GitHub Releases](https://github.com/baokaixina/SimpleTranslate/releases)
-- [MC百科页面](https://www.mcmod.cn/class/23154.html)
+- [MC百科](https://www.mcmod.cn/class/23154.html)
+- [2.1.28 累计更新日志](CHANGELOG.md)
+- [MIT 许可证](LICENSE)
 
 ---
 
 ## English
 
-SimpleTranslate is a client-side Minecraft translation mod for players who play foreign-language maps, RPG servers, adventure content, quest books, item lore, signs, and UI prompts.
+### Features
 
-**SimpleTranslate 2.0 can translate between all languages supported by your configured translation model/API.**  
-It is not limited to English -> Chinese. You can use it for English, Chinese, Japanese, Korean, mixed multilingual text, or any other source/target language combination your model supports.
+- **Broad text-surface coverage:** received and outgoing chat, item and hover tooltips, books, signs, scoreboards, the player list, boss bars, titles, actionbars, entity names, and text display entities.
+- **Whole-screen GUI translation:** translate the current screen with a shortcut (`K` by default) or enable automatic mode. Input fields are excluded from requests, and obvious URLs and technical IDs are skipped.
+- **Other mods' GUIs:** translate ordinary Component-driven mod interfaces, including Patchouli guides, FTB Quests, and Distant Horizons.
+- **Dedicated Wynncraft support:** matching Fabric/NeoForge targets for Minecraft `>=1.21.4` include semantic dialogue and actionbar projection, layout and glyph overlays, and Wynntils HUD compatibility. Detection uses Wynncraft fonts, glyph anchors, and verified layout structure rather than a server-address allowlist.
+- **Structure-preserving translation:** every game-text surface uses the Component JSON array pipeline. Translated semantics are rebound to the current component tree to retain styling, layout, click events, dynamic numbers, and resource-pack icons. Hidden hover events in ordinary visible text are not sent incidentally; dedicated hover paths translate tooltip content.
+- **Item-tooltip caching:** item tooltips rebind semantic translations to each frame's live icons, styles, values, and spacing. Existing persistent entries can be used on the first item-tooltip render.
+- **Context and profiles:** choose which translated text sources may be supplied to the API as history, and save reference prompts for global, server, or single-player-world scopes.
+- **Configurable chords:** assign keyboard and mouse chords for the global toggle, chat mode, GUI and tooltip translation, sign actions, and per-surface hold-to-show-original controls.
+- **Any model-supported language direction:** the mod does not lock translation to English-to-Chinese. Available languages, quality, latency, and cost depend on the model/API selected by the player.
 
-> Current public 2.0 download: **Fabric builds only**.
+### Supported versions
 
-[Download SimpleTranslate 2.0](https://github.com/baokaixina/SimpleTranslate/releases/tag/v2.0)
+Download the file that exactly matches both the Minecraft version and loader.
 
-## What Makes 2.0 Different
+| Loader | Minecraft versions | Count |
+| --- | --- | ---: |
+| Fabric | 1.12.2, 1.16.5, 1.18.2, 1.19.2–1.19.4, 1.20–1.20.6, 1.21–1.21.11, 26.1, 26.1.1, 26.1.2, 26.2 | 29 |
+| Forge | 1.12.2, 1.16.5, 1.18.2, 1.19.2, 1.20.1 | 5 |
+| NeoForge | 1.20.1–1.20.6, 1.21–1.21.11, 26.1, 26.1.1, 26.1.2, 26.2 | 22 |
 
-SimpleTranslate 2.0 rebuilds the translation system around Minecraft **Component JSON**.
+Fabric 1.12.2 is a narrower Legacy build. Some modern GUI, text-component, and compatibility features only exist on newer Minecraft targets. Dedicated Wynncraft features are included only on Minecraft `>=1.21.4` targets.
 
-Instead of flattening game text into plain strings and guessing colors or positions later, 2.0 sends Minecraft text components to the model and receives translated Component JSON back. This helps preserve:
+### Installation and configuration
 
-- colors and formatting,
-- line breaks,
-- item lore structure,
-- hover tooltip structure,
-- sign layout,
-- book page order,
-- chat formatting,
-- HUD/title/actionbar text,
-- advancement names and descriptions.
+1. Install Fabric, Forge, or NeoForge for the exact Minecraft version.
+2. For Fabric, install Fabric API as required by the download page. Follow the dependency list on the matching file page for other loaders.
+   **Only the Forge 1.12.2 target** also requires [MixinBooter 9.4 or newer](https://github.com/CleanroomMC/MixinBooter). SimpleTranslate does not bundle this runtime dependency, and no other target requires it.
+3. Put the matching SimpleTranslate JAR in the client instance's `mods` directory.
+4. Configure the API URL, key, model, and language direction in the in-game settings. Mod Menu is recommended, but not required, as a Fabric settings entry point.
 
-The goal is simple: translate Minecraft text while keeping it looking like Minecraft.
+SimpleTranslate does not bundle a free translation engine, hosted model, or API quota. Choose a compatible service and review its privacy, billing, and data-processing policies. The server does not need to install this mod.
 
-## Main Features
+### Upgrade notes
 
-### Chat Translation
+- The persistence namespace remains `stx2`, and new cache entries remain `component_json_v1`.
+- Compatible legacy `json.<surface>` Component entries may migrate lazily when allowed. Older wire/style generations remain inactive and are not used as current translations.
+- Legacy single-key bindings migrate to chords. Language defaults migrate only for the known `en -> auto` and `zh -> zh_cn` cases.
+- Upgrading does not unconditionally clear user caches. Individual invalid or structurally incompatible entries can still be discarded normally.
 
-Translate server messages, RPG menu text, narrator messages, quest prompts, and formatted chat content.
-
-Chat hover text is handled by a dedicated hover translation path, so hidden hover text is not translated accidentally as a side effect of translating visible chat.
-
-![Chat before](https://github.com/baokaixina/SimpleTranslate/releases/download/v2.0/demo-chat-before.png)
-
-![Chat after](https://github.com/baokaixina/SimpleTranslate/releases/download/v2.0/demo-chat-after.png)
-
-### Item Tooltip Translation
-
-Translate item names, attributes, lore, NBT-related text, and complex colored tooltips.
-
-Useful for RPG servers, custom items, adventure maps, and modpacks with long item descriptions.
-
-### Sign Translation
-
-Translate single signs or groups of signs. This is useful for adventure maps, story walls, server rule boards, puzzle hints, and map instructions.
-
-![Sign before](https://github.com/baokaixina/SimpleTranslate/releases/download/v2.0/demo-sign-before.png)
-
-![Sign after](https://github.com/baokaixina/SimpleTranslate/releases/download/v2.0/demo-sign-after.png)
-
-### Book Translation
-
-Translate written books and book pages while keeping the reading order clear.
-
-![Book before](https://github.com/baokaixina/SimpleTranslate/releases/download/v2.0/demo-book-before.png)
-
-![Book after](https://github.com/baokaixina/SimpleTranslate/releases/download/v2.0/demo-book-after.png)
-
-### Advancement Translation
-
-Translate advancement names and descriptions.
-
-![Advancement before](https://github.com/baokaixina/SimpleTranslate/releases/download/v2.0/demo-advancement-before.png)
-
-![Advancement after](https://github.com/baokaixina/SimpleTranslate/releases/download/v2.0/demo-advancement-after.png)
-
-### More Supported Game Text
-
-SimpleTranslate can also translate:
-
-- boss bars,
-- scoreboards,
-- titles and subtitles,
-- actionbar text,
-- entity names,
-- text display entities,
-- item hover tooltips,
-- book/chat hover tooltips,
-- other Minecraft UI text surfaces supported by the mod.
-
-## Any-Language Translation
-
-The mod itself does not lock you to one language pair.
-
-You can configure the target language in the settings and use any translation provider/model that supports your desired languages.
-
-Examples:
-
-- English -> Chinese
-- Chinese -> English
-- Japanese -> Chinese
-- Korean -> Chinese
-- Mixed multilingual text -> Chinese
-- Any supported source language -> any supported target language
-
-Translation quality depends on the model/API you configure.
-
-## Cache, Token Statistics, and Original Text
-
-SimpleTranslate includes tools for long-term gameplay:
-
-- persistent translation cache,
-- shared cache support,
-- token/request statistics,
-- configurable translation providers,
-- temporary hold-to-show-original behavior.
-
-The hold-to-show-original feature is useful when checking the source text, comparing translations, or taking screenshots.
-
-## Supported Fabric Versions
-
-SimpleTranslate 2.0 currently provides Fabric jars for:
-
-- 1.19.2, 1.19.3, 1.19.4
-- 1.20, 1.20.1, 1.20.2, 1.20.3, 1.20.4, 1.20.5, 1.20.6
-- 1.21, 1.21.1, 1.21.2, 1.21.3, 1.21.4, 1.21.5, 1.21.6, 1.21.7, 1.21.8, 1.21.9, 1.21.10, 1.21.11
-- 26.1, 26.1.1, 26.1.2, 26.2
-
-Download the matching jar from the [2.0 release page](https://github.com/baokaixina/SimpleTranslate/releases/tag/v2.0).
-
-## Requirements
-
-- Minecraft Java Edition
-- Fabric Loader
-- Fabric API
-- Client-side installation
-- Mod Menu is optional but recommended for opening settings easily
-- A configured translation provider/API/model
-
-## Notes
-
-- SimpleTranslate is a client-side helper mod. Servers do not need to install it.
-- Translation speed, quality, and token usage depend on your configured provider/model and network environment.
-- For best structure preservation, use a model that follows JSON/component instructions reliably.
-
-## Links
+### Links
 
 - [GitHub Releases](https://github.com/baokaixina/SimpleTranslate/releases)
-- [MC百科 Page](https://www.mcmod.cn/class/23154.html)
-
-
+- [MC百科](https://www.mcmod.cn/class/23154.html)
+- [Cumulative 2.1.28 changelog](CHANGELOG.md)
+- [MIT License](LICENSE)

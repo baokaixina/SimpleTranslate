@@ -178,6 +178,7 @@ public final class ChatMessageReplacer {
     }
 
     public static String suggestCommandValue(ClickEvent clickEvent) {
+        // 1.21.3 ClickEvent is an Action/value pair, not a sealed hierarchy.
         if (clickEvent != null && clickEvent.getAction() == ClickEvent.Action.SUGGEST_COMMAND) {
             return clickEvent.getValue();
         }
