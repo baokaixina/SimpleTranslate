@@ -1,5 +1,26 @@
 # Changelog
 
+## [2.1.29] - 2026-08-13
+
+Compatibility hotfix for Minecraft versions below 1.20.1, plus tighter per-build game-version bounds.
+
+针对 1.20.1 以下版本的兼容性热修，并收紧各构建的游戏版本区间。
+
+### Fixed / 修复
+
+- Fabric 1.16.5–1.19.2 now depend on Fabric API as mod id `fabric`, matching the id those API jars actually declare.
+- Fabric 1.16.5–1.19.2 的 Fabric API 依赖改为模组 id `fabric`，与这些 API jar 实际声明的 id 一致。
+- Fabric 1.16.5 and 1.18.2 no longer crash on HUD inject: title/subtitle use `Font.drawShadow` (2 calls) and the actionbar uses `Font.draw` (1 call).
+- Fabric 1.16.5 / 1.18.2 不再因 HUD 注入崩溃：标题/副标题走 `Font.drawShadow`（2 次），actionbar 走 `Font.draw`（1 次）。
+- Fabric 1.16.5 no longer references the missing `ClientTextTooltipAccessor`, and sign text scaling hooks the second `PoseStack.scale` instead of a method that does not exist on 1.16.5.
+- Fabric 1.16.5 不再引用不存在的 `ClientTextTooltipAccessor`，告示牌缩放改为钩在第二次 `PoseStack.scale` 上。
+- Removed the `space` font provider from 1.16.5 / 1.18.2 CJK fallback (that provider exists only from 1.19.2).
+- 从 1.16.5 / 1.18.2 的 CJK 回退字体中移除 `space` provider（该类型从 1.19.2 才存在）。
+- Each Fabric/Forge/NeoForge build now declares an exclusive Minecraft version range instead of an open `>=` floor.
+- 各 Fabric/Forge/NeoForge 构建改为声明互斥的 Minecraft 版本区间，不再使用开放的 `>=` 下限。
+- Forge 1.12.2 now sets `acceptedMinecraftVersions = [1.12.2]`.
+- Forge 1.12.2 现在声明 `acceptedMinecraftVersions = [1.12.2]`。
+
 ## [2.1.28] - 2026-08-01
 
 This is the cumulative user-facing changelog from the officially released 2.1.2 binaries to 2.1.28. It is not a reconstruction of unpublished intermediate version history.

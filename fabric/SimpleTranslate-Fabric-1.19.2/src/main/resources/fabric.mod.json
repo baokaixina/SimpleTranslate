@@ -26,8 +26,8 @@
   ],
   "depends": {
     "fabricloader": ">=0.16.0",
-    "minecraft": ">=${minecraft_version}",
-    "fabric-api": ">=0.58.6+1.19.2"
+    "minecraft": ">=1.19.2 <1.19.3",
+    "fabric": ">=0.58.6+1.19.2"
   },
   "suggests": {
     "modmenu": "*"

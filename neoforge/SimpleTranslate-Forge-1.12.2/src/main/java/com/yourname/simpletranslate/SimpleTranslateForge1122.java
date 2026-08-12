@@ -39,10 +39,11 @@ import org.apache.logging.log4j.Logger;
 
 @Mod(modid = SimpleTranslateForge1122.MOD_ID, name = "Simple Translate", version = SimpleTranslateForge1122.VERSION,
         dependencies = "required-after:mixinbooter@[9.4,)",
+        acceptedMinecraftVersions = "[1.12.2]",
         guiFactory = "com.yourname.simpletranslate.forge.ForgeConfigGuiFactory")
 public final class SimpleTranslateForge1122 {
     public static final String MOD_ID = "simple_translate";
-    public static final String VERSION = "2.1.28";
+    public static final String VERSION = "2.1.29";
     private static final Logger LOGGER = LogManager.getLogger("SimpleTranslate/Forge-1.12.2");
     private static TranslationEngine engine;
     private static TranslationManager translationManager;

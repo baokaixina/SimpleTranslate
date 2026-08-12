@@ -20,14 +20,17 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 /**
  * Register translated sign text at the sign text-rendering step.
  *
- * <p>Minecraft 1.19.2 has no {@code renderSignText(...)}: the single sign face
+ * <p>Minecraft 1.16.5 has no {@code renderSignText(...)}: the single sign face
  * is rendered inline by
  * {@code render(SignBlockEntity, float, PoseStack, MultiBufferSource, int,
- * int)}, and {@code getDarkColor(SignBlockEntity)} is invoked after the text
- * pose has been translated and scaled — the same pose state 1.19.3/1.19.4
- * expose inside {@code renderSignText}. There is no SignText side holder, so
- * the block entity itself is the translation identity and the face is always
- * the front. SignBlockEntity on 1.19.2 has neither
+ * int)}. It also has no {@code getDarkColor(SignBlockEntity)} — that method
+ * only exists from 1.17 on — so the text pose is anchored on the second
+ * {@code PoseStack.scale} call instead. That scale is the one that applies the
+ * 0.010416667 text scale, and it is immediately followed by the text colour
+ * computation and the four-line draw loop, which is the same pose state
+ * 1.19.3/1.19.4 expose inside {@code renderSignText}. There is no SignText side
+ * holder, so the block entity itself is the translation identity and the face
+ * is always the front. SignBlockEntity on 1.16.5 has neither
  * {@code getMaxTextLineWidth()} nor {@code getTextLineHeight()}; the vanilla
  * constants are 90 (SignRenderer.MAX_LINE_WIDTH) and 10.
  */
@@ -49,8 +52,9 @@ public class SignRendererMixin {
             method = "render(Lnet/minecraft/world/level/block/entity/SignBlockEntity;FLcom/mojang/blaze3d/vertex/PoseStack;Lnet/minecraft/client/renderer/MultiBufferSource;II)V",
             at = @At(
                     value = "INVOKE",
-                    target = "Lnet/minecraft/client/renderer/blockentity/SignRenderer;getDarkColor(Lnet/minecraft/world/level/block/entity/SignBlockEntity;)I",
-                    shift = At.Shift.BEFORE),
+                    target = "Lcom/mojang/blaze3d/vertex/PoseStack;scale(FFF)V",
+                    ordinal = 1,
+                    shift = At.Shift.AFTER),
             require = 1)
     private void simple_translate$scaleTranslatedText(SignBlockEntity sign, float partialTick, PoseStack poseStack,
             MultiBufferSource buffer, int packedLight, int packedOverlay, CallbackInfo ci) {

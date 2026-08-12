@@ -1,4 +1,4 @@
-# SimpleTranslate 2.1.28
+# SimpleTranslate 2.1.29
 
 **语言 / Language:** [中文](#中文) | [English](#english)
 
@@ -95,7 +95,7 @@ SimpleTranslate 不内置免费翻译引擎、模型或 API 额度。请自行�
 
 - [GitHub Releases](https://github.com/baokaixina/SimpleTranslate/releases)
 - [MC百科](https://www.mcmod.cn/class/23154.html)
-- [2.1.28 累计更新日志](CHANGELOG.md)
+- [更新日志](CHANGELOG.md)
 - [MIT 许可证](LICENSE)
 
 ---
@@ -147,5 +147,5 @@ SimpleTranslate does not bundle a free translation engine, hosted model, or API 
 
 - [GitHub Releases](https://github.com/baokaixina/SimpleTranslate/releases)
 - [MC百科](https://www.mcmod.cn/class/23154.html)
-- [Cumulative 2.1.28 changelog](CHANGELOG.md)
+- [Changelog](CHANGELOG.md)
 - [MIT License](LICENSE)

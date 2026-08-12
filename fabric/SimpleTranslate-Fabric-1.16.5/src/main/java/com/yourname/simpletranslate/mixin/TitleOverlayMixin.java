@@ -177,18 +177,41 @@ public abstract class TitleOverlayMixin implements HoldOriginalAware, BlacklistR
     }
 
     /**
-     * Title, subtitle and actionbar text are drawn inline by Gui.render on
-     * 1.19.4. A verified actionbar layout plan draws its fixed-anchor spans
-     * instead of the vanilla string (the native backdrop keeps the source
-     * width via the width wrap above); every other call stays vanilla and is
-     * kept outside the whole-HUD K frame.
+     * Title, subtitle and actionbar text are drawn inline by Gui.render. On
+     * exact 1.16.5 (javap -c against the loom-mapped Gui) render() contains
+     * exactly two Font#drawShadow(PoseStack,Component,FFI)I calls (title +
+     * subtitle) and one Font#draw(PoseStack,Component,FFI)I call (the actionbar
+     * draws without shadow on this version), so both descriptors are wrapped
+     * and share one body. The donor-copied single drawShadow wrap with
+     * require = 3 could never match. A verified actionbar layout plan draws its
+     * fixed-anchor spans instead of the vanilla string (the native backdrop
+     * keeps the source width via the width wrap above); every other call stays
+     * vanilla and is kept outside the whole-HUD K frame.
      */
     @WrapOperation(
             method = "render(Lcom/mojang/blaze3d/vertex/PoseStack;F)V",
             at = @At(value = "INVOKE", target = "Lnet/minecraft/client/gui/Font;drawShadow(Lcom/mojang/blaze3d/vertex/PoseStack;Lnet/minecraft/network/chat/Component;FFI)I"),
-            require = 3
+            require = 2
+    )
+    private int simple_translate$renderDedicatedHudTextShadowed(
+            Font font, PoseStack poseStack, Component rendered, float x, float y, int color,
+            Operation<Integer> original) {
+        return simple_translate$renderHudText(font, poseStack, rendered, x, y, color, original);
+    }
+
+    @WrapOperation(
+            method = "render(Lcom/mojang/blaze3d/vertex/PoseStack;F)V",
+            at = @At(value = "INVOKE", target = "Lnet/minecraft/client/gui/Font;draw(Lcom/mojang/blaze3d/vertex/PoseStack;Lnet/minecraft/network/chat/Component;FFI)I"),
+            require = 1
     )
     private int simple_translate$renderDedicatedHudText(
+            Font font, PoseStack poseStack, Component rendered, float x, float y, int color,
+            Operation<Integer> original) {
+        return simple_translate$renderHudText(font, poseStack, rendered, x, y, color, original);
+    }
+
+    @Unique
+    private int simple_translate$renderHudText(
             Font font, PoseStack poseStack, Component rendered, float x, float y, int color,
             Operation<Integer> original) {
         Component source = simple_translate$hud.layoutActionbarSource(rendered);

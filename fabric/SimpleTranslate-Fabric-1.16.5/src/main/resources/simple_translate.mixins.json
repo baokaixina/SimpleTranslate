@@ -13,7 +13,6 @@
         "ScreenGuiTranslationMixin",
         "compat.FtbScreenWrapperTranslationMixin",
         "compat.FtbTextFieldTranslationMixin",
-        "ClientTextTooltipAccessor",
         "GuiGraphicsTranslationMixin",
         "FontDrawTranslationMixin",
         "AbstractWidgetTranslationMixin",
