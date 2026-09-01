@@ -38,3 +38,7 @@ neoforge-*-installer.jar.log
 /*/SimpleTranslate-*/runclient-check.args
 /*/SimpleTranslate-*/runclient-check-screenshot-*.png
 /*/SimpleTranslate-*/_baseline_java_list.txt
+
+# Local publishing session state (contains mcmod.cn site cookies - never commit)
+/release-assets/mcmod-state.json
+/release-assets/modfile-main.js
