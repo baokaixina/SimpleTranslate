@@ -27,32 +27,37 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 @Mixin(AbstractSignRenderer.class)
 public class SignRendererMixin {
 
+    // Verified against the official 26.2 client jar (javap -p -s):
+    //   private void submitSignText(S, PoseStack, SubmitNodeCollector, SignText)
+    //   descriptor: (Lnet/minecraft/client/renderer/blockentity/state/SignRenderState;Lcom/mojang/blaze3d/vertex/PoseStack;Lnet/minecraft/client/renderer/SubmitNodeCollector;Lnet/minecraft/world/level/block/entity/SignText;)V
+    // The pre-26.x "boolean front" parameter is gone; submit() now passes
+    // renderState.frontText / renderState.backText directly, so front/back is
+    // derived by identity against renderState.frontText.
     @Inject(
-            method = "submitSignText(Lnet/minecraft/client/renderer/blockentity/state/SignRenderState;Lcom/mojang/blaze3d/vertex/PoseStack;Lnet/minecraft/client/renderer/SubmitNodeCollector;Z)V",
+            method = "submitSignText(Lnet/minecraft/client/renderer/blockentity/state/SignRenderState;Lcom/mojang/blaze3d/vertex/PoseStack;Lnet/minecraft/client/renderer/SubmitNodeCollector;Lnet/minecraft/world/level/block/entity/SignText;)V",
             at = @At("HEAD"),
             require = 0)
     private void simple_translate$onSubmitSignText(SignRenderState renderState, PoseStack poseStack,
-            SubmitNodeCollector collector, boolean front, CallbackInfo ci) {
+            SubmitNodeCollector collector, SignText signText, CallbackInfo ci) {
         MixinRuntimeProbe.matched("SignRendererMixin#submitSignText");
-        SignText signText = front ? renderState.frontText : renderState.backText;
+        boolean front = signText == renderState.frontText;
         simple_translate$registerRenderedText(
                 renderState.blockPos, signText, front, renderState.maxTextLineWidth);
     }
 
     @Inject(
-            method = "submitSignText(Lnet/minecraft/client/renderer/blockentity/state/SignRenderState;Lcom/mojang/blaze3d/vertex/PoseStack;Lnet/minecraft/client/renderer/SubmitNodeCollector;Z)V",
+            method = "submitSignText(Lnet/minecraft/client/renderer/blockentity/state/SignRenderState;Lcom/mojang/blaze3d/vertex/PoseStack;Lnet/minecraft/client/renderer/SubmitNodeCollector;Lnet/minecraft/world/level/block/entity/SignText;)V",
             at = @At(
                     value = "INVOKE",
                     target = "Lnet/minecraft/client/renderer/blockentity/AbstractSignRenderer;getDarkColor(Lnet/minecraft/world/level/block/entity/SignText;)I",
                     shift = At.Shift.BEFORE),
             require = 0)
     private void simple_translate$scaleTranslatedText(SignRenderState renderState, PoseStack poseStack,
-            SubmitNodeCollector collector, boolean front, CallbackInfo ci) {
+            SubmitNodeCollector collector, SignText signText, CallbackInfo ci) {
         if (!ModConfig.CONTENT_SIGN_ENABLED.get()
                 || HoldOriginalState.isHolding(HoldOriginalFeature.SIGN)) {
             return;
         }
-        SignText signText = front ? renderState.frontText : renderState.backText;
         SignTranslationHelper.SignTextIdentityData data = SignTranslationHelper.getSignTextData(signText);
         if (data == null || data.isTranslating || data.renderLines == null) {
             return;

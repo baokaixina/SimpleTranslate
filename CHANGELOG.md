@@ -1,5 +1,16 @@
 # Changelog
 
+## [2.1.30] - 2026-09-02
+
+Sign translation hotfix for the Fabric 26.x builds.
+
+Fabric 26.x 构建的告示牌翻译热修。
+
+### Fixed / 修复
+
+- Fabric 26.1 / 26.1.1 / 26.1.2 / 26.2 signs render translations again: on those versions `AbstractSignRenderer.submitSignText` takes a `SignText` argument instead of the old `boolean front`, so both sign injections silently never applied (`require = 0`).
+- Fabric 26.1 / 26.1.1 / 26.1.2 / 26.2 的告示牌重新显示翻译：这些版本的 `AbstractSignRenderer.submitSignText` 参数由 `boolean front` 改为 `SignText`，两个告示牌注入点因此被静默跳过（`require = 0`）。
+
 ## [2.1.29] - 2026-08-13
 
 Compatibility hotfix for Minecraft versions below 1.20.1, plus tighter per-build game-version bounds.
