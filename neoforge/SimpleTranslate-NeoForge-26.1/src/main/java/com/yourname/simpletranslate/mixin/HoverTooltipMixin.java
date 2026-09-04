@@ -238,6 +238,38 @@ public class HoverTooltipMixin {
     private void simple_translate$renderItemTooltipFrame(
             Font font, List<ClientTooltipComponent> components, int mouseX, int mouseY,
             ClientTooltipPositioner positioner, Identifier texture, Operation<Void> original) {
+        int state = simple_translate$openItemTooltipFrame(components);
+        try {
+            original.call(font, components, mouseX, mouseY, positioner, texture);
+        } finally {
+            simple_translate$closeItemTooltipFrame(state);
+        }
+    }
+
+    /**
+     * NeoForge adds its own overload so it can fire RenderTooltipEvent with the
+     * stack, the deferred tooltip calls that overload, and it does not delegate
+     * to the vanilla one. Without this wrapper no item-tooltip frame is ever
+     * opened on NeoForge: the vanilla method still exists, so require = 1 stays
+     * satisfied and nothing reports a problem, but nothing calls it either.
+     */
+    @WrapMethod(
+            method = "tooltip(Lnet/minecraft/client/gui/Font;Ljava/util/List;IILnet/minecraft/client/gui/screens/inventory/tooltip/ClientTooltipPositioner;Lnet/minecraft/resources/Identifier;Lnet/minecraft/world/item/ItemStack;)V",
+            require = 1)
+    private void simple_translate$renderItemTooltipFrameWithStack(
+            Font font, List<ClientTooltipComponent> components, int mouseX, int mouseY,
+            ClientTooltipPositioner positioner, Identifier texture, ItemStack stack, Operation<Void> original) {
+        int state = simple_translate$openItemTooltipFrame(components);
+        try {
+            original.call(font, components, mouseX, mouseY, positioner, texture, stack);
+        } finally {
+            simple_translate$closeItemTooltipFrame(state);
+        }
+    }
+
+    /** Bit 0: a dedicated item-tooltip frame is open. Bit 1: capture is suppressed. */
+    @Unique
+    private int simple_translate$openItemTooltipFrame(List<ClientTooltipComponent> components) {
         boolean itemSubmission = simple_translate$pendingItemSubmission;
         String frameKey = simple_translate$pendingItemFrameKey;
         boolean request = simple_translate$pendingItemFrameRequest;
@@ -276,15 +308,16 @@ public class HoverTooltipMixin {
         TooltipTranslationController.armPendingGlowIf(
                 itemSubmission && itemFrameStarted && !hasSnapshot && (request || pending));
         simple_translate$clearPendingItemFrame();
-        try {
-            original.call(font, components, mouseX, mouseY, positioner, texture);
-        } finally {
-            if (itemFrameStarted) {
-                GuiTranslationHelper.endDetachedFrame((GuiGraphicsExtractor) (Object) this);
-            }
-            if (itemFrameSuppressed) {
-                GuiTranslationHelper.endCaptureSuppression();
-            }
+        return (itemFrameStarted ? 1 : 0) | (itemFrameSuppressed ? 2 : 0);
+    }
+
+    @Unique
+    private void simple_translate$closeItemTooltipFrame(int state) {
+        if ((state & 1) != 0) {
+            GuiTranslationHelper.endDetachedFrame((GuiGraphicsExtractor) (Object) this);
+        }
+        if ((state & 2) != 0) {
+            GuiTranslationHelper.endCaptureSuppression();
         }
     }
 

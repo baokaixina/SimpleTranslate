@@ -1,5 +1,18 @@
 # Changelog
 
+## [2.2.1] - 2026-09-04
+
+Item-tooltip translation fix for ten NeoForge builds.
+
+十个 NeoForge 构建的物品 Tooltip 翻译修复。
+
+### Fixed / 修复
+
+- Item tooltips are translated again on NeoForge 1.21.6–1.21.11, 26.1, 26.1.1, 26.1.2 and 26.2. NeoForge adds its own tooltip render overload that also takes the `ItemStack` so it can fire `RenderTooltipEvent`, the deferred tooltip runnable calls that overload, and it does not delegate to the vanilla one. The mod only wrapped the vanilla signature, which still exists — so `require = 1` stayed satisfied, no injection error was logged, and the dedicated item-tooltip frame was simply never opened. Whole-screen GUI translation still covered the same text, which is why the gap was easy to miss.
+- NeoForge 1.21.6–1.21.11、26.1、26.1.1、26.1.2 和 26.2 的物品 Tooltip 重新可以翻译。NeoForge 额外添加了一个带 `ItemStack` 的 Tooltip 渲染重载以触发 `RenderTooltipEvent`，延迟渲染调用的正是该重载，且它不会转调原版方法。模组此前只包裹了原版签名，而原版方法依然存在，因此 `require = 1` 始终满足、日志没有任何注入错误，物品 Tooltip 专用帧却从未打开。整屏 GUI 翻译仍会覆盖同一段文本，这也是该问题不易被发现的原因。
+- Unaffected: every Fabric and Forge build, and NeoForge 1.20.1–1.21.5, where NeoForge patches `renderTooltipInternal` in place instead of adding an overload.
+- 不受影响：全部 Fabric 与 Forge 构建，以及 NeoForge 1.20.1–1.21.5 —— 这些版本 NeoForge 是就地修改 `renderTooltipInternal`，而非新增重载。
+
 ## [2.2] - 2026-09-04
 
 All 56 builds now share the version number `2.2`; previous releases were split across 2.1.28, 2.1.29, and 2.1.30 depending on the target.
