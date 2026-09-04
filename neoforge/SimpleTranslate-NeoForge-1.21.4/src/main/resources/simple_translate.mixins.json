@@ -14,6 +14,7 @@
         "compat.WynntilsOverlayManagerMixin",
         "compat.FtbScreenWrapperTranslationMixin",
         "compat.FtbTextFieldTranslationMixin",
+        "compat.ScholarBookScreenMixin",
         "ClientTextTooltipAccessor",
         "GuiGraphicsTranslationMixin",
         "AbstractWidgetTranslationMixin",

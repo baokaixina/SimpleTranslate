@@ -1,6 +1,7 @@
 package com.yourname.simpletranslate.feature.book;
 
 import com.yourname.simpletranslate.config.ModConfig;
+import com.yourname.simpletranslate.feature.gui.GuiTranslationHelper;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.network.chat.Component;
@@ -15,7 +16,22 @@ public final class BookBookmarkControl {
     private BookBookmarkControl() {
     }
 
-    public static void render(GuiGraphics graphics, Font font, int screenWidth, int mouseX, int mouseY,
+        /**
+     * The bookmark is the mod's own control, so the whole-frame capture must
+     * not read its label back and send it to the model. Book screens now take
+     * part in that capture, which puts this control inside it.
+     */
+public static void render(GuiGraphics graphics, Font font, int screenWidth, int mouseX, int mouseY,
+                              boolean active, boolean translating) {
+        GuiTranslationHelper.beginCaptureSuppression();
+        try {
+            drawControl(graphics, font, screenWidth, mouseX, mouseY, active, translating);
+        } finally {
+            GuiTranslationHelper.endCaptureSuppression();
+        }
+    }
+
+    private static void drawControl(GuiGraphics graphics, Font font, int screenWidth, int mouseX, int mouseY,
                               boolean active, boolean translating) {
         int x = getX(screenWidth);
         int y = getY();

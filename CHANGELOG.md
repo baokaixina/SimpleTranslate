@@ -1,5 +1,31 @@
 # Changelog
 
+## [2.2] - 2026-09-04
+
+All 56 builds now share the version number `2.2`; previous releases were split across 2.1.28, 2.1.29, and 2.1.30 depending on the target.
+
+全部 56 个构建统一为版本号 `2.2`；此前各目标分散在 2.1.28、2.1.29 和 2.1.30。
+
+### Fixed / 修复
+
+- The GUI shortcut translates the current screen once. An accepted translation previously granted standing permission for further requests, so SHORTCUT mode kept issuing new model requests while the screen stayed open, behaving like AUTO.
+- GUI 快捷键现在只翻译当前界面一次。此前一次被接受的翻译会成为后续请求的长期许可，导致 SHORTCUT 模式在界面打开期间持续发出新的模型请求，表现等同于 AUTO。
+- Pressing the GUI shortcut inside a screen no longer leaves in-world HUD translation armed after the screen closes.
+- 在界面内按下 GUI 快捷键后，关闭界面不再让世界内 HUD 翻译保持开启。
+- Translations that would exceed Minecraft's 256-character chat/command limit are reported instead of sent.
+- 译文超过 Minecraft 的 256 字符聊天/命令上限时会提示，而不再发送。
+
+### Added / 新增
+
+- Scholar written books and book-and-quill screens can be translated, with a translate tab on the outer edge of the book. On the edit screen the translation is render-only, so page data, the modified flag, and the save/export paths keep the original text. Editing, adding or removing a page, or opening a different book drops the translation. The integration is reflection-only and gated by the mixin config plugin; Scholar is optional. Included on 27 builds (Fabric and NeoForge 1.20.1, 1.21, 1.21.1, 1.21.4, 1.21.5, 1.21.8–1.21.11, 26.1, 26.1.1, 26.1.2, 26.2, plus Forge 1.20.1).
+- 可翻译 Scholar 的成书与书与笔界面，翻译标签位于书页外缘。编辑界面的译文仅用于渲染，页面数据、修改标记和保存/导出路径保留原文；编辑、增删页面或打开另一本书都会丢弃译文。该集成完全基于反射并由 mixin 配置插件按需启用，Scholar 为可选依赖。包含在 27 个构建中（Fabric 与 NeoForge 的 1.20.1、1.21、1.21.1、1.21.4、1.21.5、1.21.8–1.21.11、26.1、26.1.1、26.1.2、26.2，以及 Forge 1.20.1）。
+- Outgoing slash commands can be translated with `Ctrl+Enter`. Only human-readable parts are replaced; command names, target selectors, coordinates, namespaced ids, JSON/SNBT keys, translation keys, and urls are left intact. Vanilla free-text commands translate their message tail, other commands translate quoted literals including ones nested in SNBT. Available on all builds except Fabric 1.12.2 and Forge 1.12.2.
+- 发出的斜杠命令可用 `Ctrl+Enter` 翻译，只替换人类可读部分；命令名、目标选择器、坐标、命名空间 ID、JSON/SNBT 键名、翻译键和 URL 保持原样。原版自由文本命令翻译其消息部分，其他命令翻译引号字符串（含嵌套在 SNBT 内的）。除 Fabric 1.12.2 和 Forge 1.12.2 外的所有构建可用。
+- Added a **Server Chat Commands** setting listing server channel commands to treat as free text, defaulting to `pc gc tc ac r bc broadcast shout global local`. Append `:n` to skip leading arguments, as in `party:1` for `/party chat <text>`. User entries take priority over the built-in vanilla table.
+- 新增**服务器聊天命令**设置项，列出按自由文本处理的服务器频道命令，默认 `pc gc tc ac r bc broadcast shout global local`；加 `:n` 表示先跳过若干参数，如 `party:1` 对应 `/party chat <文本>`。用户条目优先于内置的原版命令表。
+- Vanilla and Scholar book screens now participate in whole-screen GUI translation for their surrounding buttons and labels. Page bodies stay owned by the book's own translation control, so the same text is not requested twice.
+- 原版和 Scholar 的书籍界面现在参与整屏 GUI 翻译，覆盖书页周围的按钮与标签；正文仍由书籍自身的翻译控件负责，同一段文本不会被重复请求。
+
 ## [2.1.30] - 2026-09-02
 
 Sign translation hotfix for the Fabric 26.x builds.

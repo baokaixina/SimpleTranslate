@@ -16,6 +16,7 @@
         "compat.FtbTextFieldTranslationMixin",
         "compat.BetterAdvancementsWidgetTranslationMixin",
         "compat.AdvancementPlaqueTranslationMixin",
+        "compat.ScholarBookScreenMixin",
         "ClientTextTooltipAccessor",
         "GuiGraphicsTranslationMixin",
         "AbstractWidgetTranslationMixin",

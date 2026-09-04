@@ -1,6 +1,7 @@
 package com.yourname.simpletranslate.feature.book;
 
 import com.yourname.simpletranslate.config.ModConfig;
+import com.yourname.simpletranslate.feature.gui.GuiTranslationHelper;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.network.chat.Component;
@@ -11,16 +12,65 @@ public final class BookBookmarkControl {
     private static final int BOOK_TOP = 2;
     private static final int WIDTH = 14;
     private static final int HEIGHT = 20;
+    /** Clears the page border so the tab reads as sticking out of the book. */
+    private static final int EDGE_TAB_GAP = 2;
 
     private BookBookmarkControl() {
     }
 
     public static void render(GuiGraphicsExtractor graphics, Font font, int screenWidth, int mouseX, int mouseY,
                               boolean active, boolean translating) {
-        int x = getX(screenWidth);
-        int y = getY();
-        boolean hovered = isMouseOver(screenWidth, mouseX, mouseY);
+        draw(graphics, font, getX(screenWidth), getY(), screenWidth, mouseX, mouseY,
+                isMouseOver(screenWidth, mouseX, mouseY), active, translating);
+    }
 
+    /**
+     * Draws the bookmark as a tab on the outer edge of a third-party book.
+     *
+     * <p>The vanilla book is one page with a wide margin, so the configured
+     * offset lands the bookmark on empty parchment. A double-page book has no
+     * such margin: the same relative position sits on top of the text. Hanging
+     * the tab off the right edge keeps the page clear at any page size, and it
+     * is where a reader expects a bookmark to stick out anyway. Scholar also
+     * puts its own export button in that column.</p>
+     *
+     * <p>Only the vertical position stays adjustable, mapped from the
+     * configured offset into the part of the edge below whatever tool buttons
+     * the host book owns. The offset itself is never rewritten, so a vanilla
+     * book keeps the exact spot the player chose.</p>
+     */
+    public static void renderEdgeTab(GuiGraphicsExtractor graphics, Font font, int screenWidth, int screenHeight,
+                                     int bookWidth, int bookHeight, int reservedTop,
+                                     int mouseX, int mouseY, boolean active, boolean translating) {
+        draw(graphics, font,
+                getEdgeTabX(screenWidth, bookWidth),
+                getEdgeTabY(screenHeight, bookHeight, reservedTop),
+                screenWidth, mouseX, mouseY,
+                isMouseOverEdgeTab(screenWidth, screenHeight, bookWidth, bookHeight, reservedTop,
+                        mouseX, mouseY),
+                active, translating);
+    }
+
+    /**
+     * The bookmark is the mod's own control, so the whole-frame capture must
+     * not read its label back and send it to the model. Book screens now take
+     * part in that capture, which puts this control inside it.
+     */
+    private static void draw(GuiGraphicsExtractor graphics, Font font, int x, int y, int screenWidth,
+                             int mouseX, int mouseY, boolean hovered,
+                             boolean active, boolean translating) {
+        GuiTranslationHelper.beginCaptureSuppression();
+        try {
+            drawControl(graphics, font, x, y, screenWidth, mouseX, mouseY, hovered,
+                    active, translating);
+        } finally {
+            GuiTranslationHelper.endCaptureSuppression();
+        }
+    }
+
+    private static void drawControl(GuiGraphicsExtractor graphics, Font font, int x, int y, int screenWidth,
+                                    int mouseX, int mouseY, boolean hovered,
+                                    boolean active, boolean translating) {
         int fill = translating ? 0xFF5F7FB8 : (active ? 0xFF5E9B62 : 0xFFD2A24A);
         if (hovered) {
             fill = translating ? 0xFF7694CC : (active ? 0xFF74B678 : 0xFFE1B45D);
@@ -59,9 +109,42 @@ public final class BookBookmarkControl {
     }
 
     public static boolean isMouseOver(int screenWidth, double mouseX, double mouseY) {
-        int x = getX(screenWidth);
-        int y = getY();
+        return contains(getX(screenWidth), getY(), mouseX, mouseY);
+    }
+
+    public static boolean isMouseOverEdgeTab(int screenWidth, int screenHeight,
+                                             int bookWidth, int bookHeight, int reservedTop,
+                                             double mouseX, double mouseY) {
+        return contains(getEdgeTabX(screenWidth, bookWidth),
+                getEdgeTabY(screenHeight, bookHeight, reservedTop), mouseX, mouseY);
+    }
+
+    private static boolean contains(int x, int y, double mouseX, double mouseY) {
         return mouseX >= x && mouseX < x + WIDTH && mouseY >= y && mouseY < y + HEIGHT;
+    }
+
+    /**
+     * Just past the book's right edge, but never off screen: at a large GUI
+     * scale the book can reach within a few pixels of the window, and a tab the
+     * player cannot click is worse than one that overlaps the binding.
+     */
+    private static int getEdgeTabX(int screenWidth, int bookWidth) {
+        int outside = (screenWidth + bookWidth) / 2 + EDGE_TAB_GAP;
+        return Math.max(0, Math.min(outside, screenWidth - WIDTH - EDGE_TAB_GAP));
+    }
+
+    private static int getEdgeTabY(int screenHeight, int bookHeight, int reservedTop) {
+        int top = Math.max(0, reservedTop);
+        int bottom = Math.max(top, bookHeight - HEIGHT);
+        return (screenHeight - bookHeight) / 2
+                + top + scale(getOffsetY(), BOOK_HEIGHT - HEIGHT, bottom - top);
+    }
+
+    private static int scale(int offset, int vanillaRange, int range) {
+        if (vanillaRange <= 0 || range <= 0) {
+            return 0;
+        }
+        return Math.max(0, Math.min(range, Math.round(offset * (float) range / vanillaRange)));
     }
 
     private static int getX(int screenWidth) {

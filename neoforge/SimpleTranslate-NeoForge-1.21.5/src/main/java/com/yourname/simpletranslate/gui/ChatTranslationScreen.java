@@ -25,6 +25,7 @@ public class ChatTranslationScreen extends ScrollableSettingsScreen {
     private CycleButton<Integer> contextCountButton;
     private CycleButton<ModConfig.TooltipTriggerMode> hoverTriggerModeButton;
     private EditBox outgoingServerLanguageCustomInput;
+    private EditBox outgoingChatCommandsInput;
 
     private boolean chatEnabled;
     private ModConfig.TranslationMode currentMode;
@@ -35,6 +36,7 @@ public class ChatTranslationScreen extends ScrollableSettingsScreen {
     private boolean outgoingEnabled;
     private String outgoingServerLanguagePreset;
     private String outgoingServerLanguageCustom;
+    private String outgoingChatCommands;
 
     public ChatTranslationScreen(Screen parent) {
         super(Component.translatable("screen.simple_translate.chat_translation"), parent);
@@ -59,6 +61,7 @@ public class ChatTranslationScreen extends ScrollableSettingsScreen {
         this.outgoingServerLanguageCustom = CUSTOM.equals(this.outgoingServerLanguagePreset)
                 ? outgoingServerLanguage
                 : "";
+        this.outgoingChatCommands = ModConfig.CHAT_OUTGOING_CHAT_COMMANDS.get();
     }
 
     @Override
@@ -146,6 +149,16 @@ public class ChatTranslationScreen extends ScrollableSettingsScreen {
                 "screen.simple_translate.chat.outgoing_server_language_custom.tooltip");
         addEntry(this.outgoingServerLanguageCustomInput);
 
+        this.outgoingChatCommandsInput = new EditBox(this.font, 0, 0, contentWidth, 20,
+                Component.translatable("screen.simple_translate.chat.outgoing_chat_commands"));
+        this.outgoingChatCommandsInput.setMaxLength(256);
+        this.outgoingChatCommandsInput.setValue(this.outgoingChatCommands);
+        this.outgoingChatCommandsInput.setHint(
+                Component.translatable("screen.simple_translate.chat.outgoing_chat_commands.hint"));
+        withTooltip(this.outgoingChatCommandsInput,
+                "screen.simple_translate.chat.outgoing_chat_commands.tooltip");
+        addEntry(this.outgoingChatCommandsInput);
+
         addSectionHeader(text("screen.simple_translate.chat.section.hover"));
 
         CycleButton<Boolean> hoverEnabledToggle = CycleButton.onOffBuilder(hoverEnabled)
@@ -197,6 +210,10 @@ public class ChatTranslationScreen extends ScrollableSettingsScreen {
         if (this.hoverTriggerModeButton != null) {
             this.hoverTriggerModeButton.active = this.hoverTriggerModeButton.visible && this.hoverEnabled;
         }
+        if (this.outgoingChatCommandsInput != null) {
+            this.outgoingChatCommandsInput.active =
+                    this.outgoingChatCommandsInput.visible && outgoingEnabled;
+        }
         refreshOutgoingLanguageInput();
     }
 
@@ -225,6 +242,9 @@ public class ChatTranslationScreen extends ScrollableSettingsScreen {
         ModConfig.CHAT_OUTGOING_ENABLED.set(outgoingEnabled);
         String newOutgoingServerLanguage = effectiveOutgoingServerLanguage();
         ModConfig.CHAT_OUTGOING_SERVER_LANGUAGE.set(newOutgoingServerLanguage);
+        ModConfig.CHAT_OUTGOING_CHAT_COMMANDS.set(this.outgoingChatCommandsInput == null
+                ? this.outgoingChatCommands
+                : this.outgoingChatCommandsInput.getValue().trim());
         ModConfig.TOOLTIP_CHAT_HOVER_ENABLED.set(hoverEnabled);
         ModConfig.TOOLTIP_CHAT_HOVER_TRIGGER_MODE.set(this.hoverTriggerMode);
         if (previousMode != currentMode || previousContextEnabled != savedContextEnabled) {

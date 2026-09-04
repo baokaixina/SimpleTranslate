@@ -11,6 +11,7 @@ import java.util.Set;
 
 public class SimpleTranslateMixinPlugin implements IMixinConfigPlugin {
     private static final String FTB_LIBRARY_MOD_ID = "ftblibrary";
+    private static final String SCHOLAR_MOD_ID = "scholar";
     private static final String WYNNTILS_MOD_ID = "wynntils";
 
     @Override
@@ -32,6 +33,9 @@ public class SimpleTranslateMixinPlugin implements IMixinConfigPlugin {
         }
         if (mixinClassName.endsWith("WynntilsOverlayManagerMixin")) {
             return isModLoaded(WYNNTILS_MOD_ID);
+        }
+        if (mixinClassName.endsWith("ScholarBookScreenMixin")) {
+            return isModLoaded(SCHOLAR_MOD_ID);
         }
         return true;
     }

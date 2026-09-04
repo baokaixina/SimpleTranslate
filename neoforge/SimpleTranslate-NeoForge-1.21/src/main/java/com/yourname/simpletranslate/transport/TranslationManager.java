@@ -113,6 +113,60 @@ public final class TranslationManager {
                 });
     }
 
+    /**
+     * Translates several short strings in one request, keeping them in order.
+     * Resolves to {@code null} when any part of the batch fails, so callers
+     * never rebuild text from a partial result.
+     */
+    public CompletableFuture<List<String>> translateRawBatch(
+            List<String> texts, String surface, String role, String sourceLanguage, String targetLanguage) {
+        List<String> sources = texts == null ? List.of() : List.copyOf(texts);
+        if (sources.isEmpty()) {
+            return CompletableFuture.completedFuture(null);
+        }
+        for (String source : sources) {
+            if (source == null || source.isBlank()) {
+                return CompletableFuture.completedFuture(null);
+            }
+        }
+        if (!ModConfig.GLOBAL_ENABLED.get()) {
+            return CompletableFuture.completedFuture(null);
+        }
+
+        var blacklist = SimpleTranslateMod.getTranslationBlacklist();
+        if (blacklist != null) {
+            for (String source : sources) {
+                if (blacklist.isBlacklisted(source)) {
+                    return CompletableFuture.completedFuture(null);
+                }
+            }
+        }
+        if (!deepSeekService.isReady()) {
+            return CompletableFuture.completedFuture(null);
+        }
+
+        return DirectSurfaceTranslator.translateComponentsAsync(
+                        sources.stream().map(Component::literal)
+                                .collect(java.util.stream.Collectors.toList()),
+                        surface, role, false, "", sourceLanguage, targetLanguage)
+                .thenApply(result -> {
+                    if (result == null || !result.translated
+                            || result.components == null || result.components.size() != sources.size()) {
+                        return null;
+                    }
+                    java.util.List<String> translations = new java.util.ArrayList<>(sources.size());
+                    for (int i = 0; i < sources.size(); i++) {
+                        String translated = result.components.get(i).getString();
+                        if (translated == null || translated.isBlank()
+                                || (blacklist != null && blacklist.containsBlacklistedEntry(translated))) {
+                            return null;
+                        }
+                        translations.add(translated);
+                    }
+                    return translations;
+                });
+    }
+
     public CompletableFuture<String> translateComponentJson(String document, String surface) {
         return translateComponentJson(document, surface, 1);
     }

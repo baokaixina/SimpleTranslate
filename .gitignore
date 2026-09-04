@@ -23,6 +23,9 @@
 /*/SimpleTranslate-*/.classpath
 /*/SimpleTranslate-*/.project
 
+# Release staging: jars collected from every product build, plus their checksums
+/dist/
+
 # Generated artifacts
 *.log
 *.tmp

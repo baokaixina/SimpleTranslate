@@ -14,6 +14,7 @@ import com.yourname.simpletranslate.core.TranslationCacheKeys;
 import com.yourname.simpletranslate.core.TranslationTextDetector;
 import com.yourname.simpletranslate.keybind.HoldOriginalFeature;
 import com.yourname.simpletranslate.keybind.HoldOriginalState;
+import com.yourname.simpletranslate.feature.book.ScholarBookBridge;
 import com.yourname.simpletranslate.feature.tooltip.TooltipTranslationHelper;
 import com.yourname.simpletranslate.mixin.ScreenAccessor;
 import net.minecraft.client.Minecraft;
@@ -146,8 +147,10 @@ public final class GuiTranslationHelper {
                 ModConfig.CONTENT_GUI_MODE.get())) {
             return;
         }
-        pushFrame(new FrameCapture(screenKey, screen.getClass().getSimpleName(), previous, false,
-                requested, false));
+        FrameCapture screenFrame = new FrameCapture(screenKey, screen.getClass().getSimpleName(),
+                previous, false, requested, false);
+        screenFrame.capturesVisualText = !ownsItsOwnPageText(screen);
+        pushFrame(screenFrame);
         if (previous != null && screen instanceof DialogScreen<?>) {
             boolean needsLayout;
             long fontRevision = ActiveFontManager.resourceRevision();
@@ -529,8 +532,7 @@ public final class GuiTranslationHelper {
             }
         } else {
             boolean automatic = shouldAutomaticallyRequest(
-                    frame.hudFrame, frame.detached, frame.previous != null,
-                    ModConfig.CONTENT_GUI_MODE.get());
+                    frame.hudFrame, frame.detached, ModConfig.CONTENT_GUI_MODE.get());
             boolean retryReady = !frame.detached || autoRetryReady(signature);
             boolean framePending = isFrameTranslationPending(frame.screenKey);
             boolean requestReady = (requested && retryReady)
@@ -658,27 +660,36 @@ public final class GuiTranslationHelper {
     }
 
     /**
-     * K is the opt-in for an in-world HUD frame. The opt-in is persisted, and
-     * an accepted snapshot also keeps newly appearing overlay text automatic;
-     * reconnects and changing objectives therefore need no second K press.
+     * Authorizes a model request that no shortcut press asked for. An accepted
+     * snapshot is deliberately not that authorization. Screens and overlays
+     * redraw text that changes on its own (counters, timers, hovered rows,
+     * player names), so every such change produces one more unresolved source;
+     * treating an existing snapshot as standing permission therefore turns a
+     * single K press into an endless stream of requests. Continuous
+     * translation stays an explicit choice: GUI AUTO mode, or the persisted
+     * in-world HUD opt-in that K sets only when pressed with no screen open.
      */
     static boolean shouldAutomaticallyRequest(boolean hudFrame, boolean detached,
-                                              boolean hasPreviousSnapshot,
                                               ModConfig.GuiTranslationMode guiMode) {
         if (detached) {
             return false;
         }
         if (hudFrame) {
-            return hasPreviousSnapshot || ModConfig.CONTENT_HUD_FRAME_ACTIVE.get();
+            return ModConfig.CONTENT_HUD_FRAME_ACTIVE.get();
         }
-        return hasPreviousSnapshot || guiMode == ModConfig.GuiTranslationMode.AUTO;
+        return guiMode == ModConfig.GuiTranslationMode.AUTO;
     }
 
+    /**
+     * An existing snapshot still opens the frame without a second K press: its
+     * translations must keep replacing the rendered rows, and newly visible
+     * rows must still be able to hydrate from the cache, which costs nothing.
+     */
     static boolean shouldOpenScreenFrame(boolean manualRequest,
                                          boolean hasPreviousSnapshot,
                                          ModConfig.GuiTranslationMode guiMode) {
-        return manualRequest || shouldAutomaticallyRequest(
-                false, false, hasPreviousSnapshot, guiMode);
+        return manualRequest || hasPreviousSnapshot
+                || guiMode == ModConfig.GuiTranslationMode.AUTO;
     }
 
     static boolean shouldTranslateWynnOverlays(boolean globalEnabled, boolean overlayEnabled) {
@@ -878,7 +889,7 @@ public final class GuiTranslationHelper {
 
     public static Component translatePlainText(String text) {
         FrameCapture frame = activeFrame();
-        if (frame == null || CAPTURE_SUPPRESSION_DEPTH.get() > 0
+        if (frame == null || !frame.capturesVisualText || CAPTURE_SUPPRESSION_DEPTH.get() > 0
                 || text == null || text.isBlank() || frame.inputValues.contains(text)) {
             return Component.literal(text == null ? "" : text);
         }
@@ -886,7 +897,9 @@ public final class GuiTranslationHelper {
     }
 
     public static FormattedCharSequence translateFormattedSequence(FormattedCharSequence sequence) {
-        if (sequence == null || !isActive() || CAPTURE_SUPPRESSION_DEPTH.get() > 0) {
+        FrameCapture frame = activeFrame();
+        if (sequence == null || frame == null || !frame.capturesVisualText
+                || CAPTURE_SUPPRESSION_DEPTH.get() > 0) {
             return sequence;
         }
         return translateVisible(componentFromFormattedSequence(sequence)).getVisualOrderText();
@@ -1261,11 +1274,22 @@ public final class GuiTranslationHelper {
         boolean ftbScreen = className.startsWith("dev.ftb.") || className.startsWith("com.feed_the_beast.");
         return className.startsWith("com.yourname.simpletranslate.gui.")
                 || screen instanceof ChatScreen
-                || screen instanceof BookViewScreen
-                || screen instanceof BookEditScreen
                 || screen instanceof AdvancementsScreen
                 || (ftbScreen && (!ModConfig.MOD_TRANSLATION_ENABLED.get()
                 || !ModConfig.MOD_FTB_QUESTS_ENABLED.get()));
+    }
+
+    /**
+     * True for screens whose body text belongs to a dedicated translation
+     * surface. A book draws its pages one already wrapped visual line at a
+     * time, and the book bookmark translates those pages as whole documents, so
+     * the whole-frame capture must leave them alone. It still owns everything
+     * around them - buttons, labels, page chrome - which nothing else
+     * translates.
+     */
+    private static boolean ownsItsOwnPageText(Screen screen) {
+        return screen instanceof BookViewScreen || screen instanceof BookEditScreen
+                || ScholarBookBridge.isBookScreen(screen);
     }
 
     private static boolean shouldTranslate(Component component) {
@@ -1812,6 +1836,8 @@ public final class GuiTranslationHelper {
         private final boolean hudFrame;
         private final boolean manualRequest;
         private final boolean detached;
+        /** False while a dedicated surface owns the visual lines on this screen. */
+        private boolean capturesVisualText = true;
         private final LinkedHashMap<String, Component> sources = new LinkedHashMap<>();
         private final List<Component> contextOccurrences = new ArrayList<>();
         private final Set<String> reusedTranslationKeys = new LinkedHashSet<>();

@@ -10,6 +10,7 @@ import java.util.Set;
 
 public class SimpleTranslateMixinPlugin implements IMixinConfigPlugin {
     private static final String FTB_LIBRARY_MOD_ID = "ftblibrary";
+    private static final String SCHOLAR_MOD_ID = "scholar";
     private static final String BETTER_ADVANCEMENTS_MOD_ID = "betteradvancements";
     private static final String ADVANCEMENT_PLAQUES_MOD_ID = "advancementplaques";
 
@@ -35,6 +36,9 @@ public class SimpleTranslateMixinPlugin implements IMixinConfigPlugin {
         }
         if (mixinClassName.endsWith("AdvancementPlaqueTranslationMixin")) {
             return FabricLoader.getInstance().isModLoaded(ADVANCEMENT_PLAQUES_MOD_ID);
+        }
+        if (mixinClassName.endsWith("ScholarBookScreenMixin")) {
+            return FabricLoader.getInstance().isModLoaded(SCHOLAR_MOD_ID);
         }
         return true;
     }

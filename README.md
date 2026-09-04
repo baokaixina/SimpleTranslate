@@ -1,4 +1,4 @@
-# SimpleTranslate 2.1.29
+# SimpleTranslate 2.2
 
 **语言 / Language:** [中文](#中文) | [English](#english)
 

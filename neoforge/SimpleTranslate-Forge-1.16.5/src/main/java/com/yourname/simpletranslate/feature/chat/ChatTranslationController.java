@@ -151,9 +151,23 @@ public final class ChatTranslationController {
         }
 
         String normalized = normalizeOutgoingMessage(screen, rawMessage);
-        if (normalized.isBlank() || normalized.startsWith("/")) {
+        if (normalized.isBlank()) {
             return false;
         }
+
+        // A command keeps its own syntax: only the prose inside it is translated,
+        // so /tellraw @s "hello" still parses after the swap.
+        boolean command = OutgoingCommandText.isCommand(normalized);
+        List<OutgoingCommandText.Segment> commandSegments = command
+                ? OutgoingCommandText.findTranslatableSegments(normalized,
+                OutgoingCommandText.parseChatCommands(ModConfig.CHAT_OUTGOING_CHAT_COMMANDS.get()))
+                : Collections.emptyList();
+        if (command && commandSegments.isEmpty()) {
+            return false;
+        }
+        String detectionText = command
+                ? OutgoingCommandText.joinForDetection(commandSegments)
+                : normalized;
 
         Minecraft minecraft = Minecraft.getInstance();
         if (minecraft == null || minecraft.player == null) {
@@ -186,18 +200,21 @@ public final class ChatTranslationController {
             return false;
         }
 
-        String targetLanguage = chooseOutgoingTargetLanguage(normalized, localLanguage, serverLanguage);
-        if (!TranslationTextDetector.hasLanguageSignal(normalized, "auto")) {
+        String targetLanguage = chooseOutgoingTargetLanguage(detectionText, localLanguage, serverLanguage);
+        if (!TranslationTextDetector.hasLanguageSignal(detectionText, "auto")) {
             return false;
         }
 
+        List<String> sources = command
+                ? OutgoingCommandText.texts(commandSegments)
+                : List.of(normalized);
         long requestId = beginOutgoingRequest();
         showOutgoingStatus(minecraft, "message.simple_translate.chat_outgoing.translating",
                 TranslationTextDetector.displayLanguageName(targetLanguage));
         long runtimeRevision = SimpleTranslateMod.getRuntimeRevision();
-        CompletableFuture<String> future;
+        CompletableFuture<List<String>> future;
         try {
-            future = manager.translateRaw(normalized, OUTGOING_SURFACE, OUTGOING_ROLE, "auto", targetLanguage)
+            future = manager.translateRawBatch(sources, OUTGOING_SURFACE, OUTGOING_ROLE, "auto", targetLanguage)
                     .orTimeout(OUTGOING_PENDING_TIMEOUT_MS, TimeUnit.MILLISECONDS);
         } catch (Throwable throwable) {
             finishOutgoingRequest(requestId);
@@ -220,14 +237,21 @@ public final class ChatTranslationController {
                         showOutgoingStatus(minecraft, "message.simple_translate.chat_outgoing.changed");
                         return;
                     }
-                    if (error != null || translated == null || translated.isBlank()
-                            || translated.equals(normalized)) {
+                    String rebuilt = error != null ? null : rebuildOutgoingMessage(
+                            normalized, command, commandSegments, translated);
+                    if (rebuilt == null || rebuilt.isBlank() || rebuilt.equals(normalized)) {
                         markOutgoingFailure(minecraft, normalized);
                         return;
                     }
-                    String normalizedTranslation = normalizeOutgoingMessage(screen, translated);
+                    String normalizedTranslation = normalizeOutgoingMessage(screen, rebuilt);
                     if (normalizedTranslation.isBlank() || normalizedTranslation.equals(normalized)) {
                         markOutgoingFailure(minecraft, normalized);
+                        return;
+                    }
+                    if (normalizedTranslation.length() > OutgoingCommandText.MAX_MESSAGE_LENGTH) {
+                        rememberOutgoingStatusFailure(normalized);
+                        showOutgoingStatus(minecraft, "message.simple_translate.chat_outgoing.too_long",
+                                normalizedTranslation.length(), OutgoingCommandText.MAX_MESSAGE_LENGTH);
                         return;
                     }
                     lastFailedOutgoingMessage = "";
@@ -472,6 +496,19 @@ public final class ChatTranslationController {
         } catch (Throwable t) {
             SimpleTranslateMod.getLogger().error("Failed to refresh chat after blacklist change", t);
         }
+    }
+
+    /** Folds the translated parts back into the message, or {@code null} on any mismatch. */
+    private static String rebuildOutgoingMessage(String normalized, boolean command,
+                                                 List<OutgoingCommandText.Segment> segments,
+                                                 List<String> translations) {
+        if (translations == null) {
+            return null;
+        }
+        if (command) {
+            return OutgoingCommandText.rebuild(normalized, segments, translations);
+        }
+        return translations.size() == 1 ? translations.get(0) : null;
     }
 
     private static String normalizeOutgoingMessage(ChatScreen screen, String message) {

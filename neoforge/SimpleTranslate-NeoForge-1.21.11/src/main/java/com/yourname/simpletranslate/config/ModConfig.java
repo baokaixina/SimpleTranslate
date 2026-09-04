@@ -93,6 +93,12 @@ public class ModConfig {
     public static final IntValue CHAT_CONTEXT_MESSAGE_COUNT = intValue("chat.contextMessageCount", 6, 0, 20);
     public static final BooleanValue CHAT_OUTGOING_ENABLED = bool("chat.outgoingEnabled", false);
     public static final ConfigValue<String> CHAT_OUTGOING_SERVER_LANGUAGE = stringValue("chat.outgoingServerLanguage", "en");
+    /**
+     * Server chat-channel commands whose tail should be translated, e.g. "pc gc r".
+     * Append ":n" to skip n arguments first, as in "party:1" for /party chat &lt;text&gt;.
+     */
+    public static final ConfigValue<String> CHAT_OUTGOING_CHAT_COMMANDS =
+            stringValue("chat.outgoingChatCommands", "pc gc tc ac r bc broadcast shout global local");
     public static final BooleanValue TOOLTIP_ITEM_ENABLED = bool("tooltip.itemEnabled", true);
     public static final EnumValue<TooltipTriggerMode> TOOLTIP_ITEM_TRIGGER_MODE =
             enumValue("tooltip.itemTriggerMode", TooltipTriggerMode.HOVER, TooltipTriggerMode.class);

@@ -19,6 +19,7 @@ import com.yourname.simpletranslate.transport.TranslationManager;
 import com.yourname.simpletranslate.transport.TranslationRequestQueue;
 import com.yourname.simpletranslate.core.BlacklistRefreshAware;
 import com.yourname.simpletranslate.feature.book.BookTranslationHelper;
+import com.yourname.simpletranslate.feature.book.ScholarBookBridge;
 import com.yourname.simpletranslate.feature.hud.HudTranslationHistory;
 import com.yourname.simpletranslate.feature.hud.ScoreboardTranslationHelper;
 import com.yourname.simpletranslate.feature.gui.GuiTranslationHelper;
@@ -526,6 +527,7 @@ public final class SimpleTranslateClientBootstrap {
         TooltipTranslationTriggerState.clearShortcutRequest();
         TooltipTranslationHelper.clearPendingCache();
         BookTranslationHelper.clearCache();
+        ScholarBookBridge.clearLocalState();
         HudTranslationHistory.clear();
         ScoreboardTranslationHelper.clearLocalCache();
         GuiTranslationHelper.clearLocalState();
@@ -538,6 +540,7 @@ public final class SimpleTranslateClientBootstrap {
     private static synchronized void refreshCacheBackedRenderState(String reason) {
         TooltipTranslationHelper.clearPendingCache();
         BookTranslationHelper.clearCache();
+        ScholarBookBridge.clearLocalState();
         ScoreboardTranslationHelper.clearLocalCache();
         GuiTranslationHelper.clearLocalState();
         SignTranslationHelper.clearAllCache();

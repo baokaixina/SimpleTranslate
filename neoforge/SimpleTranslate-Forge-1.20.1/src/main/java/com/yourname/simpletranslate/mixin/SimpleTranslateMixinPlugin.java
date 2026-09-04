@@ -10,6 +10,7 @@ import java.util.Set;
 
 public class SimpleTranslateMixinPlugin implements IMixinConfigPlugin {
     private static final String FTB_LIBRARY_MOD_ID = "ftblibrary";
+    private static final String SCHOLAR_MOD_ID = "scholar";
 
     @Override
     public void onLoad(String mixinPackage) {
@@ -27,6 +28,9 @@ public class SimpleTranslateMixinPlugin implements IMixinConfigPlugin {
         }
         if (mixinClassName.endsWith("FtbTextFieldTranslationMixin")) {
             return isModLoaded(FTB_LIBRARY_MOD_ID);
+        }
+        if (mixinClassName.endsWith("ScholarBookScreenMixin")) {
+            return isModLoaded(SCHOLAR_MOD_ID);
         }
         return true;
     }
